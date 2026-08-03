@@ -1,0 +1,14 @@
+[package]
+name = "core-schema"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+core-domain = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }

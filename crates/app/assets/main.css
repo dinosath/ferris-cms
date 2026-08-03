@@ -1,0 +1,72 @@
+/* ferriscms admin UI — global stylesheet.
+   Mirrors the design tokens from the `ui` crate (crates/ui/src/design/tokens.rs). */
+
+:root {
+  --font-family: "Inter", system-ui, -apple-system, sans-serif;
+
+  --color-primary-100: #F0F0FF;
+  --color-primary-200: #D9D8FF;
+  --color-primary-300: #C9C7FF;
+  --color-primary-400: #9B96FF;
+  --color-primary-500: #7B79FF;
+  --color-primary-600: #4945FF;
+  --color-primary-700: #271FE0;
+  --color-primary-800: #1F15B0;
+  --color-primary-900: #15088F;
+
+  --color-neutral-0: #FFFFFF;
+  --color-neutral-50: #FAFAF9;
+  --color-neutral-100: #F6F6F9;
+  --color-neutral-150: #EAEAEF;
+  --color-neutral-200: #DCDCE4;
+  --color-neutral-300: #C0C0CF;
+  --color-neutral-400: #A5A5BA;
+  --color-neutral-500: #8E8EA9;
+  --color-neutral-600: #666687;
+  --color-neutral-700: #4A4A6A;
+  --color-neutral-800: #32324D;
+  --color-neutral-900: #212134;
+
+  --color-success-100: #EAFBE7;
+  --color-success-500: #31A856;
+  --color-success-600: #328048;
+  --color-success-700: #2F6846;
+
+  --color-warning-100: #FDF4DC;
+  --color-warning-500: #D19400;
+  --color-warning-600: #BE5D01;
+  --color-warning-700: #9B4C00;
+
+  --color-danger-100: #FCECEA;
+  --color-danger-500: #EE5E52;
+  --color-danger-600: #D02B20;
+  --color-danger-700: #B72B1A;
+
+  --color-secondary-100: #EAF5FF;
+  --color-secondary-600: #0C75AF;
+
+  --color-alternative-100: #F6ECFC;
+  --color-alternative-600: #9736E8;
+
+  --sidebar-width: 240px;
+  --top-bar-height: 56px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #main {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: var(--font-family);
+  color: var(--color-neutral-800);
+  background: var(--color-neutral-100);
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}

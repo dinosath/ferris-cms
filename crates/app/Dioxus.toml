@@ -1,0 +1,17 @@
+[application]
+# App name shown in the browser / window title
+name = "ferriscms"
+# Output for dx build --web (the wasm bundle)
+out_dir = "target/dx/ferriscms/debug/web"
+
+[web]
+# Base path served under; "/" for a standalone deploy
+base_path = "/"
+# Dev server port for `dx serve`
+port = 8080
+
+[web.watcher]
+reload_html = true
+
+[server]
+# The Axum backend is served separately; no Dioxus-Server fullstack.

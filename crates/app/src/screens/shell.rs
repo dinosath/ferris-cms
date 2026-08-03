@@ -1,0 +1,121 @@
+//! App shell — global sidebar + routed main content area (design doc §3).
+
+use dioxus::prelude::*;
+use ui::design::tokens::{SIDEBAR_WIDTH, color, typography};
+
+use crate::app::{Route, use_global};
+use crate::components::{Icon, NavItem};
+use crate::screens::{content_manager, content_type_builder, home};
+
+#[component]
+pub fn Shell() -> Element {
+    let global = use_global();
+    let route = global.route;
+
+    rsx! {
+        div { style: "display:flex; min-height:100vh;",
+            Sidebar {}
+            div { style: "flex:1; min-width:0;",
+                match route() {
+                    Route::Home => rsx! { home::Home {} },
+                    Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
+                    Route::ContentManager => rsx! { content_manager::ContentManager {} },
+                    Route::Media => rsx! { MediaPlaceholder {} },
+                    Route::Settings => rsx! { SettingsPlaceholder {} },
+                    _ => rsx! { home::Home {} },
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn Sidebar() -> Element {
+    let global = use_global();
+    let route = global.route;
+    let active = |r: Route| route() == r;
+    let mut g_cm = global.clone();
+    let mut g_ctb = global.clone();
+    let mut g_media = global.clone();
+    let mut g_settings = global.clone();
+    let mut g_logout = global.clone();
+
+    let sidebar_style = format!(
+        "width:{SIDEBAR_WIDTH}px; min-width:{SIDEBAR_WIDTH}px; background:{}; border-right:1px solid {}; display:flex; flex-direction:column; padding-top:16px;",
+        color::NEUTRAL_0,
+        color::NEUTRAL_150
+    );
+    let brand_style = format!(
+        "display:flex; align-items:center; gap:8px; padding:8px 16px; height:56px; border-bottom:1px solid {};",
+        color::NEUTRAL_150
+    );
+    let brand_text = format!("font-size:{}; font-weight:600; color:{};", typography::EPSILON_SIZE, color::NEUTRAL_900);
+    let nav_style = "padding:12px; display:flex; flex-direction:column; gap:4px;";
+    let section_label = format!("padding:4px 16px; font-size:{}; color:{};", typography::LABEL_SIZE, color::NEUTRAL_500);
+    let footer_style = format!(
+        "display:flex; align-items:center; gap:10px; padding:8px 16px; height:56px; border-top:1px solid {};",
+        color::NEUTRAL_150
+    );
+    let avatar_style = format!(
+        "width:32px;height:32px;border-radius:50%;background:{}; display:flex; align-items:center; justify-content:center; color:{}; font-size:{}; font-weight:600;",
+        color::PRIMARY_100, color::PRIMARY_600, typography::PI_SIZE
+    );
+    let user_style = format!("flex:1; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let logout_style = format!("background:none; border:none; color:{}; cursor:pointer; display:flex; align-items:center;", color::NEUTRAL_500);
+
+    rsx! {
+        aside { style: "{sidebar_style}",
+            div { style: "{brand_style}",
+                div { style: "width:28px;height:28px;border-radius:6px;background:{color::PRIMARY_600};" }
+                span { style: "{brand_text}", "ferriscms" }
+            }
+            div { style: "{nav_style}",
+                NavItem { label: "Content Manager".to_string(), icon: "stack".to_string(), active: active(Route::ContentManager), onclick: move |_| g_cm.route.set(Route::ContentManager) }
+                NavItem { label: "Content-Type Builder".to_string(), icon: "grid".to_string(), active: active(Route::ContentTypeBuilder), onclick: move |_| g_ctb.route.set(Route::ContentTypeBuilder) }
+                NavItem { label: "Media Library".to_string(), icon: "image".to_string(), active: active(Route::Media), onclick: move |_| g_media.route.set(Route::Media) }
+            }
+            div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
+            span { style: "{section_label}", "GENERAL" }
+            div { style: "padding:0 12px 12px; display:flex; flex-direction:column; gap:4px;",
+                NavItem { label: "Settings".to_string(), icon: "cog".to_string(), active: active(Route::Settings), onclick: move |_| g_settings.route.set(Route::Settings) }
+            }
+            div { style: "flex:1;" }
+            div { style: "{footer_style}",
+                div { style: "{avatar_style}", "AD" }
+                span { style: "{user_style}", "Admin" }
+                button {
+                    style: "{logout_style}",
+                    onclick: move |_| {
+                        g_logout.token.set(None);
+                        g_logout.route.set(Route::Login);
+                    },
+                    Icon { name: "external_link".to_string(), size: 18 }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn MediaPlaceholder() -> Element {
+    let title_style = format!("font-size:{}; font-weight:600; color:{}; border-bottom:1px solid {}; padding-bottom:16px;", typography::BETA_SIZE, color::NEUTRAL_900, color::NEUTRAL_150);
+    let body_style = format!("padding-top:32px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_600);
+    rsx! {
+        div { style: "padding:32px;",
+            div { style: "{title_style}", "Media Library" }
+            div { style: "{body_style}", "Asset management is coming soon." }
+        }
+    }
+}
+
+#[component]
+fn SettingsPlaceholder() -> Element {
+    let title_style = format!("font-size:{}; font-weight:600; color:{}; border-bottom:1px solid {}; padding-bottom:16px;", typography::BETA_SIZE, color::NEUTRAL_900, color::NEUTRAL_150);
+    let body_style = format!("padding-top:32px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_600);
+    rsx! {
+        div { style: "padding:32px;",
+            div { style: "{title_style}", "Settings" }
+            div { style: "{body_style}", "Roles, users, API tokens and i18n settings are coming soon." }
+        }
+    }
+}

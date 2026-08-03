@@ -1,0 +1,19 @@
+[package]
+name = "server-bin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "ferriscms-server"
+path = "src/main.rs"
+
+[dependencies]
+services = { workspace = true }
+api-rest = { workspace = true }
+db = { workspace = true }
+sea-orm-migration = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
