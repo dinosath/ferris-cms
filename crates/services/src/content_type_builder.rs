@@ -193,11 +193,13 @@ pub async fn ctb_apply(
     // 6. Rebuild schema cache.
     rebuild_cache(ctx).await?;
 
-    // 7. Register new content tables in SeaORM RBAC so users can access them.
+    // 7. Register new content tables in SeaORM RBAC so users can access them,
+    //    and grant granular per-content-type permissions to Editor/Author roles.
     for schema in &desired {
         if schema.kind != core_domain::ContentTypeKind::Component {
             let table = schema.table_name();
             let _ = crate::rbac::register_content_table(&ctx.db, &table).await;
+            let _ = crate::rbac::grant_content_permissions(&ctx.db, schema.uid.as_str()).await;
         }
     }
 

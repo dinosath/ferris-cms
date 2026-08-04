@@ -23,6 +23,27 @@ pub const ROLE_EDITOR: &str = "strapi-editor";
 pub const ROLE_AUTHOR: &str = "strapi-author";
 pub const ROLE_PUBLIC: &str = "strapi-public";
 
+/// Strapi-standard admin permission actions for the Content Manager.
+/// These mirror Strapi's `plugin::content-manager.explorer.*` action keys
+/// so the permission matrix matches the official admin panel.
+pub mod action {
+    pub const CREATE: &str = "plugin::content-manager.explorer.create";
+    pub const READ: &str = "plugin::content-manager.explorer.read";
+    pub const UPDATE: &str = "plugin::content-manager.explorer.update";
+    pub const DELETE: &str = "plugin::content-manager.explorer.delete";
+    pub const PUBLISH: &str = "plugin::content-manager.explorer.publish";
+
+    /// All content-explorer actions.
+    pub const ALL: &[&str] = &[CREATE, READ, UPDATE, DELETE, PUBLISH];
+    /// Actions a content Author may perform (their own content).
+    pub const AUTHOR: &[&str] = &[CREATE, READ, UPDATE];
+    /// Actions an Editor may perform (anyone's content, incl. publish).
+    pub const EDITOR: &[&str] = &[CREATE, READ, UPDATE, DELETE, PUBLISH];
+
+    /// Wildcard subject used by app-level "manage everything" grants.
+    pub const SUBJECT_WILDCARD: &str = "*";
+}
+
 /// Initialize the SeaORM RBAC engine: load rules from the database,
 /// define standard roles + permissions if not already present, and
 /// store the engine in the database connection.
@@ -285,9 +306,197 @@ pub fn app_role_to_rbac_role(code: &str) -> &'static str {
     }
 }
 
+/// Resolve an authenticated user's role ids from role codes.
+async fn resolve_role_ids(
+    db: &DatabaseConnection,
+    codes: &[String],
+) -> Result<Vec<i64>, ServiceError> {
+    use db::entities::admin_role;
+    use sea_orm::{EntityTrait, QueryFilter};
+
+    if codes.is_empty() {
+        return Ok(vec![]);
+    }
+    let roles = admin_role::Entity::find()
+        .filter(admin_role::COLUMN.code.is_in(codes.to_vec()))
+        .all(db)
+        .await?;
+    Ok(roles.into_iter().map(|r| r.id).collect())
+}
+
+/// Evaluate a granular, per-content-type permission for an authenticated user.
+///
+/// This is the app-level RBAC equivalent of Strapi's Content Manager
+/// permission matrix. Super Admins always pass; everyone else must hold a
+/// grant for `(action, subject)` on one of their roles, either directly on
+/// the content-type uid or via the `*` wildcard.
+pub async fn can_perform(
+    db: &DatabaseConnection,
+    user: &crate::CurrentUser,
+    action: &str,
+    subject: &str,
+) -> Result<bool, ServiceError> {
+    use db::entities::admin_permission;
+    use sea_orm::{EntityTrait, PaginatorTrait, QueryFilter};
+
+    // Super Admin bypasses the permission matrix (Strapi behavior).
+    if user.roles.iter().any(|r| r == ROLE_SUPER_ADMIN) {
+        return Ok(true);
+    }
+    if user.roles.is_empty() {
+        return Ok(false);
+    }
+
+    let role_ids = resolve_role_ids(db, &user.roles).await?;
+    if role_ids.is_empty() {
+        return Ok(false);
+    }
+
+    let exact = admin_permission::Entity::find()
+        .filter(admin_permission::COLUMN.role_id.is_in(role_ids.clone()))
+        .filter(admin_permission::COLUMN.action.eq(action))
+        .filter(admin_permission::COLUMN.subject.eq(Some(subject.to_string())))
+        .count(db)
+        .await?;
+    if exact > 0 {
+        return Ok(true);
+    }
+
+    let wild = admin_permission::Entity::find()
+        .filter(admin_permission::COLUMN.role_id.is_in(role_ids))
+        .filter(admin_permission::COLUMN.action.eq(action))
+        .filter(admin_permission::COLUMN.subject.eq(Some(action::SUBJECT_WILDCARD.to_string())))
+        .count(db)
+        .await?;
+    Ok(wild > 0)
+}
+
+/// Grant the standard per-content-type permissions for a freshly-created
+/// content-type: Editors get full CRUD + publish, Authors get create/read/update.
+/// Idempotent — any prior grants for the same uid are replaced.
+pub async fn grant_content_permissions(
+    db: &DatabaseConnection,
+    uid: &str,
+) -> Result<(), ServiceError> {
+    use db::entities::{admin_permission, admin_role};
+    use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set};
+
+    let roles = admin_role::Entity::find()
+        .filter(
+            admin_role::COLUMN
+                .code
+                .is_in(vec![ROLE_EDITOR.to_string(), ROLE_AUTHOR.to_string()]),
+        )
+        .all(db)
+        .await?;
+
+    let editor = roles.iter().find(|r| r.code == ROLE_EDITOR);
+    let author = roles.iter().find(|r| r.code == ROLE_AUTHOR);
+
+    // Clear prior grants for this content-type to keep the matrix in sync.
+    admin_permission::Entity::delete_many()
+        .filter(admin_permission::COLUMN.subject.eq(Some(uid.to_string())))
+        .exec(db)
+        .await?;
+
+    let now = chrono::Utc::now();
+    for (role, actions) in [(&editor, action::EDITOR), (&author, action::AUTHOR)] {
+        let Some(role) = role else { continue };
+        for act in actions {
+            let perm = admin_permission::ActiveModel {
+                role_id: Set(role.id),
+                action: Set(act.to_string()),
+                subject: Set(Some(uid.to_string())),
+                properties_json: Set(serde_json::json!({})),
+                conditions_json: Set(serde_json::json!([])),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            };
+            perm.insert(db).await?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Convenience guard: enforce `action` on `subject` for the current user.
+/// Returns `Ok(())` when permitted and `Forbidden` otherwise. Pass `None`
+/// as the user for unauthenticated (public) access, which is *not* governed
+/// by the admin permission matrix.
+pub async fn enforce_action(
+    db: &DatabaseConnection,
+    user: Option<&crate::CurrentUser>,
+    action: &str,
+    subject: &str,
+) -> Result<(), ServiceError> {
+    if let Some(user) = user {
+        if !can_perform(db, user, action, subject).await? {
+            return Err(ServiceError::Forbidden);
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Backward-compatible aliases for api-rest crate
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::CurrentUser;
+    use sea_orm_migration::MigratorTrait;
+
+    fn user(id: i64, role: &str) -> CurrentUser {
+        CurrentUser {
+            id,
+            email: format!("user{id}@test.dev"),
+            is_active: true,
+            roles: vec![role.to_string()],
+        }
+    }
+
+    #[tokio::test]
+    async fn granular_permissions_evaluate() {
+        let db = db::connection::connect_sqlite_memory().await.unwrap();
+        db::migration::Migrator::up(&db, None).await.unwrap();
+        db::seed::seed(&db).await.unwrap();
+
+        // Super Admin bypasses the matrix entirely.
+        let super_admin = user(1, ROLE_SUPER_ADMIN);
+        assert!(can_perform(&db, &super_admin, action::PUBLISH, "any.uid").await.unwrap());
+        assert!(can_perform(&db, &super_admin, action::DELETE, "unrelated.uid").await.unwrap());
+
+        // Grant standard per-content-type permissions for a new content-type.
+        grant_content_permissions(&db, "api::article.article").await.unwrap();
+
+        // Editor: full CRUD + publish.
+        let editor = user(2, ROLE_EDITOR);
+        assert!(can_perform(&db, &editor, action::CREATE, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &editor, action::READ, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &editor, action::UPDATE, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &editor, action::DELETE, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &editor, action::PUBLISH, "api::article.article").await.unwrap());
+
+        // Author: create/read/update but NOT publish/delete.
+        let author = user(3, ROLE_AUTHOR);
+        assert!(can_perform(&db, &author, action::CREATE, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &author, action::READ, "api::article.article").await.unwrap());
+        assert!(can_perform(&db, &author, action::UPDATE, "api::article.article").await.unwrap());
+        assert!(!can_perform(&db, &author, action::PUBLISH, "api::article.article").await.unwrap());
+        assert!(!can_perform(&db, &author, action::DELETE, "api::article.article").await.unwrap());
+
+        // No grant for a different content-type => denied.
+        assert!(!can_perform(&db, &editor, action::CREATE, "api::author.author").await.unwrap());
+
+        // enforce_action maps a denied decision to Forbidden and allows permitted.
+        assert!(enforce_action(&db, Some(&author), action::PUBLISH, "api::article.article").await.is_err());
+        assert!(enforce_action(&db, Some(&author), action::READ, "api::article.article").await.is_ok());
+        // Unauthenticated (public) access is not governed by the admin matrix.
+        assert!(enforce_action(&db, None, action::READ, "api::article.article").await.is_ok());
+    }
+}
 
 use crate::AppContext;
 

@@ -27,6 +27,15 @@ pub async fn cm_list(
     let schema = load_schema(ctx, uid)?;
     ensure_collection(&schema)?;
 
+    // Admin RBAC: require `read` on this content-type for authenticated users.
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::READ,
+        schema.uid.as_str(),
+    )
+    .await?;
+
     let pag = params.effective_pagination();
 
     // Build base query
@@ -63,6 +72,13 @@ pub async fn cm_get(
     _params: Option<&QueryParams>,
 ) -> Result<EntryResponse<JsonValue>, ServiceError> {
     let schema = load_schema(ctx, uid)?;
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::READ,
+        schema.uid.as_str(),
+    )
+    .await?;
     let row = dml::find_one_by_document_id(&ctx.db, &schema, document_id)
         .await?
         .ok_or_else(|| ServiceError::not_found(format!("entry {document_id} not found")))?;
@@ -81,6 +97,14 @@ pub async fn cm_create(
     let schema = load_schema(ctx, uid)?;
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
 
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::CREATE,
+        schema.uid.as_str(),
+    )
+    .await?;
+
     let row = dml::insert_one(&ctx.db, &schema, data, user_id).await?;
     Ok(EntryResponse {
         data: row,
@@ -98,6 +122,14 @@ pub async fn cm_update(
     let schema = load_schema(ctx, uid)?;
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
 
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::UPDATE,
+        schema.uid.as_str(),
+    )
+    .await?;
+
     let row = dml::update_one(&ctx.db, &schema, document_id, data, user_id).await?;
     Ok(EntryResponse {
         data: row,
@@ -112,6 +144,15 @@ pub async fn cm_delete(
     document_id: &str,
 ) -> Result<(), ServiceError> {
     let schema = load_schema(ctx, uid)?;
+
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::DELETE,
+        schema.uid.as_str(),
+    )
+    .await?;
+
     dml::delete_one(&ctx.db, &schema, document_id).await?;
     Ok(())
 }
@@ -128,6 +169,14 @@ pub async fn cm_publish(
             "Draft & Publish is not enabled for this content-type".into(),
         ));
     }
+
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::PUBLISH,
+        schema.uid.as_str(),
+    )
+    .await?;
 
     // Find the draft entry, load it, insert as published, discard draft.
     let draft = dml::find_one_by_document_id(&ctx.db, &schema, document_id)

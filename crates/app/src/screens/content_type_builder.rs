@@ -1,12 +1,18 @@
 //! Content-Type Builder screen (design doc §5).
+//!
+//! Implements the Strapi CTB workflow: a secondary nav grouped by collection
+//! types / single types / components, a field picker covering the official
+//! field set, type-aware field configuration, and a batch Save.
 
 use core_domain::{ContentTypeKind, FieldType};
-use core_schema::{Attribute, Schema, api_uid};
+use core_schema::{
+    api_uid, Attribute, I18nOptions, Schema, SchemaInfo, SchemaOptions, SchemaPluginOptions,
+};
 use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Icon, Modal, NavItem, TextField, Toggle};
+use crate::components::{Badge, Button, Card, Dropdown, Icon, Modal, NavItem, TextArea, TextField, Toggle};
 
 #[derive(Clone, PartialEq)]
 enum ModalKind {
@@ -16,19 +22,24 @@ enum ModalKind {
     FieldConfig { ct_uid: String, field_type: FieldType },
 }
 
-/// The field types offered in the picker, with labels + descriptions.
+/// The official Strapi field picker set, in the exact order Strapi shows them.
+/// Each entry maps a picker label + description to the underlying FieldType.
 const PICKABLE_FIELDS: &[(FieldType, &str, &str)] = &[
     (FieldType::String, "Text", "Small or long text like title or description"),
-    (FieldType::Text, "Long text", "A long-form text area"),
+    (FieldType::Blocks, "Rich text (Blocks)", "The new JSON-based rich text editor"),
     (FieldType::Integer, "Number", "Numbers (integer, float, decimal)"),
     (FieldType::Datetime, "Date", "A date picker with hours, minutes and seconds"),
     (FieldType::Boolean, "Boolean", "Yes or no, 1 or 0, true or false"),
+    (FieldType::Relation, "Relation", "Refers to a Collection Type"),
     (FieldType::Email, "Email", "Email field with validations format"),
     (FieldType::Password, "Password", "Password field with encryption"),
     (FieldType::Enumeration, "Enumeration", "List of values, then pick one"),
+    (FieldType::Media, "Media", "Files like images, videos, etc"),
     (FieldType::Json, "JSON", "Data in JSON format"),
+    (FieldType::Component, "Component", "A group of fields that you can repeat or reuse"),
+    (FieldType::Dynamiczone, "Dynamic Zone", "Dynamically pick components while editing content"),
+    (FieldType::Richtext, "Rich text (Markdown)", "The classic rich text editor"),
     (FieldType::Uid, "UID", "Unique identifier"),
-    (FieldType::Richtext, "Rich text", "The classic rich text editor"),
 ];
 
 const SECTION_LABEL: &str = "padding:4px 16px; font-size:{font}; color:{col};";
@@ -77,7 +88,6 @@ pub fn ContentTypeBuilder() -> Element {
         .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
         .cloned();
 
-    // Precompute owned nav + editor items so closures capture owned data.
     let collection_items: Vec<(String, String)> = schemas
         .iter()
         .filter(|s| s.kind == ContentTypeKind::CollectionType)
@@ -148,7 +158,10 @@ pub fn ContentTypeBuilder() -> Element {
                         onclick: move |_| selected_uid.set(Some(uid.clone())),
                     }
                 }
-                Button { label: "+ Create new collection type".to_string(), variant: "ghost".to_string(), on_click: move |_| modal.set(ModalKind::CreateType) }
+                button { style: "background:none; border:none; color:{color::PRIMARY_600}; cursor:pointer; text-align:left; padding:8px 16px; font-size:{typography::BODY_SIZE};",
+                    onclick: move |_| modal.set(ModalKind::CreateType),
+                    "+ Create new collection type"
+                }
                 span { style: SECTION_LABEL.replace("{font}", LABEL_FONT).replace("{col}", NEUTRAL_600), "SINGLE TYPES" }
                 for (uid, display) in single_items.into_iter() {
                     NavItem {
@@ -158,7 +171,10 @@ pub fn ContentTypeBuilder() -> Element {
                         onclick: move |_| selected_uid.set(Some(uid.clone())),
                     }
                 }
-                Button { label: "+ Create new single type".to_string(), variant: "ghost".to_string(), on_click: move |_| modal.set(ModalKind::CreateType) }
+                button { style: "background:none; border:none; color:{color::PRIMARY_600}; cursor:pointer; text-align:left; padding:8px 16px; font-size:{typography::BODY_SIZE};",
+                    onclick: move |_| modal.set(ModalKind::CreateType),
+                    "+ Create new single type"
+                }
                 span { style: SECTION_LABEL.replace("{font}", LABEL_FONT).replace("{col}", NEUTRAL_600), "COMPONENTS" }
                 for (uid, display) in component_items.into_iter() {
                     NavItem { label: display, icon: "puzzle".to_string(), active: false, onclick: move |_| selected_uid.set(Some(uid.clone())) }
@@ -210,17 +226,19 @@ pub fn ContentTypeBuilder() -> Element {
                                     }
                                 } else {
                                     div { style: "display:flex; flex-direction:column;",
-                                        for (uid, name, ft, req) in selected_attrs.into_iter() {
+                                        for (row_uid, name, ft, req) in selected_attrs.into_iter() {
                                             div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
                                                 Icon { name: icon_for(ft), size: 18 }
                                                 div { style: "display:flex; flex-direction:column; flex:1;",
                                                     span { style: "{field_name_style}", "{name}" }
                                                     span { style: "{field_type_style}", "{ft.as_str()}" }
                                                 }
-                                                if req { Badge { text: "required".to_string(), kind: "new".to_string() } }
+                                                if req {
+                                                    Badge { text: "required".to_string(), kind: "new".to_string() }
+                                                }
                                                 button {
                                                     style: "{icon_btn_style}",
-                                                    onclick: move |_| modal.set(ModalKind::FieldConfig { ct_uid: uid.clone(), field_type: ft }),
+                                                    onclick: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }),
                                                     Icon { name: "pencil".to_string(), size: 16 }
                                                 }
                                             }
@@ -239,23 +257,27 @@ pub fn ContentTypeBuilder() -> Element {
         }
 
         if modal() == ModalKind::CreateType {
-            CreateTypeModal { on_close: move |_| modal.set(ModalKind::None), on_create: move |schema| {
-                working.write().push(schema);
-                is_dirty.set(true);
-                modal.set(ModalKind::None);
-            } }
+            CreateTypeModal {
+                on_close: move |_| modal.set(ModalKind::None),
+                on_create: move |schema| {
+                    working.write().push(schema);
+                    is_dirty.set(true);
+                    modal.set(ModalKind::None);
+                },
+            }
         }
         if let ModalKind::FieldPicker { ct_uid } = modal() {
-            FieldPickerModal { on_close: move |_| modal.set(ModalKind::None), on_pick: move |ft| modal.set(ModalKind::FieldConfig { ct_uid: ct_uid.clone(), field_type: ft }) }
+            FieldPickerModal {
+                on_close: move |_| modal.set(ModalKind::None),
+                on_pick: move |ft| modal.set(ModalKind::FieldConfig { ct_uid: ct_uid.clone(), field_type: ft }),
+            }
         }
         if let ModalKind::FieldConfig { ct_uid, field_type } = modal() {
             FieldConfigModal {
                 field_type,
                 on_close: move |_| modal.set(ModalKind::None),
-                on_save: move |(name, required): (String, bool)| {
+                on_save: move |(name, attr): (String, Attribute)| {
                     if let Some(schema) = working.write().iter_mut().find(|s| s.uid.as_str() == ct_uid) {
-                        let mut attr = Attribute::new(field_type);
-                        attr.required = required;
                         schema.attributes.insert(name, attr);
                     }
                     is_dirty.set(true);
@@ -271,35 +293,67 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
     let mut display = use_signal(String::new);
     let mut singular = use_signal(String::new);
     let mut plural = use_signal(String::new);
+    let mut kind = use_signal(|| "collection".to_string());
+    let mut draft = use_signal(|| true);
+    let mut i18n = use_signal(|| false);
+
+    let is_collection = kind() == "collection";
+    let title = if is_collection { "Create a collection type".to_string() } else { "Create a single type".to_string() };
 
     let build = move || {
         let singular = if singular().is_empty() { display().to_lowercase().replace(' ', "_") } else { singular() };
         let plural = if plural().is_empty() { format!("{singular}s") } else { plural() };
+        let resolved_kind = if is_collection {
+            ContentTypeKind::CollectionType
+        } else {
+            ContentTypeKind::SingleType
+        };
         Schema {
             uid: api_uid(&singular),
-            kind: ContentTypeKind::CollectionType,
+            kind: resolved_kind,
             collection_name: None,
-            info: core_schema::SchemaInfo {
+            info: SchemaInfo {
                 singular_name: singular.clone(),
                 plural_name: plural.clone(),
                 display_name: if display().is_empty() { singular.clone() } else { display() },
                 description: None,
                 icon: None,
             },
-            options: core_schema::SchemaOptions {
-                draft_and_publish: true,
+            options: SchemaOptions {
+                draft_and_publish: draft(),
                 comment: None,
             },
-            plugin_options: None,
+            plugin_options: if i18n() {
+                Some(SchemaPluginOptions {
+                    i18n: Some(I18nOptions { localized: true }),
+                })
+            } else {
+                None
+            },
             attributes: Default::default(),
         }
     };
 
+    let seg_active = if is_collection { color::PRIMARY_600 } else { color::NEUTRAL_0 };
+    let seg_inactive = if is_collection { color::NEUTRAL_0 } else { color::PRIMARY_600 };
+
     rsx! {
-        Modal { title: "Create a collection type".to_string(), width: 640, on_close: move |e| on_close.call(e),
+        Modal { title: title.clone(), width: 640, on_close: move |e| on_close.call(e),
+            div { style: "display:flex; gap:8px; margin-bottom:16px;",
+                button { style: "flex:1; padding:8px; border:1px solid {color::PRIMARY_600}; border-radius:4px; background:{seg_active}; color:{seg_inactive}; font-weight:600; cursor:pointer;",
+                    onclick: move |_| kind.set("collection".to_string()),
+                    "Collection type"
+                }
+                button { style: "flex:1; padding:8px; border:1px solid {color::PRIMARY_600}; border-radius:4px; background:{seg_inactive}; color:{seg_active}; font-weight:600; cursor:pointer;",
+                    onclick: move |_| kind.set("single".to_string()),
+                    "Single type"
+                }
+            }
             TextField { value: "{display}", label: "Display name".to_string(), placeholder: "Article".to_string(), oninput: move |v| display.set(v) }
             TextField { value: "{singular}", label: "API ID (Singular)".to_string(), placeholder: "article".to_string(), oninput: move |v| singular.set(v) }
             TextField { value: "{plural}", label: "API ID (Plural)".to_string(), placeholder: "articles".to_string(), oninput: move |v| plural.set(v) }
+            Toggle { checked: draft(), label: "Draft & publish".to_string(), onchange: move |v| draft.set(v) }
+            Toggle { checked: i18n(), label: "Internationalization".to_string(), onchange: move |v| i18n.set(v) }
             div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
                 Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |e| on_close.call(e) }
                 Button { label: "Continue".to_string(), variant: "primary".to_string(), on_click: move |_| on_create.call(build()) }
@@ -339,26 +393,114 @@ fn FieldPickerModal(on_close: EventHandler<MouseEvent>, on_pick: EventHandler<Fi
     }
 }
 
+/// Resolve the concrete FieldType for a picked type given the sub-format
+/// chosen for Number / Date fields.
+fn resolve_type(field_type: FieldType, num_format: &str, date_type: &str) -> FieldType {
+    use FieldType::*;
+    match field_type {
+        Integer | Biginteger | Decimal | Float => match num_format {
+            "bigint" => Biginteger,
+            "decimal" => Decimal,
+            "float" => Float,
+            _ => Integer,
+        },
+        Date | Datetime | Time => match date_type {
+            "date" => Date,
+            "time" => Time,
+            _ => Datetime,
+        },
+        other => other,
+    }
+}
+
 #[component]
 fn FieldConfigModal(
     field_type: FieldType,
     on_close: EventHandler<MouseEvent>,
-    on_save: EventHandler<(String, bool)>,
+    on_save: EventHandler<(String, Attribute)>,
 ) -> Element {
     let mut name = use_signal(String::new);
     let mut required = use_signal(|| false);
+    let mut unique = use_signal(|| false);
+    let mut private = use_signal(|| false);
+    let mut num_format = use_signal(|| "integer".to_string());
+    let mut date_type = use_signal(|| "datetime".to_string());
+    let mut enum_values = use_signal(String::new);
+
     let title = format!("Add a new {} field", field_type.as_str());
+    let is_number = matches!(
+        field_type,
+        FieldType::Integer | FieldType::Biginteger | FieldType::Decimal | FieldType::Float
+    );
+    let is_date = matches!(field_type, FieldType::Date | FieldType::Datetime | FieldType::Time);
+    let is_enum = matches!(field_type, FieldType::Enumeration);
+
+    let finish = move |_| {
+        let attr_type = resolve_type(field_type, &num_format(), &date_type());
+        let mut attr = Attribute::new(attr_type);
+        attr.required = required();
+        attr.unique = unique();
+        attr.private = private();
+        if is_enum {
+            attr.enum_values = enum_values()
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+        }
+        on_save.call((name(), attr));
+    };
+
     rsx! {
         Modal { title: title, width: 640, on_close: move |e| on_close.call(e),
             TextField {
-                value: "{name}", label: "Name".to_string(),
+                value: "{name}",
+                label: "Name".to_string(),
                 helper: "No space is allowed for the name of the attribute.".to_string(),
                 oninput: move |v| name.set(v),
             }
-            Toggle { checked: required(), label: "Required field".to_string(), onchange: move |v| required.set(v) }
+            if is_number {
+                Dropdown {
+                    label: "Number format".to_string(),
+                    options: vec![
+                        ("integer".to_string(), "integer".to_string()),
+                        ("bigint".to_string(), "big integer".to_string()),
+                        ("decimal".to_string(), "decimal".to_string()),
+                        ("float".to_string(), "float".to_string()),
+                    ],
+                    value: "{num_format}",
+                    onchange: move |v| num_format.set(v),
+                }
+            }
+            if is_date {
+                Dropdown {
+                    label: "Type".to_string(),
+                    options: vec![
+                        ("date".to_string(), "date".to_string()),
+                        ("datetime".to_string(), "datetime".to_string()),
+                        ("time".to_string(), "time".to_string()),
+                    ],
+                    value: "{date_type}",
+                    onchange: move |v| date_type.set(v),
+                }
+            }
+            if is_enum {
+                TextArea {
+                    value: "{enum_values}",
+                    label: "Values (one line per value)".to_string(),
+                    placeholder: "one\ntwo\nthree".to_string(),
+                    rows: 4,
+                    oninput: move |v| enum_values.set(v),
+                }
+            }
+            div { style: "display:flex; flex-direction:column; gap:8px; margin:16px 0;",
+                Toggle { checked: required(), label: "Required field".to_string(), onchange: move |v| required.set(v) }
+                Toggle { checked: unique(), label: "Unique field".to_string(), onchange: move |v| unique.set(v) }
+                Toggle { checked: private(), label: "Private field (not exposed in API)".to_string(), onchange: move |v| private.set(v) }
+            }
             div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
                 Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |e| on_close.call(e) }
-                Button { label: "Finish".to_string(), variant: "primary".to_string(), on_click: move |_| on_save.call((name(), required())) }
+                Button { label: "Finish".to_string(), variant: "primary".to_string(), on_click: finish }
             }
         }
     }

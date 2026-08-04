@@ -6100,6 +6100,7 @@ dependencies = [
  "rand 0.9.5",
  "regex",
  "sea-orm",
+ "sea-orm-migration",
  "sea-query",
  "serde",
  "serde_json",

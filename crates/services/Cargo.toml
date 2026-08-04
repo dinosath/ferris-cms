@@ -29,3 +29,4 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+sea-orm-migration = { workspace = true }
