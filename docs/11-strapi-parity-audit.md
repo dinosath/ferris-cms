@@ -73,10 +73,13 @@ batch Save (unsaved-change badges N/M/D, Undo/Redo/Discard).
 - ❌ Relation builder with the two-side composer (inverse field name) not implemented.
 - 🟡 No unsaved-change badges (N/M/D), Undo/Redo/Discard, or unsaved-changes
   navigation guard.
-- ❌ Component / Dynamic Zone configuration (choose/reuse component, allowed
-  components) not implemented.
-- 🟡 No media-type selector, UID target-field, regex/min-max validation inputs in
-  the field config modal.
+- ✅ (new) **Component field configuration.** The field-config modal now supports
+  Component fields: pick a component and set repeatable/single.
+- ✅ (new) **Dynamic Zone configuration.** The modal lets the user add allowed
+  components to a Dynamic Zone field (stored as chips).
+- ✅ (new) **Media + UID config.** Media fields get multiple/single + allowed types;
+  UID fields get an attached (target) field selector.
+- 🟡 No regex/min-max validation inputs in the field config modal.
 - ✅ Backend (validation, diffing, DDL) already supports the full taxonomy; the
   gaps are primarily UI wiring.
 

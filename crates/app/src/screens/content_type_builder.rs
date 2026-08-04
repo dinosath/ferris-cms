@@ -88,6 +88,16 @@ pub fn ContentTypeBuilder() -> Element {
         .filter(|s| s.kind == ContentTypeKind::CollectionType)
         .map(|s| s.uid.as_str().to_string())
         .collect();
+    let component_types: Vec<(String, String)> = schemas
+        .iter()
+        .filter(|s| s.kind == ContentTypeKind::Component)
+        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+        .collect();
+    let sibling_fields: Vec<String> = schemas
+        .iter()
+        .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
+        .map(|s| s.attributes.keys().cloned().collect())
+        .unwrap_or_default();
     let selected = schemas
         .iter()
         .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
@@ -281,6 +291,8 @@ pub fn ContentTypeBuilder() -> Element {
             FieldConfigModal {
                 field_type,
                 target_types: target_types.clone(),
+                component_types: component_types.clone(),
+                sibling_fields: sibling_fields.clone(),
                 on_close: move |_| modal.set(ModalKind::None),
                 on_save: move |(name, attr): (String, Attribute)| {
                     if let Some(schema) = working.write().iter_mut().find(|s| s.uid.as_str() == ct_uid) {
@@ -423,6 +435,8 @@ fn resolve_type(field_type: FieldType, num_format: &str, date_type: &str) -> Fie
 fn FieldConfigModal(
     field_type: FieldType,
     target_types: Vec<String>,
+    component_types: Vec<(String, String)>,
+    sibling_fields: Vec<String>,
     on_close: EventHandler<MouseEvent>,
     on_save: EventHandler<(String, Attribute)>,
 ) -> Element {
@@ -436,6 +450,17 @@ fn FieldConfigModal(
     // Relation config.
     let mut relation_kind = use_signal(|| "oneToOne".to_string());
     let mut relation_target = use_signal(String::new);
+    // Component config.
+    let mut component_repeatable = use_signal(|| false);
+    let mut component_uid = use_signal(String::new);
+    // Dynamic zone config.
+    let mut dz_components = use_signal(Vec::<String>::new);
+    let mut dz_components_sel = use_signal(String::new);
+    // Media config.
+    let mut media_multiple = use_signal(|| false);
+    let mut media_allowed = use_signal(|| "images".to_string());
+    // UID config.
+    let mut uid_target = use_signal(String::new);
 
     let title = format!("Add a new {} field", field_type.as_str());
     let is_number = matches!(
@@ -445,6 +470,20 @@ fn FieldConfigModal(
     let is_date = matches!(field_type, FieldType::Date | FieldType::Datetime | FieldType::Time);
     let is_enum = matches!(field_type, FieldType::Enumeration);
     let is_relation = matches!(field_type, FieldType::Relation);
+    let is_component = matches!(field_type, FieldType::Component);
+    let is_dz = matches!(field_type, FieldType::Dynamiczone);
+    let is_media = matches!(field_type, FieldType::Media);
+    let is_uid = matches!(field_type, FieldType::Uid);
+
+    let media_allowed_options: Vec<(String, String)> = vec![
+        ("images".to_string(), "Images".to_string()),
+        ("videos".to_string(), "Videos".to_string()),
+        ("files".to_string(), "Files".to_string()),
+        ("audios".to_string(), "Audios".to_string()),
+    ];
+    let uid_target_options: Vec<(String, String)> = std::iter::once(("".to_string(), "None".to_string()))
+        .chain(sibling_fields.iter().map(|f| (f.clone(), f.clone())))
+        .collect();
 
     let relation_options: Vec<(String, String)> = vec![
         ("oneWay".to_string(), "One way".to_string()),
@@ -478,6 +517,31 @@ fn FieldConfigModal(
                 None
             } else {
                 Some(core_domain::Uid::new(&relation_target()))
+            };
+        }
+        if is_component {
+            attr.component = if component_uid().is_empty() {
+                None
+            } else {
+                Some(core_domain::Uid::new(&component_uid()))
+            };
+            attr.repeatable = Some(component_repeatable());
+        }
+        if is_dz {
+            attr.components = dz_components()
+                .iter()
+                .map(|c| core_domain::Uid::new(c))
+                .collect();
+        }
+        if is_media {
+            attr.multiple = Some(media_multiple());
+            attr.allowed_types = vec![media_allowed()];
+        }
+        if is_uid {
+            attr.target_field = if uid_target().is_empty() {
+                None
+            } else {
+                Some(uid_target())
             };
         }
         on_save.call((name(), attr));
@@ -537,6 +601,52 @@ fn FieldConfigModal(
                     options: target_options,
                     value: "{relation_target}",
                     onchange: move |v| relation_target.set(v),
+                }
+            }
+            if is_component {
+                Dropdown {
+                    label: "Component".to_string(),
+                    options: component_types.clone(),
+                    value: "{component_uid}",
+                    onchange: move |v| component_uid.set(v),
+                }
+                Toggle { checked: component_repeatable(), label: "Repeatable".to_string(), onchange: move |v| component_repeatable.set(v) }
+            }
+            if is_dz {
+                Dropdown {
+                    label: "Allowed component".to_string(),
+                    options: component_types.clone(),
+                    value: "{dz_components_sel}",
+                    onchange: move |v: String| {
+                        dz_components_sel.set(v.clone());
+                        if !dz_components().contains(&v) {
+                            dz_components.write().push(v);
+                        }
+                    },
+                }
+                div { style: "display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;",
+                    for c in dz_components().clone() {
+                        div { style: "display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:{color::PRIMARY_100}; color:{color::PRIMARY_700}; font-size:{typography::PI_SIZE};",
+                            span { "{c}" }
+                        }
+                    }
+                }
+            }
+            if is_media {
+                Toggle { checked: media_multiple(), label: "Multiple media".to_string(), onchange: move |v| media_multiple.set(v) }
+                Dropdown {
+                    label: "Allowed media types".to_string(),
+                    options: media_allowed_options,
+                    value: "{media_allowed}",
+                    onchange: move |v| media_allowed.set(v),
+                }
+            }
+            if is_uid {
+                Dropdown {
+                    label: "Attached field".to_string(),
+                    options: uid_target_options,
+                    value: "{uid_target}",
+                    onchange: move |v| uid_target.set(v),
                 }
             }
             div { style: "display:flex; flex-direction:column; gap:8px; margin:16px 0;",
