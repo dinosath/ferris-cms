@@ -267,6 +267,21 @@ impl Client {
             .await
     }
 
+    /// Unpublish a published entry (go back to draft).
+    pub async fn cm_unpublish(
+        &self,
+        uid: &str,
+        document_id: &str,
+    ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
+        let v = self.transport
+            .post_json(
+                &format!("/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish"),
+                &serde_json::json!({}),
+            )
+            .await?;
+        Ok(serde_json::from_value(v)?)
+    }
+
     /// Get the Content Manager list-view configuration for a content-type.
     pub async fn cm_get_configuration(&self, uid: &str) -> Result<serde_json::Value, ClientError> {
         self.transport

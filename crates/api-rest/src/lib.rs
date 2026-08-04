@@ -22,7 +22,7 @@ use services::{
     auth_login, auth_register, init_info,
     ctb_apply, ctb_get, ctb_list, ctb_reserved_names,
     cm_content_types, cm_create, cm_delete, cm_get, cm_list, cm_publish, cm_update,
-    cm_discard_draft,
+    cm_unpublish, cm_discard_draft,
     cm_get_configuration, cm_update_configuration,
     i18n_list as svc_i18n_list, i18n_create as svc_i18n_create,
     i18n_delete as svc_i18n_delete,
@@ -70,6 +70,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/content-manager/collection-types/{uid}", get(cm_list_handler).post(cm_create_handler))
         .route("/admin/content-manager/collection-types/{uid}/{document_id}", get(cm_get_handler).put(cm_update_handler).delete(cm_delete_handler))
         .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish", post(cm_publish_handler))
+        .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish", post(cm_unpublish_handler))
         .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard", post(cm_discard_handler))
         .route("/admin/content-manager/single-types/{uid}", get(cm_single_get_handler).put(cm_single_update_handler))
         .route("/admin/content-manager/content-types/{uid}/configuration", get(cm_config_handler).put(cm_config_update_handler))
@@ -264,6 +265,14 @@ async fn cm_publish_handler(
     Path((uid, document_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, error::AppError> {
     let resp = cm_publish(&admin.0, &uid, &document_id).await?;
+    Ok(Json(resp))
+}
+
+async fn cm_unpublish_handler(
+    admin: auth::AdminCtx,
+    Path((uid, document_id)): Path<(String, String)>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let resp = cm_unpublish(&admin.0, &uid, &document_id).await?;
     Ok(Json(resp))
 }
 

@@ -701,6 +701,9 @@ fn EntryEditView(
     let disc_uid = uid.clone();
     let disc_doc = doc.clone();
     let g3 = global.clone();
+    let g4 = global.clone();
+    let unpub_uid = uid.clone();
+    let unpub_doc = doc.clone();
 
     rsx! {
         div { style: "flex:1; min-width:0;",
@@ -760,6 +763,22 @@ fn EntryEditView(
                                 saving.set(false);
                                 match res {
                                     Ok(_) => { status.set(Some("Changes discarded".to_string())); on_saved.call(()); }
+                                    Err(e) => status.set(Some(format!("Error: {e}"))),
+                                }
+                            });
+                        }
+                    }
+                    Button { label: "Unpublish".to_string(), variant: "secondary".to_string(), loading: saving(),
+                        on_click: move |_| {
+                            let g = g4.clone();
+                            let uid = unpub_uid.clone();
+                            let doc = unpub_doc.clone();
+                            saving.set(true);
+                            spawn(async move {
+                                let res = g.client.cm_unpublish(&uid, &doc).await;
+                                saving.set(false);
+                                match res {
+                                    Ok(_) => { status.set(Some("Unpublished".to_string())); on_saved.call(()); }
                                     Err(e) => status.set(Some(format!("Error: {e}"))),
                                 }
                             });

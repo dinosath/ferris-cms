@@ -34,10 +34,15 @@ directly in the edit view.
   🗑 (delete) action buttons, alongside click-to-open and bulk selection.
 - ✅ (new) **Discard changes control.** The entry edit view now exposes a
   "Discard changes" button (`/actions/discard`), covered by the integration test.
+- ✅ (new) **Unpublish control + fixed publish bug.** The edit view now has an
+  "Unpublish" button (`/actions/unpublish`, covered by the integration test).
+  This surfaced and fixed a pre-existing publish bug: the published variant
+  previously reused the draft's `documentId`, so `delete_one` soft-deleted both
+  rows and no published entry survived publish. Publish now assigns a fresh
+  documentId to the published variant.
 - ✅ (new) **Configure the view modal.** The list toolbar has a "Configure the
   view" button that opens a modal to set entries-per-page and displayed columns,
   persisting via the `configuration` endpoints (covered by the integration test).
-- No draft/publish **Unpublish** control in the edit view.
 - No i18n locale switcher or Information rail persistence of created/updated by-user.
 - Draft & Publish not yet wired to the list query (`status=published`).
 

@@ -190,6 +190,9 @@ pub async fn cm_publish(
             JsonValue::String("published".into()),
         );
         obj.insert("publishedAt".into(), JsonValue::String(chrono::Utc::now().to_rfc3339()));
+        // Give the published variant a fresh document id so it is a distinct,
+        // findable row and does not collide with the (soon soft-deleted) draft.
+        obj.insert("documentId".into(), JsonValue::String(uuid::Uuid::new_v4().to_string()));
     }
 
     // Insert published variant
@@ -204,6 +207,53 @@ pub async fn cm_publish(
 
     Ok(EntryResponse {
         data: published,
+        meta: None,
+    })
+}
+
+/// Unpublish a published entry: soft-delete the published variant and create a
+/// new draft from it (Strapi's "go back to draft" behavior).
+pub async fn cm_unpublish(
+    ctx: &AppContext,
+    uid: &str,
+    document_id: &str,
+) -> Result<EntryResponse<JsonValue>, ServiceError> {
+    let schema = load_schema(ctx, uid)?;
+    if !schema.draft_and_publish() {
+        return Err(ServiceError::Conflict(
+            "Draft & Publish is not enabled for this content-type".into(),
+        ));
+    }
+
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        crate::rbac::action::PUBLISH,
+        schema.uid.as_str(),
+    )
+    .await?;
+
+    // Find the published entry.
+    let published = dml::find_one_by_document_id(&ctx.db, &schema, document_id)
+        .await?
+        .ok_or_else(|| ServiceError::not_found(format!("entry {document_id} not found")))?;
+
+    let mut draft_data = published.clone();
+    if let Some(obj) = draft_data.as_object_mut() {
+        obj.insert("publicationState".into(), JsonValue::String("draft".into()));
+    }
+
+    let txn = ctx.db.begin().await?;
+    let user_id = ctx.current_user.as_ref().map(|u| u.id);
+
+    // Insert the draft variant, then soft-delete the published one.
+    let draft = dml::insert_one(&txn, &schema, &draft_data, user_id).await?;
+    dml::delete_one(&txn, &schema, document_id).await?;
+
+    txn.commit().await?;
+
+    Ok(EntryResponse {
+        data: draft,
         meta: None,
     })
 }

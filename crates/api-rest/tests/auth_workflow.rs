@@ -186,6 +186,25 @@ async fn full_admin_workflow() {
         .await
         .unwrap();
     assert_eq!(publish.status(), StatusCode::OK, "publish by documentId");
+    let publish_json = body_json(publish).await;
+    let published_doc = publish_json["data"]["documentId"].as_str().unwrap_or(doc_id.as_str());
+
+    // 7a. Unpublish the published variant (go back to draft).
+    let unpublish = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!(
+                "/admin/content-manager/collection-types/api::article.article/{published_doc}/actions/unpublish"
+            ),
+            serde_json::json!({}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unpublish.status(), StatusCode::OK, "unpublish");
+    let unpub_json = body_json(unpublish).await;
+    assert_eq!(unpub_json["data"]["publicationState"], "draft", "unpublished entry is a draft");
 
     // 7b. Discard draft changes (edit-view control) is accepted.
     let discard = router
