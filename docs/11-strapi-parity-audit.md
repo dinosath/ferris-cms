@@ -164,12 +164,17 @@ schema-driven forms.
 - ✅ **State badges** (Draft/Published) and bulk-action bar.
 
 ### Remaining gaps 🟡
-- ❌ **Media Library** (`/media`) and **Settings** (`/settings`) are placeholders —
-  no asset grid/upload, roles/users, API tokens, or i18n locale screens.
+- ❌ **Media Library** thumbnails/folders and **Settings** API Tokens / i18n
+  locale screens remain (Media Library list+upload, Roles, and Users are done).
 - 🟡 No toast system, confirm dialogs, or skeleton loaders (status banners used
   instead).
 - 🟡 No rich-text (Blocks/Markdown), media picker, relation input, component /
   dynamic-zone widgets in the entry edit form (scalar fields only).
+- ✅ (new) **Component + Dynamic Zone form widgets.** The entry edit view now
+  renders component (single/repeatable) and dynamic-zone fields as sub-cards with
+  a JSON value input, plus the allowed-component chips for DZ fields.
+- 🟡 Rich-text (Blocks/Markdown), media picker, and relation input widgets remain
+  as text/JSON inputs.
 
 ---
 

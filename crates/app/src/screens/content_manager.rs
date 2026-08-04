@@ -668,6 +668,28 @@ fn EntryEditView(
         .map(|(name, a)| (name.clone(), a.attr_type, a.enum_values.clone()))
         .collect();
 
+    // Non-scalar fields: component (single/repeatable) and dynamic zones.
+    let component_fields: Vec<(String, String, Option<String>, bool)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, a)| a.attr_type == FieldType::Component)
+        .map(|(name, a)| {
+            let cu = a.component.as_ref().map(|u| u.as_str().to_string());
+            let label = if a.repeatable.unwrap_or(false) {
+                format!("{name} (repeatable)")
+            } else {
+                name.clone()
+            };
+            (label, name.clone(), cu, a.repeatable.unwrap_or(false))
+        })
+        .collect();
+    let dz_fields: Vec<(String, Vec<String>)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, a)| a.attr_type == FieldType::Dynamiczone)
+        .map(|(name, a)| (name.clone(), a.components.iter().map(|u| u.as_str().to_string()).collect()))
+        .collect();
+
     let g = global.clone();
     let g2 = global.clone();
     let uid = schema.uid.as_str().to_string();
@@ -777,6 +799,38 @@ fn EntryEditView(
                                         oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
                                     }
                                 },
+                            }
+                        }
+                        for (label, name, comp_uid, _repeatable) in component_fields.into_iter() {
+                            div { key: "comp-{name}", style: "margin:16px 0; border:1px solid {color::NEUTRAL_150}; border-radius:4px; padding:12px;",
+                                div { style: "font-size:{typography::BODY_BOLD_SIZE}; color:{color::NEUTRAL_800}; margin-bottom:8px;",
+                                    "{label}"
+                                }
+                                if let Some(cu) = &comp_uid {
+                                    div { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "Component: {cu}" }
+                                }
+                                TextField {
+                                    value: form().get(&name).and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                                    label: String::new(),
+                                    placeholder: "Component value (JSON)".to_string(),
+                                    oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
+                                }
+                            }
+                        }
+                        for (name, allowed) in dz_fields.into_iter() {
+                            div { key: "dz-{name}", style: "margin:16px 0; border:1px solid {color::NEUTRAL_150}; border-radius:4px; padding:12px;",
+                                div { style: "font-size:{typography::BODY_BOLD_SIZE}; color:{color::NEUTRAL_800}; margin-bottom:8px;", "{name} (Dynamic Zone)" }
+                                div { style: "display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;",
+                                    for c in allowed.iter() {
+                                        div { style: "padding:2px 8px; border-radius:999px; background:{color::PRIMARY_100}; color:{color::PRIMARY_700}; font-size:{typography::PI_SIZE};", "{c}" }
+                                    }
+                                }
+                                TextField {
+                                    value: form().get(&name).and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                                    label: String::new(),
+                                    placeholder: "Dynamic zone entries (JSON)".to_string(),
+                                    oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
+                                }
                             }
                         }
                     }
