@@ -31,6 +31,7 @@ enum Section {
     Roles,
     Users,
     ApiTokens,
+    Locales,
 }
 
 #[component]
@@ -52,6 +53,7 @@ pub fn Settings() -> Element {
             div { style: "{sidebar_style}",
                 div { style: "{header_style}", "Settings" }
                 span { style: "{section_label}", "GLOBAL SETTINGS" }
+                NavItem { label: "Internationalization".to_string(), icon: "globe".to_string(), active: section() == Section::Locales, onclick: move |_| section.set(Section::Locales) }
                 NavItem { label: "API Tokens".to_string(), icon: "key".to_string(), active: section() == Section::ApiTokens, onclick: move |_| section.set(Section::ApiTokens) }
                 span { style: "{section_label}", "ADMINISTRATION PANEL" }
                 NavItem { label: "Roles".to_string(), icon: "shield".to_string(), active: section() == Section::Roles, onclick: move |_| section.set(Section::Roles) }
@@ -62,7 +64,112 @@ pub fn Settings() -> Element {
                     Section::Roles => rsx! { RolesSection {} },
                     Section::Users => rsx! { UsersSection {} },
                     Section::ApiTokens => rsx! { ApiTokensSection {} },
+                    Section::Locales => rsx! { LocalesSection {} },
                 }
+            }
+        }
+    }
+}
+
+/// Internationalization locales list + create/delete (design doc §8.5).
+#[component]
+fn LocalesSection() -> Element {
+    let global = use_global();
+    let mut locales = use_signal(Vec::<serde_json::Value>::new);
+    let mut loaded = use_signal(|| false);
+    let mut status = use_signal(|| None::<String>);
+    let mut show_create = use_signal(|| false);
+    let mut locale_code = use_signal(String::new);
+
+    let g_load = global.clone();
+    use_effect(move || {
+        if !loaded() {
+            loaded.set(true);
+            let g = g_load.clone();
+            spawn(async move {
+                match g.client.i18n_list().await {
+                    Ok(v) => locales.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default()),
+                    Err(e) => status.set(Some(format!("Failed to load locales: {e}"))),
+                }
+            });
+        }
+    });
+
+    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
+    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let border = color::NEUTRAL_150;
+    let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
+    let locale_list = locales();
+    let g_create = global.clone();
+
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:16px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between;",
+                div { style: "{title_style}", "Internationalization" }
+                Button { label: "+ Add new locale".to_string(), variant: "primary".to_string(), on_click: move |_| show_create.set(true) }
+            }
+            if let Some(status) = status() {
+                div { style: "{status_style}", "{status}" }
+            }
+            Card { padding: 0,
+                table { style: "width:100%; border-collapse:collapse; background:#fff;",
+                    thead {
+                        tr { style: "border-bottom:1px solid {border};",
+                            th { style: "{th_style}", "Display name" }
+                            th { style: "{th_style}", "ISO code" }
+                            th { style: "{th_style}", "Default" }
+                        }
+                    }
+                    tbody {
+                        for l in locale_list.into_iter() {
+                            LocaleRow { locale: l }
+                        }
+                    }
+                }
+            }
+        }
+
+        if show_create() {
+            Modal { title: "Add a new locale".to_string(), width: 640, on_close: move |_| show_create.set(false),
+                TextField { value: "{locale_code}", label: "Locale code".to_string(), placeholder: "fr".to_string(), oninput: move |v| locale_code.set(v) }
+                div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
+                    Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_create.set(false) }
+                    Button { label: "Add".to_string(), variant: "primary".to_string(), on_click: move |_| {
+                        let g = g_create.clone();
+                        let req = api_types::admin::CreateLocaleRequest {
+                            code: locale_code(),
+                            name: None,
+                            is_default: Some(false),
+                        };
+                        show_create.set(false);
+                        spawn(async move {
+                            if let Ok(v) = g.client.i18n_create(&req).await {
+                                if let Some(l) = v.get("data").cloned() {
+                                    locales.write().push(l);
+                                }
+                            }
+                        });
+                    } }
+                }
+            }
+        }
+    }
+}
+
+/// A single locale row.
+#[component]
+fn LocaleRow(locale: serde_json::Value) -> Element {
+    let name = locale.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let code = locale.get("code").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let is_default = locale.get("isDefault").and_then(|n| n.as_bool()).unwrap_or(false);
+    let border = color::NEUTRAL_150;
+    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    rsx! {
+        tr { style: "border-bottom:1px solid {border};",
+            td { style: "{td_style}", "{name}" }
+            td { style: "{td_style}", "{code}" }
+            td { style: "{td_style}",
+                if is_default { Badge { text: "default".to_string(), kind: "published".to_string() } } else { span { "" } }
             }
         }
     }

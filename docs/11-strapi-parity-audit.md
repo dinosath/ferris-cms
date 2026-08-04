@@ -134,7 +134,9 @@ content-type via CTB → create entry → list → publish → public read):
 - ✅ (new) **Settings → Users UI now renders.** Lists admin users with Active
   status badges and an "Invite new user" modal (`POST /admin/users`, covered by
   the integration test).
-- 🟡 i18n settings UI remain a placeholder.
+- ✅ (new) **Settings → Internationalization UI.** The Settings screen gains a
+  locales section (list + add modal) wired to the existing `/admin/i18n/locales`
+  endpoints (list/create/delete), covered by the integration test.
 - ✅ (new) **Media Library backend + UI.** `services::media` now stores uploads on
   disk under `media_storage_dir` and records them in `upload_file`; `POST
   /admin/upload/files` (multipart) and `GET /admin/upload/files` are auth-protected
@@ -168,8 +170,9 @@ schema-driven forms.
 - ✅ **State badges** (Draft/Published) and bulk-action bar.
 
 ### Remaining gaps 🟡
-- ❌ **Media Library** thumbnails/folders and **Settings** i18n
-  locale screens remain (Media Library list+upload, Roles, Users, and API Tokens are done).
+- ❌ **Media Library** thumbnails/folders and **Settings** webhooks / transfer
+  token screens remain (Media Library list+upload, Roles, Users, API Tokens, and
+  i18n locales are done).
 - 🟡 No toast system, confirm dialogs, or skeleton loaders (status banners used
   instead).
 - 🟡 No rich-text (Blocks/Markdown), media picker, relation input, component /

@@ -316,6 +316,44 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(delete_token.status(), StatusCode::OK, "delete api token");
 
+    // 10c. i18n locales: list (seeded `en`), create, delete.
+    let locales = router
+        .clone()
+        .oneshot(empty_request("GET", "/admin/i18n/locales", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(locales.status(), StatusCode::OK, "i18n locales list");
+    let locales_json = body_json(locales).await;
+    assert!(locales_json["data"].as_array().unwrap().len() >= 1, "at least seeded en");
+
+    let create_locale = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/i18n/locales",
+            serde_json::json!({ "code": "fr", "name": "French (fr)", "isDefault": false }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_locale.status(), StatusCode::OK, "create locale");
+    let locale_json = body_json(create_locale).await;
+    let locale_id = locale_json["data"]["id"].as_i64().expect("locale id");
+
+    let delete_locale = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/admin/i18n/locales/{locale_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("delete request"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_locale.status(), StatusCode::OK, "delete locale");
+
     // 11. Media upload + list (Media Library data source).
     let multipart_body = concat!(
         "--XXXX\r\n",

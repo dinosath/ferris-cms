@@ -343,6 +343,27 @@ impl Client {
         self.transport.get_json("/admin/api-tokens").await
     }
 
+    // -- i18n locales --
+
+    /// List locales.
+    pub async fn i18n_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/i18n/locales").await
+    }
+
+    /// Create a locale.
+    pub async fn i18n_create(
+        &self,
+        req: &api_types::admin::CreateLocaleRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = serde_json::to_value(req)?;
+        self.transport.post_json("/admin/i18n/locales", &body).await
+    }
+
+    /// Delete a locale by id.
+    pub async fn i18n_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/i18n/locales/{id}")).await
+    }
+
     /// Create an API token; returns the raw access key once.
     pub async fn api_token_create(
         &self,
