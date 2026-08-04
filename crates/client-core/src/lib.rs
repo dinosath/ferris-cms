@@ -231,6 +231,32 @@ impl Client {
             .await?;
         Ok(serde_json::from_value(v)?)
     }
+
+    // -- Admin RBAC / Settings --
+
+    /// List admin roles.
+    pub async fn roles_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/roles").await
+    }
+
+    /// Get one admin role by id.
+    pub async fn role_get(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json(&format!("/admin/roles/{id}")).await
+    }
+
+    /// Replace a role's permissions.
+    pub async fn role_update_permissions(
+        &self,
+        id: i64,
+        permissions: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .put_json(
+                &format!("/admin/roles/{id}/permissions"),
+                &serde_json::json!({ "permissions": permissions }),
+            )
+            .await
+    }
 }
 
 /// Simple query string builder for QueryParams.

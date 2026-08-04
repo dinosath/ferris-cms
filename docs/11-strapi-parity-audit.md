@@ -117,9 +117,11 @@ content-type via CTB → create entry → list → publish → public read):
   the UI's field lookups.
 
 ### Remaining gaps 🟡
-- 🟡 The RBAC **UI** (Settings → Roles permission matrix) is still a placeholder;
-  the backend DTOs (`AdminPermissionDto`, `UpdateRolePermissionsRequest`) and
-  endpoints (`/admin/roles/*/permissions`) exist.
+- ✅ (new) **Settings → Roles UI now renders.** `crates/app/src/screens/settings.rs` lists
+  the seeded roles and opens a per-role content-manager permission matrix
+  (create/read/update/delete/publish), persisting via `PUT /admin/roles/{id}/permissions`
+  (covered by the integration test).
+- 🟡 Users / API Tokens / i18n settings UI remain placeholders.
 - 🟡 Field-level permissions/conditions are stored (`properties`, `conditions`)
   but not yet evaluated against field attributes.
 - 🟡 The SeaORM table-level RBAC (`register_content_table`) runs in parallel; it

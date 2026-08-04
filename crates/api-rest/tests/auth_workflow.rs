@@ -103,6 +103,16 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(authed.status(), StatusCode::OK);
 
+    // 3b. Roles endpoint returns the seeded roles (data source for the UI).
+    let roles_resp = body_json(authed).await;
+    let roles = roles_resp["data"].as_array().expect("roles array");
+    assert!(!roles.is_empty());
+    let editor = roles
+        .iter()
+        .find(|r| r["code"] == "strapi-editor")
+        .expect("editor role seeded");
+    let editor_id = editor["id"].as_i64().expect("editor id");
+
     // 4. Create a content-type via the Content-Type Builder.
     let ct = serde_json::json!({
         "uid": "api::article.article",
@@ -183,4 +193,19 @@ async fn full_admin_workflow() {
         .await
         .unwrap();
     assert_eq!(public.status(), StatusCode::OK, "public read");
+
+    // 9. RBAC UI data source: update a role's permissions persists (200).
+    let update_perms = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("/admin/roles/{editor_id}/permissions"),
+            serde_json::json!({ "permissions": [
+                { "action": "plugin::content-manager.explorer.read", "subject": "*", "properties": {}, "conditions": [] }
+            ] }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(update_perms.status(), StatusCode::OK, "role permissions update");
 }
