@@ -28,6 +28,7 @@ use services::{
     i18n_delete as svc_i18n_delete,
     media_list as svc_media_list,
     media_upload as svc_media_upload,
+    api_token_list, api_token_create, api_token_delete,
     rbac_list_roles, rbac_get_role, rbac_update_permissions,
     rbac_list_users, rbac_create_user,
 };
@@ -80,6 +81,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/roles/{id}", get(rbac_role_handler))
         .route("/admin/roles/{id}/permissions", put(rbac_permissions_handler))
         .route("/admin/users", get(rbac_users_handler).post(rbac_create_user_handler))
+        // API tokens
+        .route("/admin/api-tokens", get(api_tokens_list_handler).post(api_tokens_create_handler))
+        .route("/admin/api-tokens/{id}", delete(api_tokens_delete_handler))
         // Media
         .route("/admin/upload/files", get(media_list_handler).post(media_upload_handler));
 
@@ -378,6 +382,31 @@ async fn rbac_create_user_handler(
 ) -> Result<impl IntoResponse, error::AppError> {
     let user = rbac_create_user(&admin.0, &req).await?;
     Ok(Json(serde_json::json!({ "data": user })))
+}
+
+// ---------------------------------------------------------------------------
+// API tokens handlers
+// ---------------------------------------------------------------------------
+
+async fn api_tokens_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let tokens = api_token_list(&admin.0).await?;
+    Ok(Json(serde_json::json!({ "data": tokens })))
+}
+
+async fn api_tokens_create_handler(
+    admin: auth::AdminCtx,
+    Json(req): Json<api_types::admin::CreateApiTokenRequest>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let token = api_token_create(&admin.0, &req).await?;
+    Ok(Json(serde_json::json!({ "data": token })))
+}
+
+async fn api_tokens_delete_handler(
+    admin: auth::AdminCtx,
+    Path(id): Path<i64>,
+) -> Result<impl IntoResponse, error::AppError> {
+    api_token_delete(&admin.0, id).await?;
+    Ok(Json(serde_json::json!({ "data": null })))
 }
 
 // ---------------------------------------------------------------------------

@@ -336,6 +336,27 @@ impl Client {
         self.transport.get_json("/admin/upload/files").await
     }
 
+    // -- API tokens --
+
+    /// List API tokens.
+    pub async fn api_tokens_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/api-tokens").await
+    }
+
+    /// Create an API token; returns the raw access key once.
+    pub async fn api_token_create(
+        &self,
+        req: &api_types::admin::CreateApiTokenRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = serde_json::to_value(req)?;
+        self.transport.post_json("/admin/api-tokens", &body).await
+    }
+
+    /// Delete an API token by id.
+    pub async fn api_token_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/api-tokens/{id}")).await
+    }
+
     /// Upload a file as multipart. Returns the JSON `{ "data": [...] }`.
     pub async fn media_upload(
         &self,

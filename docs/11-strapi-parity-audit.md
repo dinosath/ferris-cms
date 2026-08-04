@@ -134,12 +134,16 @@ content-type via CTB → create entry → list → publish → public read):
 - ✅ (new) **Settings → Users UI now renders.** Lists admin users with Active
   status badges and an "Invite new user" modal (`POST /admin/users`, covered by
   the integration test).
-- 🟡 API Tokens / i18n settings UI remain placeholders.
+- 🟡 i18n settings UI remain a placeholder.
 - ✅ (new) **Media Library backend + UI.** `services::media` now stores uploads on
   disk under `media_storage_dir` and records them in `upload_file`; `POST
   /admin/upload/files` (multipart) and `GET /admin/upload/files` are auth-protected
   and covered by the integration test. The `/uploads` route serves stored files.
   `crates/app/src/screens/media.rs` renders the asset grid with an upload control.
+- ✅ (new) **Settings → API Tokens UI.** `services::api_tokens` implements list,
+  create (raw access key returned once, only SHA-256 hash stored), and delete;
+  `crates/app/src/screens/settings.rs` renders the API Tokens section (list +
+  create modal). Endpoints are auth-protected and covered by the integration test.
 - 🟡 Media thumbnails, folders, and the media picker inside entry forms remain.
 - 🟡 Field-level permissions/conditions are stored (`properties`, `conditions`)
   but not yet evaluated against field attributes.
@@ -164,8 +168,8 @@ schema-driven forms.
 - ✅ **State badges** (Draft/Published) and bulk-action bar.
 
 ### Remaining gaps 🟡
-- ❌ **Media Library** thumbnails/folders and **Settings** API Tokens / i18n
-  locale screens remain (Media Library list+upload, Roles, and Users are done).
+- ❌ **Media Library** thumbnails/folders and **Settings** i18n
+  locale screens remain (Media Library list+upload, Roles, Users, and API Tokens are done).
 - 🟡 No toast system, confirm dialogs, or skeleton loaders (status banners used
   instead).
 - 🟡 No rich-text (Blocks/Markdown), media picker, relation input, component /

@@ -13,6 +13,7 @@
 //! - `schema_cache` — lock-free schema cache (arc-swap), rebuilt on save
 
 mod auth;
+mod api_tokens;
 mod content;
 mod content_type_builder;
 mod i18n;
@@ -21,6 +22,7 @@ mod rbac;
 mod schema_cache;
 
 pub use auth::*;
+pub use api_tokens::*;
 pub use content::*;
 pub use content_type_builder::*;
 pub use i18n::*;

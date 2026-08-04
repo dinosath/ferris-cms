@@ -278,6 +278,44 @@ async fn full_admin_workflow() {
     let created = body_json(create_user).await;
     assert_eq!(created["data"]["email"], "author@test.dev");
 
+    // 10b. API tokens: list, create (returns raw key once), delete.
+    let api_tokens = router
+        .clone()
+        .oneshot(empty_request("GET", "/admin/api-tokens", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(api_tokens.status(), StatusCode::OK, "api tokens list");
+
+    let create_token = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/api-tokens",
+            serde_json::json!({ "name": "Test token", "type": "read-only" }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_token.status(), StatusCode::OK, "create api token");
+    let tok_json = body_json(create_token).await;
+    let raw_key = tok_json["data"]["accessKey"].as_str().expect("raw access key returned");
+    assert!(raw_key.starts_with("ferris_"), "access key prefix");
+    let token_id = tok_json["data"]["id"].as_i64().expect("token id");
+
+    let delete_token = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/admin/api-tokens/{token_id}"))
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())
+                .expect("delete request"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete_token.status(), StatusCode::OK, "delete api token");
+
     // 11. Media upload + list (Media Library data source).
     let multipart_body = concat!(
         "--XXXX\r\n",

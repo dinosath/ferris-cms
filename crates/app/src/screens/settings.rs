@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Modal, NavItem, TextField};
+use crate::components::{Badge, Button, Card, Dropdown, Modal, NavItem, TextField};
 
 /// The five Strapi content-manager explorer actions, in display order.
 const ACTIONS: [(&str, &str); 5] = [
@@ -30,6 +30,7 @@ fn action_key(action: &str) -> String {
 enum Section {
     Roles,
     Users,
+    ApiTokens,
 }
 
 #[component]
@@ -50,6 +51,8 @@ pub fn Settings() -> Element {
         div { style: "display:flex; min-height:100vh;",
             div { style: "{sidebar_style}",
                 div { style: "{header_style}", "Settings" }
+                span { style: "{section_label}", "GLOBAL SETTINGS" }
+                NavItem { label: "API Tokens".to_string(), icon: "key".to_string(), active: section() == Section::ApiTokens, onclick: move |_| section.set(Section::ApiTokens) }
                 span { style: "{section_label}", "ADMINISTRATION PANEL" }
                 NavItem { label: "Roles".to_string(), icon: "shield".to_string(), active: section() == Section::Roles, onclick: move |_| section.set(Section::Roles) }
                 NavItem { label: "Users".to_string(), icon: "users".to_string(), active: section() == Section::Users, onclick: move |_| section.set(Section::Users) }
@@ -58,8 +61,131 @@ pub fn Settings() -> Element {
                 match section() {
                     Section::Roles => rsx! { RolesSection {} },
                     Section::Users => rsx! { UsersSection {} },
+                    Section::ApiTokens => rsx! { ApiTokensSection {} },
                 }
             }
+        }
+    }
+}
+
+/// API Tokens list + create/delete (design doc §8.4).
+#[component]
+fn ApiTokensSection() -> Element {
+    let global = use_global();
+    let mut tokens = use_signal(Vec::<serde_json::Value>::new);
+    let mut loaded = use_signal(|| false);
+    let mut status = use_signal(|| None::<String>);
+    let mut show_create = use_signal(|| false);
+    let mut token_name = use_signal(String::new);
+    let mut token_type = use_signal(|| "read-only".to_string());
+
+    let g_load = global.clone();
+    use_effect(move || {
+        if !loaded() {
+            loaded.set(true);
+            let g = g_load.clone();
+            spawn(async move {
+                match g.client.api_tokens_list().await {
+                    Ok(v) => tokens.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default()),
+                    Err(e) => status.set(Some(format!("Failed to load API tokens: {e}"))),
+                }
+            });
+        }
+    });
+
+    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
+    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let border = color::NEUTRAL_150;
+    let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
+    let token_list = tokens();
+    let g_create = global.clone();
+
+    let token_type_options: Vec<(String, String)> = vec![
+        ("read-only".to_string(), "Read-only".to_string()),
+        ("full-access".to_string(), "Full access".to_string()),
+        ("custom".to_string(), "Custom".to_string()),
+    ];
+
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:16px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between;",
+                div { style: "{title_style}", "API Tokens" }
+                Button { label: "+ Create new API token".to_string(), variant: "primary".to_string(), on_click: move |_| show_create.set(true) }
+            }
+            if let Some(status) = status() {
+                div { style: "{status_style}", "{status}" }
+            }
+            Card { padding: 0,
+                table { style: "width:100%; border-collapse:collapse; background:#fff;",
+                    thead {
+                        tr { style: "border-bottom:1px solid {border};",
+                            th { style: "{th_style}", "Name" }
+                            th { style: "{th_style}", "Description" }
+                            th { style: "{th_style}", "Type" }
+                        }
+                    }
+                    tbody {
+                        for t in token_list.into_iter() {
+                            ApiTokenRow { token: t }
+                        }
+                    }
+                }
+            }
+        }
+
+        if show_create() {
+            Modal { title: "Create a new API token".to_string(), width: 640, on_close: move |_| show_create.set(false),
+                TextField { value: "{token_name}", label: "Name".to_string(), placeholder: "My API token".to_string(), oninput: move |v| token_name.set(v) }
+                Dropdown {
+                    label: "Token type".to_string(),
+                    options: token_type_options,
+                    value: "{token_type}",
+                    onchange: move |v| token_type.set(v),
+                }
+                div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
+                    Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_create.set(false) }
+                    Button { label: "Create".to_string(), variant: "primary".to_string(), on_click: move |_| {
+                        let g = g_create.clone();
+                        let ty = match token_type().as_str() {
+                            "full-access" => core_domain::ApiTokenType::FullAccess,
+                            "custom" => core_domain::ApiTokenType::Custom,
+                            _ => core_domain::ApiTokenType::ReadOnly,
+                        };
+                        let req = api_types::admin::CreateApiTokenRequest {
+                            name: token_name(),
+                            description: None,
+                            token_type: ty,
+                            lifespan: None,
+                            permissions: vec![],
+                        };
+                        show_create.set(false);
+                        spawn(async move {
+                            if let Ok(v) = g.client.api_token_create(&req).await {
+                                if let Some(t) = v.get("data").cloned() {
+                                    tokens.write().push(t);
+                                }
+                            }
+                        });
+                    } }
+                }
+            }
+        }
+    }
+}
+
+/// A single API token row.
+#[component]
+fn ApiTokenRow(token: serde_json::Value) -> Element {
+    let name = token.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let desc = token.get("description").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let ty = token.get("type").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let border = color::NEUTRAL_150;
+    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    rsx! {
+        tr { style: "border-bottom:1px solid {border};",
+            td { style: "{td_style}", "{name}" }
+            td { style: "{td_style}", "{desc}" }
+            td { style: "{td_style}", "{ty}" }
         }
     }
 }
