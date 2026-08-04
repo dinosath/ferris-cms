@@ -125,6 +125,12 @@ content-type via CTB → create entry → list → publish → public read):
   status badges and an "Invite new user" modal (`POST /admin/users`, covered by
   the integration test).
 - 🟡 API Tokens / i18n settings UI remain placeholders.
+- ✅ (new) **Media Library backend + UI.** `services::media` now stores uploads on
+  disk under `media_storage_dir` and records them in `upload_file`; `POST
+  /admin/upload/files` (multipart) and `GET /admin/upload/files` are auth-protected
+  and covered by the integration test. The `/uploads` route serves stored files.
+  `crates/app/src/screens/media.rs` renders the asset grid with an upload control.
+- 🟡 Media thumbnails, folders, and the media picker inside entry forms remain.
 - 🟡 Field-level permissions/conditions are stored (`properties`, `conditions`)
   but not yet evaluated against field attributes.
 - 🟡 The SeaORM table-level RBAC (`register_content_table`) runs in parallel; it

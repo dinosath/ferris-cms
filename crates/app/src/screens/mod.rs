@@ -7,3 +7,4 @@ pub mod home;
 pub mod content_type_builder;
 pub mod content_manager;
 pub mod settings;
+pub mod media;

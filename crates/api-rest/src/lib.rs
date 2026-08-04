@@ -27,6 +27,7 @@ use services::{
     i18n_list as svc_i18n_list, i18n_create as svc_i18n_create,
     i18n_delete as svc_i18n_delete,
     media_list as svc_media_list,
+    media_upload as svc_media_upload,
     rbac_list_roles, rbac_get_role, rbac_update_permissions,
     rbac_list_users, rbac_create_user,
 };
@@ -80,11 +81,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/roles/{id}/permissions", put(rbac_permissions_handler))
         .route("/admin/users", get(rbac_users_handler).post(rbac_create_user_handler))
         // Media
-        .route("/admin/upload/files", get(media_list_handler));
+        .route("/admin/upload/files", get(media_list_handler).post(media_upload_handler));
+
+    // Serve uploaded media files from the storage directory.
+    let media_serve = Router::new().nest_service(
+        "/uploads",
+        tower_http::services::ServeDir::new(&state.ctx.config.media_storage_dir),
+    );
 
     Router::new()
         .merge(public_api)
         .merge(admin)
+        .merge(media_serve)
         .with_state(state)
 }
 
@@ -379,4 +387,36 @@ async fn rbac_create_user_handler(
 async fn media_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
     let files = svc_media_list(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": files })))
+}
+
+async fn media_upload_handler(
+    admin: auth::AdminCtx,
+    mut multipart: axum::extract::Multipart,
+) -> Result<impl IntoResponse, error::AppError> {
+    // Collect the first file field from the multipart body.
+    let mut uploaded = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| ServiceError::internal(format!("multipart field: {e}")))? {
+        let filename = field.file_name().unwrap_or("file").to_string();
+        let mime = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let data = field
+            .bytes()
+            .await
+            .map_err(|e| ServiceError::internal(format!("multipart bytes: {e}")))?;
+        let file = svc_media_upload(&admin.0, &filename, &mime, &data).await?;
+        uploaded.push(file);
+    }
+    if uploaded.is_empty() {
+        return Err(ServiceError::validation("upload", vec![
+            services::ValidationErrorItem::new(
+                vec!["files".into()],
+                "no file provided in multipart body",
+                "ValidationError",
+            ),
+        ])
+        .into());
+    }
+    Ok(Json(serde_json::json!({ "data": uploaded })))
 }

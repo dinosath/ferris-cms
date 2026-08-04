@@ -34,6 +34,11 @@ pub trait ApiTransport: Send + Sync {
     async fn put_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError>;
     async fn delete_json(&self, path: &str) -> Result<serde_json::Value, ClientError>;
     fn set_token(&self, token: Option<String>);
+    /// Downcast to the concrete HTTP transport, if this is one.
+    /// Returns `None` for non-HTTP (e.g. future in-process) transports.
+    fn as_http(&self) -> Option<&HttpTransport> {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -54,10 +59,26 @@ impl HttpTransport {
             client: reqwest::Client::new(),
         }
     }
+
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    pub fn token(&self) -> Option<String> {
+        self.token.read().clone()
+    }
 }
 
 #[async_trait(?Send)]
 impl ApiTransport for HttpTransport {
+    fn as_http(&self) -> Option<&HttpTransport> {
+        Some(self)
+    }
+
     async fn get_json(&self, path: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.get(&url);
@@ -270,6 +291,40 @@ impl Client {
     ) -> Result<serde_json::Value, ClientError> {
         let body = serde_json::to_value(req)?;
         self.transport.post_json("/admin/users", &body).await
+    }
+
+    // -- Media --
+
+    /// List media files.
+    pub async fn media_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/upload/files").await
+    }
+
+    /// Upload a file as multipart. Returns the JSON `{ "data": [...] }`.
+    pub async fn media_upload(
+        &self,
+        filename: &str,
+        mime: &str,
+        data: &[u8],
+    ) -> Result<serde_json::Value, ClientError> {
+        use reqwest::multipart::{Form, Part};
+        // HTTP-only path: the offline transport resolves to an HTTP client too.
+        let http = self
+            .transport
+            .as_http()
+            .ok_or_else(|| ClientError::NotConnected)?;
+        let url = format!("{}/admin/upload/files", http.base_url());
+        let part = Part::bytes(data.to_vec())
+            .file_name(filename.to_string())
+            .mime_str(mime)
+            .map_err(|e| ClientError::Service(e.to_string()))?;
+        let form = Form::new().part("files", part);
+        let mut req = http.client().post(&url).multipart(form);
+        if let Some(tok) = http.token().as_ref() {
+            req = req.bearer_auth(tok);
+        }
+        let resp = req.send().await?;
+        Ok(resp.json().await?)
     }
 }
 

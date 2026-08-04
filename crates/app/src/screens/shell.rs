@@ -5,7 +5,7 @@ use ui::design::tokens::{SIDEBAR_WIDTH, color, typography};
 
 use crate::app::{Route, use_global};
 use crate::components::{Icon, NavItem};
-use crate::screens::{content_manager, content_type_builder, home, settings};
+use crate::screens::{content_manager, content_type_builder, home, media, settings};
 
 #[component]
 pub fn Shell() -> Element {
@@ -20,7 +20,7 @@ pub fn Shell() -> Element {
                     Route::Home => rsx! { home::Home {} },
                     Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
                     Route::ContentManager => rsx! { content_manager::ContentManager {} },
-                    Route::Media => rsx! { MediaPlaceholder {} },
+                    Route::Media => rsx! { media::MediaLibrary {} },
                     Route::Settings => rsx! { settings::Settings {} },
                     _ => rsx! { home::Home {} },
                 }
@@ -92,18 +92,6 @@ fn Sidebar() -> Element {
                     Icon { name: "external_link".to_string(), size: 18 }
                 }
             }
-        }
-    }
-}
-
-#[component]
-fn MediaPlaceholder() -> Element {
-    let title_style = format!("font-size:{}; font-weight:600; color:{}; border-bottom:1px solid {}; padding-bottom:16px;", typography::BETA_SIZE, color::NEUTRAL_900, color::NEUTRAL_150);
-    let body_style = format!("padding-top:32px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_600);
-    rsx! {
-        div { style: "padding:32px;",
-            div { style: "{title_style}", "Media Library" }
-            div { style: "{body_style}", "Asset management is coming soon." }
         }
     }
 }

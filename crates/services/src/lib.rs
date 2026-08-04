@@ -138,6 +138,8 @@ pub struct AppConfig {
     pub jwt_expiry_secs: i64,
     /// Whether to serve the admin registration endpoint.
     pub admin_registration_open: bool,
+    /// Directory for storing uploaded media files.
+    pub media_storage_dir: String,
 }
 
 impl Default for AppConfig {
@@ -147,6 +149,7 @@ impl Default for AppConfig {
             jwt_secret: "change-me-in-production".into(),
             jwt_expiry_secs: 30 * 24 * 3600,
             admin_registration_open: true,
+            media_storage_dir: "media".into(),
         }
     }
 }

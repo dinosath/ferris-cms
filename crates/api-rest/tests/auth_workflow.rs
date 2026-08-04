@@ -21,6 +21,7 @@ fn app_config() -> AppConfig {
         jwt_secret: "test-secret".into(),
         jwt_expiry_secs: 3600,
         admin_registration_open: true,
+        media_storage_dir: std::env::temp_dir().join("ferris-media-test").display().to_string(),
     }
 }
 
@@ -235,4 +236,40 @@ async fn full_admin_workflow() {
     assert_eq!(create_user.status(), StatusCode::OK, "create admin user");
     let created = body_json(create_user).await;
     assert_eq!(created["data"]["email"], "author@test.dev");
+
+    // 11. Media upload + list (Media Library data source).
+    let multipart_body = concat!(
+        "--XXXX\r\n",
+        "Content-Disposition: form-data; name=\"files\"; filename=\"cat.png\"\r\n",
+        "Content-Type: image/png\r\n\r\n",
+        "fakepngbytes\r\n",
+        "--XXXX--\r\n",
+    );
+    let upload = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/admin/upload/files")
+                .header(header::CONTENT_TYPE, "multipart/form-data; boundary=XXXX")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::from(multipart_body.to_string()))
+                .expect("upload request"),
+        )
+        .await
+        .unwrap();
+    assert_eq!(upload.status(), StatusCode::OK, "media upload");
+    let upload_json = body_json(upload).await;
+    let uploaded = &upload_json["data"][0];
+    assert_eq!(uploaded["name"], "cat.png");
+    assert!(!uploaded["url"].as_str().unwrap_or("").is_empty());
+
+    let media = router
+        .clone()
+        .oneshot(empty_request("GET", "/admin/upload/files", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(media.status(), StatusCode::OK, "media list");
+    let media_json = body_json(media).await;
+    assert!(!media_json["data"].as_array().unwrap().is_empty());
 }

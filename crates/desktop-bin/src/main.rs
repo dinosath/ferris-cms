@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         jwt_secret: std::env::var("JWT_SECRET").unwrap_or_else(|_| "desktop-local-dev".into()),
         jwt_expiry_secs: 30 * 24 * 3600,
         admin_registration_open: true,
+        media_storage_dir: std::env::var("MEDIA_STORAGE_DIR").unwrap_or_else(|_| "media".into()),
     };
 
     let state = Arc::new(AppState::new(db.clone(), config));
