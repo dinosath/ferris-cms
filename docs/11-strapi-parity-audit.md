@@ -30,7 +30,8 @@ directly in the edit view.
   publish per content-type (see §3).
 
 ### Remaining gaps 🟡
-- No per-row edit/delete action buttons (bulk delete exists; edit is click-on-row).
+- ✅ (new) **Per-row edit/delete actions.** Each CM list row now has ✎ (edit) and
+  🗑 (delete) action buttons, alongside click-to-open and bulk selection.
 - ✅ (new) **Discard changes control.** The entry edit view now exposes a
   "Discard changes" button (`/actions/discard`), covered by the integration test.
 - ✅ (new) **Configure the view modal.** The list toolbar has a "Configure the

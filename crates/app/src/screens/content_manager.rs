@@ -188,6 +188,34 @@ pub fn ContentManager() -> Element {
         }
         selected_ids.set(ids);
     };
+    let delete_global = global.clone();
+    let delete_entry = move |id: String| {
+        let g = delete_global.clone();
+        let uid = selected_uid().unwrap_or_default();
+        spawn(async move {
+            let _ = g.client.cm_delete(&uid, &id).await;
+            let params = QueryParams {
+                pagination: Some(PaginationParams::Page { page: page(), page_size: page_size(), with_count: Some(true) }),
+                ..Default::default()
+            };
+            if let Ok(resp) = g.client.cm_list(&uid, &params).await {
+                total.set(resp.meta.pagination.as_ref().map(|p| p.total).unwrap_or(0));
+                entries.set(resp.data);
+            }
+        });
+    };
+    let edit_global = global.clone();
+    let edit_entry = move |id: String| {
+        editing_doc.set(Some(id.clone()));
+        let g = edit_global.clone();
+        let uid = selected_uid().unwrap_or_default();
+        spawn(async move {
+            match g.client.cm_get(&uid, &id).await {
+                Ok(resp) => editing_map.set(resp.data.as_object().cloned().unwrap_or_default()),
+                Err(_) => editing_map.set(serde_json::Map::new()),
+            }
+        });
+    };
 
     if show_edit {
         if let Some(schema) = selected.clone() {
@@ -369,6 +397,7 @@ pub fn ContentManager() -> Element {
                                                 ("main".to_string(), main_field.clone()),
                                                 ("state".to_string(), "State".to_string()),
                                                 ("updatedAt".to_string(), "Updated At".to_string()),
+                                                ("actions".to_string(), String::new()),
                                             ] {
                                                 th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600};", "{label}" }
                                             }
@@ -384,6 +413,8 @@ pub fn ContentManager() -> Element {
                                                 selected,
                                                 on_open_entry: open_entry.clone(),
                                                 on_toggle_entry: toggle_entry.clone(),
+                                                on_edit: edit_entry.clone(),
+                                                on_delete: delete_entry.clone(),
                                             }
                                         }
                                     }
@@ -561,11 +592,16 @@ fn EntryRow(
     selected: bool,
     on_open_entry: EventHandler<String>,
     on_toggle_entry: EventHandler<(String, bool)>,
+    on_edit: EventHandler<String>,
+    on_delete: EventHandler<String>,
 ) -> Element {
     let gid = id.clone();
     let tid = id.clone();
+    let eid = id.clone();
+    let did = id.clone();
     let border = color::NEUTRAL_150;
     let td_style = "padding:10px 16px;";
+    let action_btn = "background:none; border:none; color:{color::NEUTRAL_500}; cursor:pointer; font-size:14px;";
     rsx! {
         tr {
             style: "border-bottom:1px solid {border}; cursor:pointer;",
@@ -583,6 +619,12 @@ fn EntryRow(
                 Badge { text: state.clone(), kind: state.clone() }
             }
             td { style: "padding:10px 16px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "{updated}" }
+            td { style: "padding:10px 16px;",
+                div { style: "display:flex; gap:8px;",
+                    button { style: "{action_btn}", onclick: move |e| { e.stop_propagation(); on_edit.call(eid.clone()); }, "✎" }
+                    button { style: "{action_btn}", onclick: move |e| { e.stop_propagation(); on_delete.call(did.clone()); }, "🗑" }
+                }
+            }
         }
     }
 }
