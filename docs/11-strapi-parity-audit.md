@@ -121,7 +121,10 @@ content-type via CTB → create entry → list → publish → public read):
   the seeded roles and opens a per-role content-manager permission matrix
   (create/read/update/delete/publish), persisting via `PUT /admin/roles/{id}/permissions`
   (covered by the integration test).
-- 🟡 Users / API Tokens / i18n settings UI remain placeholders.
+- ✅ (new) **Settings → Users UI now renders.** Lists admin users with Active
+  status badges and an "Invite new user" modal (`POST /admin/users`, covered by
+  the integration test).
+- 🟡 API Tokens / i18n settings UI remain placeholders.
 - 🟡 Field-level permissions/conditions are stored (`properties`, `conditions`)
   but not yet evaluated against field attributes.
 - 🟡 The SeaORM table-level RBAC (`register_content_table`) runs in parallel; it

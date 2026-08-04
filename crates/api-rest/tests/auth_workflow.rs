@@ -208,4 +208,31 @@ async fn full_admin_workflow() {
         .await
         .unwrap();
     assert_eq!(update_perms.status(), StatusCode::OK, "role permissions update");
+
+    // 10. Users UI data source: list + create admin users.
+    let users = router
+        .clone()
+        .oneshot(empty_request("GET", "/admin/users", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(users.status(), StatusCode::OK, "users list");
+
+    let create_user = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/users",
+            serde_json::json!({
+                "email": "author@test.dev",
+                "firstname": "An",
+                "lastname": "Author",
+                "isActive": true
+            }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_user.status(), StatusCode::OK, "create admin user");
+    let created = body_json(create_user).await;
+    assert_eq!(created["data"]["email"], "author@test.dev");
 }

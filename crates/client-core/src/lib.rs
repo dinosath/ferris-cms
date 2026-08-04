@@ -257,6 +257,20 @@ impl Client {
             )
             .await
     }
+
+    /// List admin users.
+    pub async fn users_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/users").await
+    }
+
+    /// Create an admin user.
+    pub async fn user_create(
+        &self,
+        req: &api_types::admin::CreateAdminUserRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = serde_json::to_value(req)?;
+        self.transport.post_json("/admin/users", &body).await
+    }
 }
 
 /// Simple query string builder for QueryParams.

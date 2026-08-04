@@ -10,7 +10,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Button, Card, Modal, NavItem};
+use crate::components::{Badge, Button, Card, Modal, NavItem, TextField};
 
 /// The five Strapi content-manager explorer actions, in display order.
 const ACTIONS: [(&str, &str); 5] = [
@@ -57,12 +57,124 @@ pub fn Settings() -> Element {
             div { style: "flex:1; min-width:0; padding:32px;",
                 match section() {
                     Section::Roles => rsx! { RolesSection {} },
-                    Section::Users => rsx! {
-                        div { style: "color:{color::NEUTRAL_500}; padding:32px; text-align:center;",
-                            "User management is coming soon."
-                        }
-                    },
+                    Section::Users => rsx! { UsersSection {} },
                 }
+            }
+        }
+    }
+}
+
+/// Users list + invite-new-user modal.
+#[component]
+fn UsersSection() -> Element {
+    let global = use_global();
+    let mut users = use_signal(Vec::<serde_json::Value>::new);
+    let mut loaded = use_signal(|| false);
+    let mut status = use_signal(|| None::<String>);
+    let mut show_invite = use_signal(|| false);
+    let mut invite_email = use_signal(String::new);
+    let mut invite_first = use_signal(String::new);
+    let mut invite_last = use_signal(String::new);
+
+    let g_load = global.clone();
+    use_effect(move || {
+        if !loaded() {
+            loaded.set(true);
+            let g = g_load.clone();
+            spawn(async move {
+                match g.client.users_list().await {
+                    Ok(v) => {
+                        users.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default());
+                    }
+                    Err(e) => status.set(Some(format!("Failed to load users: {e}"))),
+                }
+            });
+        }
+    });
+
+    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
+    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let border = color::NEUTRAL_150;
+    let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
+    let user_list = users();
+    let g_invite = global.clone();
+
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:16px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between;",
+                div { style: "{title_style}", "Users" }
+                Button { label: "+ Invite new user".to_string(), variant: "primary".to_string(), on_click: move |_| show_invite.set(true) }
+            }
+            if let Some(status) = status() {
+                div { style: "{status_style}", "{status}" }
+            }
+            Card { padding: 0,
+                table { style: "width:100%; border-collapse:collapse; background:#fff;",
+                    thead {
+                        tr { style: "border-bottom:1px solid {border};",
+                            th { style: "{th_style}", "Email" }
+                            th { style: "{th_style}", "First name" }
+                            th { style: "{th_style}", "Last name" }
+                            th { style: "{th_style}", "Active" }
+                        }
+                    }
+                    tbody {
+                        for u in user_list.into_iter() {
+                            UserRow { user: u }
+                        }
+                    }
+                }
+            }
+        }
+
+        if show_invite() {
+            Modal { title: "Invite a new user".to_string(), width: 640, on_close: move |_| show_invite.set(false),
+                TextField { value: "{invite_email}", label: "Email".to_string(), placeholder: "kai@doe.com".to_string(), oninput: move |v| invite_email.set(v) }
+                TextField { value: "{invite_first}", label: "First name".to_string(), placeholder: "Kai".to_string(), oninput: move |v| invite_first.set(v) }
+                TextField { value: "{invite_last}", label: "Last name".to_string(), placeholder: "Doe".to_string(), oninput: move |v| invite_last.set(v) }
+                div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
+                    Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_invite.set(false) }
+                    Button { label: "Invite".to_string(), variant: "primary".to_string(), on_click: move |_| {
+                        let g = g_invite.clone();
+                        let req = api_types::admin::CreateAdminUserRequest {
+                            email: invite_email(),
+                            firstname: Some(invite_first()),
+                            lastname: Some(invite_last()),
+                            password: Some("TemporaryPass123!".to_string()),
+                            roles: vec![],
+                            is_active: Some(true),
+                        };
+                        show_invite.set(false);
+                        spawn(async move {
+                            if let Ok(v) = g.client.user_create(&req).await {
+                                if let Ok(u) = serde_json::from_value(v.get("data").cloned().unwrap_or(serde_json::Value::Null)) {
+                                    users.write().push(u);
+                                }
+                            }
+                        });
+                    } }
+                }
+            }
+        }
+    }
+}
+
+/// A single user row.
+#[component]
+fn UserRow(user: serde_json::Value) -> Element {
+    let email = user.get("email").and_then(|e| e.as_str()).unwrap_or("").to_string();
+    let first = user.get("firstname").and_then(|e| e.as_str()).unwrap_or("").to_string();
+    let last = user.get("lastname").and_then(|e| e.as_str()).unwrap_or("").to_string();
+    let active = user.get("isActive").and_then(|a| a.as_bool()).unwrap_or(false);
+    let border = color::NEUTRAL_150;
+    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    rsx! {
+        tr { style: "border-bottom:1px solid {border};",
+            td { style: "{td_style}", "{email}" }
+            td { style: "{td_style}", "{first}" }
+            td { style: "{td_style}", "{last}" }
+            td { style: "{td_style}",
+                Badge { text: if active { "Active".to_string() } else { "Inactive".to_string() }, kind: if active { "published".to_string() } else { "draft".to_string() } }
             }
         }
     }
