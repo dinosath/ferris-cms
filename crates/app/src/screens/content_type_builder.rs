@@ -83,6 +83,11 @@ pub fn ContentTypeBuilder() -> Element {
     });
 
     let schemas = working();
+    let target_types: Vec<String> = schemas
+        .iter()
+        .filter(|s| s.kind == ContentTypeKind::CollectionType)
+        .map(|s| s.uid.as_str().to_string())
+        .collect();
     let selected = schemas
         .iter()
         .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
@@ -275,6 +280,7 @@ pub fn ContentTypeBuilder() -> Element {
         if let ModalKind::FieldConfig { ct_uid, field_type } = modal() {
             FieldConfigModal {
                 field_type,
+                target_types: target_types.clone(),
                 on_close: move |_| modal.set(ModalKind::None),
                 on_save: move |(name, attr): (String, Attribute)| {
                     if let Some(schema) = working.write().iter_mut().find(|s| s.uid.as_str() == ct_uid) {
@@ -416,6 +422,7 @@ fn resolve_type(field_type: FieldType, num_format: &str, date_type: &str) -> Fie
 #[component]
 fn FieldConfigModal(
     field_type: FieldType,
+    target_types: Vec<String>,
     on_close: EventHandler<MouseEvent>,
     on_save: EventHandler<(String, Attribute)>,
 ) -> Element {
@@ -426,6 +433,9 @@ fn FieldConfigModal(
     let mut num_format = use_signal(|| "integer".to_string());
     let mut date_type = use_signal(|| "datetime".to_string());
     let mut enum_values = use_signal(String::new);
+    // Relation config.
+    let mut relation_kind = use_signal(|| "oneToOne".to_string());
+    let mut relation_target = use_signal(String::new);
 
     let title = format!("Add a new {} field", field_type.as_str());
     let is_number = matches!(
@@ -434,6 +444,20 @@ fn FieldConfigModal(
     );
     let is_date = matches!(field_type, FieldType::Date | FieldType::Datetime | FieldType::Time);
     let is_enum = matches!(field_type, FieldType::Enumeration);
+    let is_relation = matches!(field_type, FieldType::Relation);
+
+    let relation_options: Vec<(String, String)> = vec![
+        ("oneWay".to_string(), "One way".to_string()),
+        ("oneToOne".to_string(), "One-to-one".to_string()),
+        ("oneToMany".to_string(), "One-to-many".to_string()),
+        ("manyToOne".to_string(), "Many-to-one".to_string()),
+        ("manyToMany".to_string(), "Many-to-many".to_string()),
+        ("manyWay".to_string(), "Many way".to_string()),
+    ];
+    let target_options: Vec<(String, String)> = target_types
+        .iter()
+        .map(|u| (u.clone(), u.clone()))
+        .collect();
 
     let finish = move |_| {
         let attr_type = resolve_type(field_type, &num_format(), &date_type());
@@ -447,6 +471,14 @@ fn FieldConfigModal(
                 .map(|l| l.trim().to_string())
                 .filter(|l| !l.is_empty())
                 .collect();
+        }
+        if is_relation {
+            attr.relation = Some(core_domain::RelationKind::parse(&relation_kind()));
+            attr.target = if relation_target().is_empty() {
+                None
+            } else {
+                Some(core_domain::Uid::new(&relation_target()))
+            };
         }
         on_save.call((name(), attr));
     };
@@ -491,6 +523,20 @@ fn FieldConfigModal(
                     placeholder: "one\ntwo\nthree".to_string(),
                     rows: 4,
                     oninput: move |v| enum_values.set(v),
+                }
+            }
+            if is_relation {
+                Dropdown {
+                    label: "Relation type".to_string(),
+                    options: relation_options,
+                    value: "{relation_kind}",
+                    onchange: move |v| relation_kind.set(v),
+                }
+                Dropdown {
+                    label: "Target content type".to_string(),
+                    options: target_options,
+                    value: "{relation_target}",
+                    onchange: move |v| relation_target.set(v),
                 }
             }
             div { style: "display:flex; flex-direction:column; gap:8px; margin:16px 0;",

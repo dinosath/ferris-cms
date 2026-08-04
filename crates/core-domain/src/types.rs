@@ -145,6 +145,20 @@ impl RelationKind {
     pub fn uses_join_table(&self) -> bool {
         matches!(self, Self::ManyToMany | Self::ManyWay)
     }
+
+    /// Parse a relation kind from its camelCase name (e.g. "oneToMany").
+    pub fn parse(s: &str) -> Self {
+        use RelationKind::*;
+        match s {
+            "oneWay" => OneWay,
+            "oneToOne" => OneToOne,
+            "oneToMany" => OneToMany,
+            "manyToOne" => ManyToOne,
+            "manyToMany" => ManyToMany,
+            "manyWay" => ManyWay,
+            _ => OneToOne,
+        }
+    }
 }
 
 /// Draft & Publish variant discriminator (design Part III §1).
@@ -373,5 +387,18 @@ mod tests {
         assert!(RelationKind::ManyToMany.uses_join_table());
         assert!(RelationKind::ManyWay.uses_join_table());
         assert!(!RelationKind::OneToOne.uses_join_table());
+    }
+
+    #[test]
+    fn relation_kind_parse() {
+        use RelationKind::*;
+        assert_eq!(RelationKind::parse("oneWay"), OneWay);
+        assert_eq!(RelationKind::parse("oneToOne"), OneToOne);
+        assert_eq!(RelationKind::parse("oneToMany"), OneToMany);
+        assert_eq!(RelationKind::parse("manyToOne"), ManyToOne);
+        assert_eq!(RelationKind::parse("manyToMany"), ManyToMany);
+        assert_eq!(RelationKind::parse("manyWay"), ManyWay);
+        // Unknown falls back to oneToOne (safe default).
+        assert_eq!(RelationKind::parse("nonsense"), OneToOne);
     }
 }

@@ -65,10 +65,14 @@ batch Save (unsaved-change badges N/M/D, Undo/Redo/Discard).
   batch Save via `ctb_apply`.
 
 ### Remaining gaps 🟡 / ❌
+- ✅ (new) **Relation field configuration.** The CTB field-config modal now
+  supports the Relation type: choose one of the six relation kinds
+  (one-way / one-to-one / one-to-many / many-to-one / many-to-many / many-way)
+  and a target collection type, storing `relation` + `target` on the attribute.
+  `RelationKind::parse` is unit-tested.
+- ❌ Relation builder with the two-side composer (inverse field name) not implemented.
 - 🟡 No unsaved-change badges (N/M/D), Undo/Redo/Discard, or unsaved-changes
   navigation guard.
-- ❌ Relation field builder (6 relation kinds) not implemented; relations are
-  pickable but not configurable end-to-end.
 - ❌ Component / Dynamic Zone configuration (choose/reuse component, allowed
   components) not implemented.
 - 🟡 No media-type selector, UID target-field, regex/min-max validation inputs in
