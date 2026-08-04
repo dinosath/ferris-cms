@@ -253,6 +253,20 @@ impl Client {
         Ok(serde_json::from_value(v)?)
     }
 
+    /// Discard draft changes (soft-delete the draft, keep published).
+    pub async fn cm_discard(
+        &self,
+        uid: &str,
+        document_id: &str,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(
+                &format!("/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard"),
+                &serde_json::json!({}),
+            )
+            .await
+    }
+
     // -- Admin RBAC / Settings --
 
     /// List admin roles.

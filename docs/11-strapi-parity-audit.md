@@ -31,10 +31,11 @@ directly in the edit view.
 
 ### Remaining gaps 🟡
 - No per-row edit/delete action buttons (bulk delete exists; edit is click-on-row).
+- ✅ (new) **Discard changes control.** The entry edit view now exposes a
+  "Discard changes" button (`/actions/discard`), covered by the integration test.
 - No "Configure the view" modal wired into the toolbar (the API and DTO exist:
   `cm_get_configuration` / `cm_update_configuration`).
-- No draft/publish **Unpublish** or **Discard changes** controls in the edit view
-  (endpoints exist: `/actions/discard`).
+- No draft/publish **Unpublish** control in the edit view.
 - No i18n locale switcher or Information rail persistence of created/updated by-user.
 - Draft & Publish not yet wired to the list query (`status=published`).
 

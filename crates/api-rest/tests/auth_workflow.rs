@@ -187,6 +187,21 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(publish.status(), StatusCode::OK, "publish by documentId");
 
+    // 7b. Discard draft changes (edit-view control) is accepted.
+    let discard = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!(
+                "/admin/content-manager/collection-types/api::article.article/{doc_id}/actions/discard"
+            ),
+            serde_json::json!({}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(discard.status(), StatusCode::OK, "discard draft");
+
     // 8. Public list endpoint is reachable without auth.
     let public = router
         .clone()
