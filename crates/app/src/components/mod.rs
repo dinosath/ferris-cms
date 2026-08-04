@@ -342,3 +342,39 @@ pub fn EmptyState(
         }
     }
 }
+
+/// A toast notification (success / danger / info).
+#[component]
+pub fn Toast(text: String, kind: String, on_close: EventHandler<()>) -> Element {
+    let (bg, fg) = match kind.as_str() {
+        "success" => (color::SUCCESS_600, "#FFFFFF"),
+        "danger" => (color::DANGER_600, "#FFFFFF"),
+        _ => (color::NEUTRAL_800, "#FFFFFF"),
+    };
+    rsx! {
+        div { style: "display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:{RADIUS_MD}px; background:{bg}; color:{fg}; box-shadow:0 4px 12px rgba(33,33,52,0.2); min-width:240px;",
+            span { style: "flex:1; font-size:{typography::BODY_SIZE};", "{text}" }
+            button { style: "background:none; border:none; color:{fg}; cursor:pointer; font-size:16px;", onclick: move |_| on_close.call(()), "✕" }
+        }
+    }
+}
+
+/// A confirm dialog with a danger action.
+#[component]
+pub fn ConfirmDialog(
+    title: String,
+    message: String,
+    confirm_label: String,
+    on_cancel: EventHandler<()>,
+    on_confirm: EventHandler<()>,
+) -> Element {
+    rsx! {
+        Modal { title, width: 512, on_close: move |_| on_cancel.call(()),
+            div { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600}; margin-bottom:16px;", "{message}" }
+            div { style: "display:flex; justify-content:flex-end; gap:12px;",
+                Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_cancel.call(()) }
+                Button { label: confirm_label, variant: "danger".to_string(), on_click: move |_| on_confirm.call(()) }
+            }
+        }
+    }
+}

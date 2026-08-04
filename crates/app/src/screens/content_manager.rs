@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Checkbox, Dropdown, Modal, NavItem, TextField, Toggle};
+use crate::components::{Badge, Button, Card, Checkbox, ConfirmDialog, Dropdown, Modal, NavItem, TextField, Toggle};
 
 /// Marker document id used for a brand-new entry in the edit view.
 const NEW_ENTRY: &str = "__new__";
@@ -35,6 +35,7 @@ pub fn ContentManager() -> Element {
     let mut selected_ids = use_signal(Vec::<String>::new);
     let mut status = use_signal(|| None::<String>);
     let mut configuring = use_signal(|| false);
+    let mut pending_delete = use_signal(|| None::<String>);
 
     // Load the content-type list once.
     let g_load = global.clone();
@@ -188,21 +189,8 @@ pub fn ContentManager() -> Element {
         }
         selected_ids.set(ids);
     };
-    let delete_global = global.clone();
     let delete_entry = move |id: String| {
-        let g = delete_global.clone();
-        let uid = selected_uid().unwrap_or_default();
-        spawn(async move {
-            let _ = g.client.cm_delete(&uid, &id).await;
-            let params = QueryParams {
-                pagination: Some(PaginationParams::Page { page: page(), page_size: page_size(), with_count: Some(true) }),
-                ..Default::default()
-            };
-            if let Ok(resp) = g.client.cm_list(&uid, &params).await {
-                total.set(resp.meta.pagination.as_ref().map(|p| p.total).unwrap_or(0));
-                entries.set(resp.data);
-            }
-        });
+        pending_delete.set(Some(id));
     };
     let edit_global = global.clone();
     let edit_entry = move |id: String| {
@@ -486,6 +474,45 @@ pub fn ContentManager() -> Element {
                     on_close: move |_| configuring.set(false),
                 }
             }
+        }
+
+        if let Some(del_id) = pending_delete() {
+            DeleteConfirmDialog {
+                del_id,
+                uid: selected_uid().unwrap_or_default(),
+                on_close: move |_| pending_delete.set(None),
+                on_deleted: move |_| pending_delete.set(None),
+            }
+        }
+    }
+}
+
+/// Confirm-and-delete dialog for a single entry.
+#[component]
+fn DeleteConfirmDialog(
+    del_id: String,
+    uid: String,
+    on_close: EventHandler<()>,
+    on_deleted: EventHandler<()>,
+) -> Element {
+    let global = use_global();
+    let save_uid = uid.clone();
+    let save_id = del_id.clone();
+    rsx! {
+        ConfirmDialog {
+            title: "Delete entry".to_string(),
+            message: format!("Are you sure you want to delete entry {del_id}? This cannot be undone."),
+            confirm_label: "Delete".to_string(),
+            on_cancel: move |_| on_close.call(()),
+            on_confirm: move |_| {
+                let g = global.clone();
+                let uid = save_uid.clone();
+                let id = save_id.clone();
+                on_deleted.call(());
+                spawn(async move {
+                    let _ = g.client.cm_delete(&uid, &id).await;
+                });
+            },
         }
     }
 }

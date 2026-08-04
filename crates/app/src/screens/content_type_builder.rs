@@ -159,6 +159,7 @@ pub fn ContentTypeBuilder() -> Element {
     let field_type_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
     let icon_btn_style = format!("background:none;border:none;color:{};cursor:pointer;", color::NEUTRAL_500);
     let g_save = global.clone();
+    let toast_signal = global.clone();
 
     rsx! {
         div { style: "display:flex; min-height:100vh;",
@@ -209,12 +210,14 @@ pub fn ContentTypeBuilder() -> Element {
                             label: "Save".to_string(), variant: "success".to_string(), disabled: !is_dirty(), loading: saving(),
                             on_click: move |_| {
                                 let g = g_save.clone();
+                                let toast = toast_signal.clone();
                                 let schemas = working();
                                 saving.set(true);
                                 spawn(async move {
+                                    let mut toast = toast;
                                     match g.client.ctb_apply(schemas).await {
-                                        Ok(_) => { is_dirty.set(false); status.set(Some("Saved".to_string())); }
-                                        Err(e) => status.set(Some(format!("Error: {e}"))),
+                                        Ok(_) => { is_dirty.set(false); status.set(Some("Saved".to_string())); toast.toast("Schema saved".to_string(), "success"); }
+                                        Err(e) => { status.set(Some(format!("Error: {e}"))); toast.toast(format!("Save failed: {e}"), "danger"); }
                                     }
                                     saving.set(false);
                                 });

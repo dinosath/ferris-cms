@@ -28,6 +28,8 @@ pub struct Global {
     pub client: Arc<Client>,
     pub token: Signal<Option<String>>,
     pub route: Signal<Route>,
+    /// (message, kind) toast queue.
+    pub toasts: Signal<Vec<(String, String)>>,
 }
 
 impl Global {
@@ -36,7 +38,13 @@ impl Global {
             client: Arc::new(build_client()),
             token: Signal::new(None),
             route: Signal::new(Route::Home),
+            toasts: Signal::new(Vec::new()),
         }
+    }
+
+    /// Push a toast notification.
+    pub fn toast(&mut self, message: impl Into<String>, kind: &str) {
+        self.toasts.write().push((message.into(), kind.to_string()));
     }
 
     /// True when a JWT is present.

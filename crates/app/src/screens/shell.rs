@@ -4,13 +4,14 @@ use dioxus::prelude::*;
 use ui::design::tokens::{SIDEBAR_WIDTH, color, typography};
 
 use crate::app::{Route, use_global};
-use crate::components::{Icon, NavItem};
+use crate::components::{Icon, NavItem, Toast};
 use crate::screens::{content_manager, content_type_builder, home, media, settings};
 
 #[component]
 pub fn Shell() -> Element {
     let global = use_global();
     let route = global.route;
+    let mut toasts = global.toasts;
 
     rsx! {
         div { style: "display:flex; min-height:100vh;",
@@ -23,6 +24,19 @@ pub fn Shell() -> Element {
                     Route::Media => rsx! { media::MediaLibrary {} },
                     Route::Settings => rsx! { settings::Settings {} },
                     _ => rsx! { home::Home {} },
+                }
+            }
+        }
+        div { style: "position:fixed; top:16px; right:16px; z-index:1000; display:flex; flex-direction:column; gap:8px;",
+            for (idx, (msg, kind)) in toasts().into_iter().enumerate() {
+                Toast {
+                    text: msg,
+                    kind,
+                    on_close: move |_| {
+                        let mut t = toasts();
+                        if idx < t.len() { t.remove(idx); }
+                        toasts.set(t);
+                    },
                 }
             }
         }
