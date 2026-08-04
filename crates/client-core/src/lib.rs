@@ -267,6 +267,28 @@ impl Client {
             .await
     }
 
+    /// Get the Content Manager list-view configuration for a content-type.
+    pub async fn cm_get_configuration(&self, uid: &str) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .get_json(&format!("/admin/content-manager/content-types/{uid}/configuration"))
+            .await
+    }
+
+    /// Update the Content Manager list-view configuration for a content-type.
+    pub async fn cm_update_configuration(
+        &self,
+        uid: &str,
+        config: &api_types::admin::ViewConfiguration,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = serde_json::to_value(config)?;
+        self.transport
+            .put_json(
+                &format!("/admin/content-manager/content-types/{uid}/configuration"),
+                &body,
+            )
+            .await
+    }
+
     // -- Admin RBAC / Settings --
 
     /// List admin roles.

@@ -33,8 +33,9 @@ directly in the edit view.
 - No per-row edit/delete action buttons (bulk delete exists; edit is click-on-row).
 - ✅ (new) **Discard changes control.** The entry edit view now exposes a
   "Discard changes" button (`/actions/discard`), covered by the integration test.
-- No "Configure the view" modal wired into the toolbar (the API and DTO exist:
-  `cm_get_configuration` / `cm_update_configuration`).
+- ✅ (new) **Configure the view modal.** The list toolbar has a "Configure the
+  view" button that opens a modal to set entries-per-page and displayed columns,
+  persisting via the `configuration` endpoints (covered by the integration test).
 - No draft/publish **Unpublish** control in the edit view.
 - No i18n locale switcher or Information rail persistence of created/updated by-user.
 - Draft & Publish not yet wired to the list query (`status=published`).

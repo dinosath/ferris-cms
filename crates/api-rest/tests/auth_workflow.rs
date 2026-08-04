@@ -202,6 +202,32 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(discard.status(), StatusCode::OK, "discard draft");
 
+    // 7c. Configure-the-view endpoints (list config data source for the UI).
+    let get_cfg = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            "/admin/content-manager/content-types/api::article.article/configuration",
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(get_cfg.status(), StatusCode::OK, "get view config");
+    let cfg_json = body_json(get_cfg).await;
+    assert!(cfg_json["data"]["settings"]["pageSize"].is_i64(), "config has pageSize");
+
+    let put_cfg = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            "/admin/content-manager/content-types/api::article.article/configuration",
+            cfg_json["data"].clone(),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(put_cfg.status(), StatusCode::OK, "put view config");
+
     // 8. Public list endpoint is reachable without auth.
     let public = router
         .clone()

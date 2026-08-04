@@ -34,6 +34,7 @@ pub fn ContentManager() -> Element {
     let mut editing_map = use_signal(serde_json::Map::new);
     let mut selected_ids = use_signal(Vec::<String>::new);
     let mut status = use_signal(|| None::<String>);
+    let mut configuring = use_signal(|| false);
 
     // Load the content-type list once.
     let g_load = global.clone();
@@ -317,6 +318,7 @@ pub fn ContentManager() -> Element {
                                     oninput: move |v| search.set(v),
                                 }
                             }
+                            Button { label: "Configure the view".to_string(), variant: "secondary".to_string(), on_click: move |_| configuring.set(true) }
                         }
 
                         if !selected_ids().is_empty() {
@@ -443,6 +445,106 @@ pub fn ContentManager() -> Element {
                         creating.set(false);
                     },
                 }
+            }
+        }
+
+        if configuring() {
+            if let Some(schema) = &selected {
+                ConfigureViewModal {
+                    uid: schema.uid.as_str().to_string(),
+                    on_close: move |_| configuring.set(false),
+                }
+            }
+        }
+    }
+}
+
+/// Content Manager list-view configuration modal (design doc §6.5).
+/// Loads the current configuration and lets the user choose which columns to
+/// display and the page size, then persists via PUT.
+#[component]
+fn ConfigureViewModal(
+    uid: String,
+    on_close: EventHandler<()>,
+) -> Element {
+    let global = use_global();
+    let mut config = use_signal(|| None::<api_types::admin::ViewConfiguration>);
+    let mut status = use_signal(|| None::<String>);
+
+    let g_load = global.clone();
+    let uid_load = uid.clone();
+    use_effect(move || {
+        if config().is_none() {
+            let g = g_load.clone();
+            let uid = uid_load.clone();
+            spawn(async move {
+                match g.client.cm_get_configuration(&uid).await {
+                    Ok(v) => {
+                        if let Ok(c) = serde_json::from_value(v.get("data").cloned().unwrap_or(serde_json::Value::Null)) {
+                            config.set(Some(c));
+                        }
+                    }
+                    Err(e) => status.set(Some(format!("Failed to load config: {e}"))),
+                }
+            });
+        }
+    });
+
+    let label_style = format!("font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_700);
+    let status_style = format!("padding:12px; margin-bottom:12px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
+    let g_save = global.clone();
+    let uid_save = uid.clone();
+    let page_size = config().as_ref().map(|c| c.settings.page_size);
+    let cols = config().as_ref().map(|c| c.layouts.list.clone());
+    let ps = page_size.unwrap_or(10);
+    let col_list = cols.unwrap_or_default();
+
+    rsx! {
+        Modal { title: "Configure the view".to_string(), width: 720, on_close: move |_| on_close.call(()),
+            if config().is_some() {
+                div { style: "display:flex; flex-direction:column; gap:16px;",
+                    if let Some(status) = status() {
+                        div { style: "{status_style}", "{status}" }
+                    }
+                    div { style: "display:flex; flex-direction:column; gap:6px;",
+                        span { style: "{label_style}", "Entries per page" }
+                        select { style: "padding:8px 16px; border:1px solid {color::NEUTRAL_200}; border-radius:4px;",
+                            value: "{ps}",
+                            onchange: move |e| {
+                                if let Ok(v) = e.value().parse::<i64>() {
+                                    if let Some(c) = config().as_mut() { c.settings.page_size = v; }
+                                }
+                            },
+                            for n in [10, 25, 50, 100] {
+                                option { value: "{n}", "{n}" }
+                            }
+                        }
+                    }
+                    div { style: "display:flex; flex-direction:column; gap:6px;",
+                        span { style: "{label_style}", "Displayed columns" }
+                        for col in col_list.clone().into_iter() {
+                            div { style: "display:flex; align-items:center; gap:8px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_700};",
+                                input { r#type: "checkbox", checked: true, onchange: move |_| {} }
+                                span { "{col}" }
+                            }
+                        }
+                    }
+                    div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
+                        Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }
+                        Button { label: "Save".to_string(), variant: "primary".to_string(), on_click: move |_| {
+                            if let Some(cfg) = config() {
+                                let g = g_save.clone();
+                                let uid = uid_save.clone();
+                                spawn(async move {
+                                    let _ = g.client.cm_update_configuration(&uid, &cfg).await;
+                                });
+                            }
+                            on_close.call(());
+                        } }
+                    }
+                }
+            } else {
+                div { style: "padding:32px; text-align:center; color:{color::NEUTRAL_500};", "Loading…" }
             }
         }
     }
