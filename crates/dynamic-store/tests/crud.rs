@@ -215,7 +215,7 @@ async fn crud_and_filters() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["title"], json!("Rust rocks"));
     assert_eq!(rows[0]["author_id"], json!(author_id));
-    assert_eq!(rows[0]["publication_state"], json!("draft"));
+    assert_eq!(rows[0]["publicationState"], json!("draft"));
 
     // filter: title contains "rust" (case-insensitive) AND views >= 5
     let q = QueryParams::parse(

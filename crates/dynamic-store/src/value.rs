@@ -278,11 +278,32 @@ pub async fn query_rows<C: ConnectionTrait, S: sea_orm::StatementBuilder + Sync>
     for row in &rows {
         let mut obj = serde_json::Map::with_capacity(columns.len());
         for (col, family) in columns {
-            obj.insert(col.clone(), column_to_json(row, col, *family, backend));
+            obj.insert(api_key(col), column_to_json(row, col, *family, backend));
         }
         out.push(obj);
     }
     Ok(out)
+}
+
+/// Map a physical base column name to the camelCase API key Strapi exposes.
+/// Attribute columns keep their schema-defined name; only the system columns
+/// use Strapi's public naming (`documentId`, `publicationState`, `createdAt`,
+/// etc.) so clients and the content UI can rely on the Strapi shape.
+pub fn api_key(col: &str) -> String {
+    use crate::base_columns::*;
+    match col {
+        DOCUMENT_ID => "documentId".to_string(),
+        PUBLICATION_STATE => "publicationState".to_string(),
+        CREATED_AT => "createdAt".to_string(),
+        UPDATED_AT => "updatedAt".to_string(),
+        PUBLISHED_AT => "publishedAt".to_string(),
+        CREATED_BY => "createdBy".to_string(),
+        UPDATED_BY => "updatedBy".to_string(),
+        SYNC_VERSION => "syncVersion".to_string(),
+        ORIGIN_NODE => "originNodeId".to_string(),
+        DELETED_AT => "deletedAt".to_string(),
+        _ => col.to_string(),
+    }
 }
 
 /// Family of a base (non-attribute) column.
@@ -326,5 +347,18 @@ mod tests {
         assert!(parse_time("12:30").is_some());
         assert!(parse_time("12:30:59.123").is_some());
         assert!(parse_time("nope").is_none());
+    }
+
+    #[test]
+    fn api_keys_are_strapi_camel_case() {
+        assert_eq!(api_key("document_id"), "documentId");
+        assert_eq!(api_key("publication_state"), "publicationState");
+        assert_eq!(api_key("created_at"), "createdAt");
+        assert_eq!(api_key("updated_at"), "updatedAt");
+        assert_eq!(api_key("published_at"), "publishedAt");
+        assert_eq!(api_key("id"), "id");
+        // Attribute columns keep their schema-defined name.
+        assert_eq!(api_key("title"), "title");
+        assert_eq!(api_key("some_snake_field"), "some_snake_field");
     }
 }

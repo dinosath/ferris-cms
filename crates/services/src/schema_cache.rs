@@ -11,9 +11,23 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// The authoritative in-memory registry of all content-type schemas.
-/// Wrapped in `ArcSwap` for lock-free reads.
+///
+/// Wrapped in `Arc<ArcSwap>` so that clones of a `SchemaCache` *share the same
+/// `ArcSwap` handle*. This is essential: a per-request `AppContext` clone must
+/// observe `replace()` calls made by a Content-Type Builder Save on the
+/// server-wide context, and vice-versa.
 pub struct SchemaCache {
-    inner: ArcSwap<SchemaCacheInner>,
+    inner: Arc<ArcSwap<SchemaCacheInner>>,
+}
+
+impl Clone for SchemaCache {
+    fn clone(&self) -> Self {
+        // Cheap `Arc` bump on the shared handle: clones observe each other's
+        // `replace()` calls, which is what we want for the schema registry.
+        Self {
+            inner: Arc::clone(&self.inner),
+        }
+    }
 }
 
 struct SchemaCacheInner {
@@ -27,10 +41,10 @@ impl SchemaCache {
     /// Create an empty cache (used before first load).
     pub fn empty() -> Self {
         Self {
-            inner: ArcSwap::from(Arc::new(SchemaCacheInner {
+            inner: Arc::new(ArcSwap::from(Arc::new(SchemaCacheInner {
                 schemas: Vec::new(),
                 by_uid: HashMap::new(),
-            })),
+            }))),
         }
     }
 

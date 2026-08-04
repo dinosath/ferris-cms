@@ -92,8 +92,29 @@ content-type, with field-level conditions; Super Admin bypasses the matrix.
 - ✅ **Enforcement.** Content service (`cm_list/get/create/update/delete/publish`)
   now calls `enforce_action` for authenticated admins; unauthenticated (public)
   access is not governed by the admin matrix. Super Admin bypasses.
+- ✅ **JWT auth middleware actually wired.** `api-rest/src/auth.rs` now implements
+  real bearer-token resolution and an `AdminCtx` extractor; every `/admin/**`
+  handler requires a valid JWT and builds a per-request `AppContext` with the
+  authenticated identity. Previously `ctx.current_user` was never populated, so
+  RBAC enforcement never ran at runtime.
+- ✅ **Crypto provider fix.** `jsonwebtoken` now enables the `rust_crypto` feature
+  — without it, every JWT sign/decode panicked at runtime and auth (and thus the
+  whole admin API + RBAC) was broken.
 - ✅ **Test.** `services::rbac::tests::granular_permissions_evaluate` validates
   role/permission decisions end-to-end (migration + seed + grants).
+
+### Runtime-validated workflow
+A full end-to-end HTTP smoke test now passes against the live Axum server
+(register → login → unauthenticated admin request rejected 401 → create
+content-type via CTB → create entry → list → publish → public read):
+- Auth enforcement rejects `/admin/**` without a token (401) and accepts with one.
+- Content-Type Builder `apply` persists schemas into the shared cache (fixed a
+  per-request `SchemaCache` clone bug where `replace()` wasn't visible to the
+  server-wide context).
+- Entry responses use Strapi's camelCase keys (`documentId`, `publicationState`,
+  `createdAt`, `updatedAt`) — the DML layer previously returned snake_case
+  column names, which broke content-manager reads, publish-by-documentId, and
+  the UI's field lookups.
 
 ### Remaining gaps 🟡
 - 🟡 The RBAC **UI** (Settings → Roles permission matrix) is still a placeholder;

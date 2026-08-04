@@ -115,6 +115,11 @@ pub struct CurrentUser {
 }
 
 /// Shared application context passed through every service call.
+///
+/// Cloneable so each HTTP request can build its own context carrying the
+/// authenticated identity. `db` and `schema_cache` are cheap clones sharing
+/// the same underlying connections / snapshot; only `current_user` differs.
+#[derive(Clone)]
 pub struct AppContext {
     pub db: DatabaseConnection,
     pub current_user: Option<CurrentUser>,
@@ -167,6 +172,14 @@ impl AppContext {
         self.current_user
             .as_ref()
             .ok_or(ServiceError::Unauthorized)
+    }
+
+    /// Return a per-request clone with the given authenticated identity.
+    /// Sharing `db` and `schema_cache` while isolating `current_user`.
+    pub fn with_user(&self, user: Option<CurrentUser>) -> Self {
+        let mut c = self.clone();
+        c.current_user = user;
+        c
     }
 
     /// Get the sea-orm backend variant.

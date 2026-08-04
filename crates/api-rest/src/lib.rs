@@ -117,24 +117,24 @@ async fn admin_register(
 // Content-Type Builder handlers
 // ---------------------------------------------------------------------------
 
-async fn ctb_list_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let schemas = ctb_list(&state.ctx).await;
+async fn ctb_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let schemas = ctb_list(&admin.0).await;
     Ok(Json(serde_json::json!({ "data": schemas })))
 }
 
 async fn ctb_get_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let schema = ctb_get(&state.ctx, &uid).await?;
+    let schema = ctb_get(&admin.0, &uid).await?;
     Ok(Json(serde_json::json!({ "data": schema })))
 }
 
 async fn ctb_apply_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Json(req): Json<api_types::admin::CtbApplyRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let schemas = ctb_apply(&state.ctx, req.schemas).await?;
+    let schemas = ctb_apply(&admin.0, req.schemas).await?;
     Ok(Json(api_types::admin::CtbApplyResponse {
         data: api_types::admin::CtbApplyData {
             schemas,
@@ -143,7 +143,7 @@ async fn ctb_apply_handler(
     }))
 }
 
-async fn ctb_reserved_names_handler(State(_state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
+async fn ctb_reserved_names_handler(_admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
     let names = ctb_reserved_names();
     Ok(Json(serde_json::json!({ "data": names })))
 }
@@ -199,76 +199,76 @@ async fn public_delete(
 // Content Manager handlers
 // ---------------------------------------------------------------------------
 
-async fn cm_ct_list_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let types = cm_content_types(&state.ctx).await;
+async fn cm_ct_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let types = cm_content_types(&admin.0).await;
     Ok(Json(serde_json::json!({ "data": types })))
 }
 
 async fn cm_list_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
     Query(params): Query<api_types::QueryParams>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_list(&state.ctx, &uid, &params).await?;
+    let resp = cm_list(&admin.0, &uid, &params).await?;
     Ok(Json(resp))
 }
 
 async fn cm_get_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path((uid, document_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_get(&state.ctx, &uid, &document_id, None).await?;
+    let resp = cm_get(&admin.0, &uid, &document_id, None).await?;
     Ok(Json(resp))
 }
 
 async fn cm_create_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
     Json(req): Json<api_types::admin::WriteEntryRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_create(&state.ctx, &uid, &req.data).await?;
+    let resp = cm_create(&admin.0, &uid, &req.data).await?;
     Ok(Json(resp))
 }
 
 async fn cm_update_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path((uid, document_id)): Path<(String, String)>,
     Json(req): Json<api_types::admin::WriteEntryRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_update(&state.ctx, &uid, &document_id, &req.data).await?;
+    let resp = cm_update(&admin.0, &uid, &document_id, &req.data).await?;
     Ok(Json(resp))
 }
 
 async fn cm_delete_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path((uid, document_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    cm_delete(&state.ctx, &uid, &document_id).await?;
+    cm_delete(&admin.0, &uid, &document_id).await?;
     Ok(Json(serde_json::json!({ "data": null })))
 }
 
 async fn cm_publish_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path((uid, document_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_publish(&state.ctx, &uid, &document_id).await?;
+    let resp = cm_publish(&admin.0, &uid, &document_id).await?;
     Ok(Json(resp))
 }
 
 async fn cm_discard_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path((uid, document_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    cm_discard_draft(&state.ctx, &uid, &document_id).await?;
+    cm_discard_draft(&admin.0, &uid, &document_id).await?;
     Ok(Json(serde_json::json!({ "data": null })))
 }
 
 async fn cm_single_get_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
 ) -> Result<impl IntoResponse, error::AppError> {
     // Single types: return the one entry or create it
-    let resp = cm_get(&state.ctx, &uid, "default", None).await;
+    let resp = cm_get(&admin.0, &uid, "default", None).await;
     match resp {
         Ok(r) => Ok(Json(r)),
         Err(ServiceError::NotFound(_)) => {
@@ -283,28 +283,28 @@ async fn cm_single_get_handler(
 }
 
 async fn cm_single_update_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
     Json(req): Json<api_types::admin::WriteEntryRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let resp = cm_update(&state.ctx, &uid, "default", &req.data).await?;
+    let resp = cm_update(&admin.0, &uid, "default", &req.data).await?;
     Ok(Json(resp))
 }
 
 async fn cm_config_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let config = cm_get_configuration(&state.ctx, &uid).await?;
+    let config = cm_get_configuration(&admin.0, &uid).await?;
     Ok(Json(serde_json::json!({ "data": config })))
 }
 
 async fn cm_config_update_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(uid): Path<String>,
     Json(config): Json<api_types::admin::ViewConfiguration>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let config = cm_update_configuration(&state.ctx, &uid, &config).await?;
+    let config = cm_update_configuration(&admin.0, &uid, &config).await?;
     Ok(Json(serde_json::json!({ "data": config })))
 }
 
@@ -312,24 +312,24 @@ async fn cm_config_update_handler(
 // i18n handlers
 // ---------------------------------------------------------------------------
 
-async fn i18n_list_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let locales = svc_i18n_list(&state.ctx).await?;
+async fn i18n_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let locales = svc_i18n_list(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": locales })))
 }
 
 async fn i18n_create_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Json(req): Json<api_types::admin::CreateLocaleRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let locale = svc_i18n_create(&state.ctx, &req).await?;
+    let locale = svc_i18n_create(&admin.0, &req).await?;
     Ok(Json(serde_json::json!({ "data": locale })))
 }
 
 async fn i18n_delete_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    svc_i18n_delete(&state.ctx, id).await?;
+    svc_i18n_delete(&admin.0, id).await?;
     Ok(Json(serde_json::json!({ "data": null })))
 }
 
@@ -337,38 +337,38 @@ async fn i18n_delete_handler(
 // RBAC handlers
 // ---------------------------------------------------------------------------
 
-async fn rbac_roles_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let roles = rbac_list_roles(&state.ctx).await?;
+async fn rbac_roles_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let roles = rbac_list_roles(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": roles })))
 }
 
 async fn rbac_role_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let role = rbac_get_role(&state.ctx, id).await?;
+    let role = rbac_get_role(&admin.0, id).await?;
     Ok(Json(serde_json::json!({ "data": role })))
 }
 
 async fn rbac_permissions_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Path(id): Path<i64>,
     Json(req): Json<api_types::admin::UpdateRolePermissionsRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let perms = rbac_update_permissions(&state.ctx, id, &req).await?;
+    let perms = rbac_update_permissions(&admin.0, id, &req).await?;
     Ok(Json(serde_json::json!({ "data": perms })))
 }
 
-async fn rbac_users_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let users = rbac_list_users(&state.ctx).await?;
+async fn rbac_users_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let users = rbac_list_users(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": users })))
 }
 
 async fn rbac_create_user_handler(
-    State(state): State<Arc<AppState>>,
+    admin: auth::AdminCtx,
     Json(req): Json<api_types::admin::CreateAdminUserRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let user = rbac_create_user(&state.ctx, &req).await?;
+    let user = rbac_create_user(&admin.0, &req).await?;
     Ok(Json(serde_json::json!({ "data": user })))
 }
 
@@ -376,7 +376,7 @@ async fn rbac_create_user_handler(
 // Media handlers
 // ---------------------------------------------------------------------------
 
-async fn media_list_handler(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
-    let files = svc_media_list(&state.ctx).await?;
+async fn media_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+    let files = svc_media_list(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": files })))
 }

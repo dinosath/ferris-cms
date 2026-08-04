@@ -64,7 +64,7 @@ axum = { version = "0.8", features = ["multipart", "macros"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "trace", "limit"] }
 
-jsonwebtoken = "10"
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 argon2 = "0.5"
 sha2 = "0.10"
 rand = "0.9"
