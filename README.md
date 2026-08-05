@@ -123,14 +123,21 @@ Build just the two runtime binaries:
 cargo build -p server-bin -p desktop-bin
 ```
 
-Build the Dioxus admin UI:
+Build the Dioxus admin UI (the `ferriscms` app crate). The `dx` CLI needs to
+locate the app's `Dioxus.toml`, which lives in `crates/app/`. Either run from
+inside that directory, or point `dx` at the package with `--package ferriscms`:
 
 ```bash
 # native desktop app
-dx build --desktop
+cd crates/app
+dx build --desktop --features desktop
 
-# web (WASM) bundle -> target/dx/ferriscms/debug/web
+# web (WASM) bundle -> crates/app/target/dx/ferriscms/debug/web
+cd crates/app
 dx build --web
+
+# ...or, from the workspace root, use the package flag:
+dx build --web --package ferriscms
 ```
 
 ### Test
@@ -184,24 +191,32 @@ cargo run -p desktop-bin
 
 ### Admin UI
 
-The Dioxus admin UI talks to the backend through `client-core`. On **web**
-it uses same-origin requests; on **desktop/native** it targets
-`FERRISCMS_API_URL` (default `http://127.0.0.1:1337`).
+The Dioxus admin UI (the `ferriscms` app crate) talks to the backend through
+`client-core`. On **web** it uses same-origin requests; on **desktop/native**
+it targets `FERRISCMS_API_URL` (default `http://127.0.0.1:1337`).
+
+Because the app's `Dioxus.toml` lives in `crates/app/`, run `dx` from inside
+that directory, or pass `--package ferriscms` from the workspace root:
 
 ```bash
 # Dev server (hot reload) for the web UI — default http://localhost:8080
+cd crates/app
 dx serve
 
 # Native desktop app
-dx run --desktop
-# or: build then point FERRISCMS_API_URL at a running server
+cd crates/app
+dx run --desktop --features desktop
+# or, from the workspace root:
+dx run --desktop --package ferriscms --features desktop
+
+# Point a desktop/native build at a running server
 FERRISCMS_API_URL=http://127.0.0.1:1337 ./target/debug/ferriscms
 ```
 
 > The web build is a separate static bundle. Run it alongside the server
 > (`cargo run -p server-bin`) so the UI can reach the API, or host the
-> `target/dx/ferriscms/debug/web` output on any static server that proxies
-> `/api`, `/admin`, and `/content-type-builder` to the Axum process.
+> `crates/app/target/dx/ferriscms/debug/web` output on any static server that
+> proxies `/api`, `/admin`, and `/content-type-builder` to the Axum process.
 
 ---
 
