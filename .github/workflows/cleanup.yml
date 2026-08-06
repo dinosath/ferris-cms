@@ -1,0 +1,61 @@
+name: Cleanup stale images
+
+# Deletes GHCR image versions that are NOT from a normal release (i.e. `rc-*`
+# and `run-*`) once they are older than 30 days. Stable `vX.Y.Z` release images
+# are kept. Runs daily and can be triggered manually.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  RETENTION_DAYS: 30
+  # Prefer a dedicated PAT if present (GITHUB_TOKEN can also delete with
+  # `packages: write` because the repo is granted admin on its own packages).
+  GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve package scope (user vs org)
+        id: meta
+        run: |
+          OWNER="${{ github.repository_owner }}"
+          PACKAGE="${{ github.event.repository.name }}"
+          if gh api "/orgs/$OWNER" >/dev/null 2>&1; then
+            SCOPE="orgs/$OWNER"
+          else
+            SCOPE="users/$OWNER"
+          fi
+          echo "SCOPE=$SCOPE" >> "$GITHUB_ENV"
+          echo "PACKAGE=$PACKAGE" >> "$GITHUB_ENV"
+          echo "Retention: ${{ env.RETENTION_DAYS }} days"
+
+      - name: Delete stale non-release images
+        env:
+          SCOPE: ${{ env.SCOPE }}
+          PACKAGE: ${{ env.PACKAGE }}
+          RETENTION_DAYS: ${{ env.RETENTION_DAYS }}
+        run: |
+          cutoff=$(date -d "-$RETENTION_DAYS days" +%s)
+
+          gh api --paginate "/$SCOPE/packages/container/$PACKAGE/versions" \
+            --jq '.[] | [.id, .name, .created_at] | @tsv' \
+            | while IFS=$'\t' read -r id name created; do
+                # Only prune non-release tags; keep stable vX.Y.Z images.
+                case "$name" in
+                  rc-*|run-*)
+                    ts=$(date -d "$created" +%s)
+                    if [ "$ts" -lt "$cutoff" ]; then
+                      echo "Deleting stale image '$name' (version $id, created $created)"
+                      gh api -X DELETE "/$SCOPE/packages/container/$PACKAGE/versions/$id" \
+                        || echo "  -> delete failed for version $id (may need GH_TOKEN with delete:packages)"
+                    fi
+                    ;;
+                esac
+              done

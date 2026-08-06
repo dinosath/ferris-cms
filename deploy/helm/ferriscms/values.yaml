@@ -1,0 +1,37 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/dinosath/ferris-cms
+  # Override the tag; defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 1337
+
+# Environment variables passed to the server container.
+# DATABASE_URL can point to an external PostgreSQL (postgres://...) or to the
+# persistent /data SQLite file (default).
+env:
+  DATABASE_URL: "sqlite:/data/ferriscms.db?mode=rwc"
+  JWT_SECRET: "change-me-in-production"
+  MEDIA_STORAGE_DIR: "/data/media"
+  BIND_ADDR: "0.0.0.0:1337"
+  RUST_LOG: "info"
+
+# Persistent storage for the SQLite database + uploaded media.
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+resources: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

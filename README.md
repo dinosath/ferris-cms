@@ -220,6 +220,104 @@ FERRISCMS_API_URL=http://127.0.0.1:1337 ./target/debug/ferriscms
 
 ---
 
+## Container & Helm deployment
+
+The repo ships a `Dockerfile` for the server binary and a Helm chart so the
+CMS can be deployed to Kubernetes.
+
+### Docker image
+
+Build the `ferriscms-server` image locally:
+
+```bash
+docker build -t ferriscms-server .
+```
+
+The image defaults to SQLite in `/data` with media in `/data/media`. Override
+with env vars at run time:
+
+```bash
+docker run --rm -p 1337:1337 \
+  -e DATABASE_URL='postgres://user:pass@host:5432/ferriscms' \
+  -e JWT_SECRET='a-strong-secret' \
+  -e MEDIA_STORAGE_DIR=/data/media \
+  -v ferriscms-data:/data \
+  ferriscms-server
+```
+
+### Helm chart
+
+The chart lives in [`deploy/helm/ferriscms/`](deploy/helm/ferriscms/):
+
+```bash
+helm lint deploy/helm/ferriscms
+helm template ferriscms deploy/helm/ferriscms
+helm install ferriscms deploy/helm/ferriscms \
+  --set image.tag=0.2.0 \
+  --set env.JWT_SECRET='a-strong-secret'
+```
+
+Useful `--set` overrides:
+
+| Value | Default | Purpose |
+|---|---|---|
+| `image.tag` | `appVersion` | Image tag to deploy |
+| `env.DATABASE_URL` | `sqlite:/data/ferriscms.db?mode=rwc` | DB connection (use a `postgres://…` URL) |
+| `env.JWT_SECRET` | `change-me-in-production` | Signing secret — set in production! |
+| `persistence.enabled` | `true` | Mount a PVC at `/data` |
+| `persistence.size` | `1Gi` | PVC size |
+
+---
+
+## CI & releases
+
+CI lives in [`.github/workflows/`](.github/workflows/). It builds the Docker
+image and Helm chart, publishes them to **GitHub Container Registry (GHCR)**,
+and integrates [release-plz](https://release-plz.dev) for versioning. Nothing
+is ever published to **crates.io**.
+
+| Event | Image tag | Chart version | Kept |
+|---|---|---|---|
+| Push to `main` | `rc-<run_number>` | `0.1.0-rc.<run_number>` | 30 days |
+| Push to another branch | `run-<run_number>` | `0.1.0-run.<run_number>` | 30 days |
+| Release tag (release-plz PR merged) | `v<version>` | `<version>` | indefinitely |
+
+Images and charts are published to:
+
+- Image: `ghcr.io/<owner>/ferris-cms:<tag>`
+- Chart (OCI): `ghcr.io/<owner>/ferriscms-charts`
+
+### Workflows
+
+- **`build.yml`** — on every push, chooses the mode above and builds/pushes the
+  image + chart. Stable releases skip if the exact version already exists.
+- **`release-plz.yml`** — on every push to `main`: opens a release PR (version
+  bump + changelog), and finalizes a release when that PR is merged (pushes
+  `<package>-v<version>` tags + GitHub releases). Release tags trigger the
+  stable image build in `build.yml`.
+- **`cleanup.yml`** — daily, deletes `rc-*` / `run-*` GHCR images older than
+  30 days. Stable `vX.Y.Z` images are kept.
+
+### How a release works
+
+1. Merge changes to `main` as conventional commits (`feat:`, `fix:`, `feat!:` …).
+2. `release-plz.yml` opens a release PR bumping the shared workspace version
+   and updating changelogs.
+3. Merge that release PR. `release-plz` pushes `server-bin-vX.Y.Z` (and other
+   `<package>-vX.Y.Z`) tags plus a GitHub release.
+4. `build.yml` sees the tag, builds the stable `vX.Y.Z` image + `X.Y.Z` chart,
+   and publishes them to GHCR. Nothing goes to crates.io.
+
+### Requirements
+
+- Actions **Workflow permissions** must allow the default `GITHUB_TOKEN` to
+  create/approve PRs (needed by release-plz).
+- The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
+  push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
+  secret with the `delete:packages` scope.
+
+---
+
 ## Project design
 
 Detailed design lives in **`docs/`**. Read them in order:

@@ -1,0 +1,13 @@
+ferriscms {{ .Chart.AppVersion }} has been installed.
+
+Getting started:
+  export SERVICE_NAME=$(kubectl get svc --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name=ferriscms,app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath='{.items[0].metadata.name}')
+
+  # Port-forward to the admin/API locally:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/$SERVICE_NAME 1337:1337
+
+Then open http://localhost:1337/admin/init and register the first admin user.
+
+Set a strong JWT_SECRET in production (--set env.JWT_SECRET=...).
+For PostgreSQL, point env.DATABASE_URL at your database and disable persistence
+(--set persistence.enabled=false) or attach your own PVC.

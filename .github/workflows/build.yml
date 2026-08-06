@@ -1,0 +1,137 @@
+name: Build images & charts
+
+# Builds the Docker image and Helm chart and publishes them to GHCR.
+# Mode is chosen from the triggering ref:
+#   - release tag (e.g. `server-bin-v0.2.0` / `v0.2.0`) -> stable `v<ver>` image
+#   - push to `main` -> RC image `rc-<run_number>`
+#   - push to any other branch -> `run-<run_number>` image
+# Stable release images are kept indefinitely; `rc-*` and `run-*` images are
+# pruned by cleanup.yml after 30 days.
+
+on:
+  push:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }} # ghcr.io/<owner>/ferris-cms
+  CHART_OCI: ${{ github.repository_owner }}/ferriscms-charts
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # Determine the image tag / chart version for this ref.
+      # ------------------------------------------------------------------
+      - name: Determine tags
+        id: tags
+        run: |
+          # Current workspace version (e.g. 0.1.0) used as the base for rc/run tags.
+          BASE=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
+          BASE=${BASE:-0.1.0}
+
+          echo "SKIP=false" >> "$GITHUB_ENV"
+          echo "IS_RELEASE=false" >> "$GITHUB_ENV"
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # release-plz tags look like `server-bin-v0.2.0`; plain `v0.2.0` also supported.
+            VER="$GITHUB_REF_NAME"
+            VER="${VER##*-v}"
+            VER="${VER#v}"
+            if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "IS_RELEASE=true" >> "$GITHUB_ENV"
+              echo "IMAGE_TAG=v$VER" >> "$GITHUB_ENV"
+              echo "CHART_VERSION=$VER" >> "$GITHUB_ENV"
+              echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+              echo "Base release version: $VER"
+              exit 0
+            fi
+          fi
+
+          if [ "$GITHUB_REF_NAME" = "main" ] && [ "$GITHUB_REF_TYPE" = "branch" ]; then
+            echo "IMAGE_TAG=rc-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+            echo "CHART_VERSION=$BASE-rc.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          else
+            echo "IMAGE_TAG=run-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+            echo "CHART_VERSION=$BASE-run.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+          fi
+          echo "APP_VERSION=$BASE" >> "$GITHUB_ENV"
+
+      # ------------------------------------------------------------------
+      # For stable releases, skip if that exact version already exists, so a
+      # multi-crate release (several `*-v<ver>` tags) only builds once.
+      # ------------------------------------------------------------------
+      - name: Skip if release image already published
+        if: env.IS_RELEASE == 'true'
+        run: |
+          if docker manifest inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >/dev/null 2>&1; then
+            echo "SKIP=true" >> "$GITHUB_ENV"
+            echo "::notice::Release image ${{ env.IMAGE_TAG }} already exists; skipping."
+          else
+            echo "::notice::Releasing ${{ env.IMAGE_TAG }}"
+          fi
+
+      # ------------------------------------------------------------------
+      # Docker image
+      # ------------------------------------------------------------------
+      - name: Set up Docker Buildx
+        if: env.SKIP == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: env.SKIP == 'false'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        if: env.SKIP == 'false'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+
+      # ------------------------------------------------------------------
+      # Helm chart
+      # ------------------------------------------------------------------
+      - name: Install Helm
+        if: env.SKIP == 'false'
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.15.4
+
+      - name: Lint and package chart
+        if: env.SKIP == 'false'
+        run: |
+          helm lint deploy/helm/ferriscms
+          helm package deploy/helm/ferriscms \
+            --version "${{ env.CHART_VERSION }}" \
+            --app-version "${{ env.APP_VERSION }}" \
+            -d dist/
+
+      - name: Login and push chart to GHCR
+        if: env.SKIP == 'false'
+        env:
+          HELM_EXPERIMENTAL_OCI: "1"
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
+            --username "${{ github.actor }}" --password-stdin
+          helm push "dist/ferriscms-${{ env.CHART_VERSION }}.tgz" \
+            "oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}"

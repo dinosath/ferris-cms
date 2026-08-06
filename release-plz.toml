@@ -1,0 +1,26 @@
+# release-plz configuration.
+#
+# This project releases as a Docker image + Helm chart on GitHub, NOT on
+# crates.io. `git_only = true` determines versions from git tags and skips
+# `cargo publish` entirely (so no crates.io publishing). When you merge a
+# release-plz PR, release-plz bumps the workspace version, updates the
+# changelogs, and pushes `<package>-v<version>` tags + GitHub releases.
+# Those tags trigger the stable image/chart build in `.github/workflows/build.yml`.
+
+[workspace]
+# Version source + no crates.io publishing (git tags instead of the registry).
+git_only = true
+
+# Only release when a release-plz PR is merged, not on every main commit.
+# Matches "when release-plz pr is merged it should do normal release".
+release_always = false
+
+# These are mostly internal/binary crates; skip API-compat checks to keep the
+# release PR friction-free (and because there is no crates.io baseline).
+semver_check = false
+
+# Add a recognizable label to the release PRs.
+pr_labels = ["release"]
+
+# Keep changelog generation on for every package.
+changelog_update = true

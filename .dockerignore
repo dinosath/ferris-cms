@@ -1,0 +1,13 @@
+# Keep the Docker build context small and reproducible.
+target
+.git
+.github
+*.db
+*.db-journal
+media
+docs
+deploy
+.cargo
+Cargo.lock.bak
+.idea
+.vscode
