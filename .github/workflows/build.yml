@@ -63,10 +63,11 @@ jobs:
           fi
 
           if [ "$GITHUB_REF_NAME" = "main" ] && [ "$GITHUB_REF_TYPE" = "branch" ]; then
-            echo "IMAGE_TAG=rc-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+            # rc images carry the workspace version + run number, e.g. 0.2.0.rc-3
+            echo "IMAGE_TAG=$BASE.rc-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
             echo "CHART_VERSION=$BASE-rc.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           else
-            echo "IMAGE_TAG=run-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
+            echo "IMAGE_TAG=$BASE.run-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
             echo "CHART_VERSION=$BASE-run.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
           fi
           echo "APP_VERSION=$BASE" >> "$GITHUB_ENV"

@@ -15,9 +15,9 @@ git_only = true
 # Matches "when release-plz pr is merged it should do normal release".
 release_always = false
 
-# These are mostly internal/binary crates; skip API-compat checks to keep the
-# release PR friction-free (and because there is no crates.io baseline).
-semver_check = false
+# Run cargo-semver-checks on each release PR. Versions are determined from git
+# tags (git_only mode) which serve as the semver baseline.
+semver_check = true
 
 # Add a recognizable label to the release PRs.
 pr_labels = ["release"]

@@ -278,8 +278,8 @@ is ever published to **crates.io**.
 
 | Event | Image tag | Chart version | Kept |
 |---|---|---|---|
-| Push to `main` | `rc-<run_number>` | `0.1.0-rc.<run_number>` | 30 days |
-| Push to another branch | `run-<run_number>` | `0.1.0-run.<run_number>` | 30 days |
+| Push to `main` | `<version>.rc-<run_number>` (e.g. `0.2.0.rc-3`) | `0.2.0-rc.<run_number>` | 30 days |
+| Push to another branch | `<version>.run-<run_number>` | `0.2.0-run.<run_number>` | 30 days |
 | Release tag (release-plz PR merged) | `v<version>` | `<version>` | indefinitely |
 
 Images and charts are published to:
@@ -290,16 +290,23 @@ Images and charts are published to:
 ### Workflows
 
 - **`build.yml`** — on every push, chooses the mode above and builds/pushes the
-  image + chart. Stable releases skip if the exact version already exists. The
-  Docker build uses the GitHub Actions cache backend (`type=gha`, `mode=max`),
-  so the cargo/compilation cache is persisted across runs and retries — even a
-  failed build never loses the previously-saved cache.
+  image + chart. RC/run image tags are prefixed with the current workspace
+  version (e.g. `0.2.0.rc-3`). Stable releases skip if the exact version already
+  exists. The Docker build uses the GitHub Actions cache backend
+  (`type=gha`, `mode=max`), so the cargo/compilation cache is persisted across
+  runs and retries — even a failed build never loses the previously-saved cache.
+- **`checks.yml`** — on every push and PR:
+  - **Conventional commits**: every new commit must follow the Conventional
+    Commits format (`<type>(<scope>)[!]: <description>`), which is what drives
+    the next version.
+  - **Cargo semver checks**: runs `cargo-semver-checks` against the latest git
+    tag on all library crates to catch accidental breaking API changes.
 - **`release-plz.yml`** — on every push to `main`: opens a release PR (version
-  bump + changelog), and finalizes a release when that PR is merged (pushes
-  `<package>-v<version>` tags + GitHub releases). Release tags trigger the
-  stable image build in `build.yml`.
-- **`cleanup.yml`** — daily, deletes `rc-*` / `run-*` GHCR images older than
-  30 days. Stable `vX.Y.Z` images are kept.
+  bump + changelog + semver check), and finalizes a release when that PR is
+  merged (pushes `<package>-v<version>` tags + GitHub releases). Release tags
+  trigger the stable image build in `build.yml`.
+- **`cleanup.yml`** — daily, deletes `<version>.rc-*` / `<version>.run-*` GHCR
+  images older than 30 days. Stable `vX.Y.Z` images are kept.
 
 ### How a release works
 

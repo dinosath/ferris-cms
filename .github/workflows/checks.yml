@@ -1,0 +1,86 @@
+name: Checks
+
+# Runs on every push and pull request:
+#   1. Verifies every commit follows the Conventional Commits format
+#      (this is what release-plz uses to determine the next version).
+#   2. Runs cargo-semver-checks against the latest git tag to catch
+#      accidental breaking API changes before a release.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-commits:
+    name: Conventional commits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need history for the commit range.
+          fetch-depth: 0
+
+      - name: Check commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+          else
+            RANGE="${{ github.event.before }}..${{ github.event.after }}"
+          fi
+
+          # Initial push / force-push to an empty ref: check all commits.
+          if [[ -z "$RANGE" || "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
+            RANGE="--all"
+          fi
+
+          echo "Checking commits in range: $RANGE"
+          COMMITS=$(git log "$RANGE" --format='%h|%s' 2>/dev/null)
+          if [ -z "$COMMITS" ]; then
+            echo "No commits to check."
+            exit 0
+          fi
+
+          STATUS=0
+          while IFS='|' read -r sha subject; do
+            # Conventional Commits: type(optional scope)[!]: subject
+            if [[ ! "$subject" =~ ^(feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert)(\([^)]*\))?!?:[[:space:]].+ ]]; then
+              echo "::error::$sha is not a Conventional Commit: '$subject'"
+              echo "  Expected format: <type>(<scope>)[!]: <description>"
+              echo "  e.g. feat(ctb): add relation field"
+              STATUS=1
+            fi
+          done <<< "$COMMITS"
+          exit "$STATUS"
+
+  semver:
+    name: Cargo semver checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+
+      - name: Run semver checks
+        run: |
+          git fetch --tags --force >/dev/null 2>&1 || true
+          BASELINE=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$BASELINE" ]; then
+            echo "No previous release tag yet; skipping baseline comparison."
+            exit 0
+          fi
+          echo "Comparing against baseline tag: $BASELINE"
+          # Only the library crates have a public API surface; the binaries
+          # (server-bin, desktop-bin) are excluded.
+          cargo semver-checks check-release \
+            --workspace \
+            -p core-domain -p core-schema -p api-types -p db -p dynamic-store \
+            -p services -p api-rest -p client-core -p ui -p app \
+            --baseline-rev "$BASELINE"

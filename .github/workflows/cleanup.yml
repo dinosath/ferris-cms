@@ -1,8 +1,9 @@
 name: Cleanup stale images
 
-# Deletes GHCR image versions that are NOT from a normal release (i.e. `rc-*`
-# and `run-*`) once they are older than 30 days. Stable `vX.Y.Z` release images
-# are kept. Runs daily and can be triggered manually.
+# Deletes GHCR image versions that are NOT from a normal release (i.e.
+# `<version>.rc-*` and `<version>.run-*`) once they are older than 30 days.
+# Stable `vX.Y.Z` release images are kept. Runs daily and can be triggered
+# manually.
 
 on:
   schedule:
@@ -48,8 +49,9 @@ jobs:
             --jq '.[] | [.id, .name, .created_at] | @tsv' \
             | while IFS=$'\t' read -r id name created; do
                 # Only prune non-release tags; keep stable vX.Y.Z images.
+                # rc/run tags are version-prefixed, e.g. 0.2.0.rc-3 / 0.2.0.run-4.
                 case "$name" in
-                  rc-*|run-*)
+                  *.rc-*|*.run-*)
                     ts=$(date -d "$created" +%s)
                     if [ "$ts" -lt "$cutoff" ]; then
                       echo "Deleting stale image '$name' (version $id, created $created)"
