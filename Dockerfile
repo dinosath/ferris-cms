@@ -40,8 +40,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 WORKDIR /app/crates/app
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    dx build --web \
-    && cp -r /app/target/dx/ferriscms/debug/web/public /app/crates/api-rest/ui
+    dx build --web --release \
+    && cp -r /app/target/dx/ferriscms/release/web/public /app/crates/api-rest/ui
 
 # Build the server now that the UI is present, embedding the assets into the
 # binary (rust-embed), and stage it at a stable path for the runtime stage to
