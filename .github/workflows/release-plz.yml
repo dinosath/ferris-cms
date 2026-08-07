@@ -17,10 +17,6 @@ permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: release-plz-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   # Finalize a release after a release-plz PR has been merged.
   release-plz-release:
@@ -47,12 +43,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Open/update the release PR preparing the next version.
+  # Concurrency on this job only: if a new commit lands while the PR job is
+  # running, the pending PR job waits (no cancellation), avoiding PR conflicts.
+  # The `release` job is intentionally left unconstrained so a release is never
+  # delayed or cancelled by PR updates.
   release-plz-pr:
     name: Release-plz PR
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+    concurrency:
+      group: release-plz-pr-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

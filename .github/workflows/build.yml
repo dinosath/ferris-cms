@@ -22,8 +22,13 @@ jobs:
     permissions:
       contents: read
       packages: write
+    # Serialize all builds. This is important for releases: release-plz pushes
+    # one tag per package (all at the same version), so several `v<ver>` builds
+    # could otherwise race and 11 of 12 would fail pushing the same chart
+    # version. With a single group, only the first job builds; the rest wait,
+    # re-check, and skip via the manifest check below.
     concurrency:
-      group: build-${{ github.ref }}
+      group: build
       cancel-in-progress: false
     steps:
       - name: Checkout
