@@ -13,10 +13,12 @@ pub mod error;
 
 use axum::{
     extract::{Path, Query, State},
-    response::IntoResponse,
+    http::{header, StatusCode, Uri},
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
+use rust_embed::RustEmbed;
 use services::{
     AppConfig, AppContext, ServiceError,
     auth_login, auth_register, init_info,
@@ -94,21 +96,83 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         tower_http::services::ServeDir::new(&state.ctx.config.media_storage_dir),
     );
 
-    // Serve the embedded Dioxus WASM admin UI at the site root. Any path that
-    // is not an API route falls back to the static bundle (index.html served
-    // for directory requests like `/`). Override the directory with
-    // `FERRISCMS_UI_DIR` (defaults to the container path `/app/web`).
-    let ui_dir = std::env::var("FERRISCMS_UI_DIR")
-        .unwrap_or_else(|_| "/app/web".to_string());
-    let ui_files = tower_http::services::ServeDir::new(&ui_dir)
-        .append_index_html_on_directories(true);
-
-    Router::new()
+    // Serve the Dioxus WASM admin UI at the site root. The UI is embedded in the
+    // binary at compile time (rust-embed), so the deployment is a single
+    // self-contained executable. Setting `FERRISCMS_UI_DIR` serves from that
+    // directory instead (useful for dev/hot-reload with `dx serve`).
+    let router = Router::new()
         .merge(public_api)
         .merge(admin)
-        .merge(media_serve)
-        .fallback_service(ui_files)
-        .with_state(state)
+        .merge(media_serve);
+
+    let router = match std::env::var("FERRISCMS_UI_DIR") {
+        Ok(dir) => router.fallback_service(
+            tower_http::services::ServeDir::new(&dir).append_index_html_on_directories(true),
+        ),
+        Err(_) => router.fallback(get(embedded_ui)),
+    };
+
+    router.with_state(state)
+}
+
+/// The Dioxus WASM admin UI, embedded into the binary from `crates/api-rest/ui/`.
+///
+/// In release builds (the Docker image) the files are baked into the executable;
+/// in debug builds they are read from disk. `#[allow_missing]` lets the crate
+/// compile before the UI has been generated.
+#[derive(RustEmbed)]
+#[folder = "ui/"]
+#[allow_missing = true]
+struct UiAssets;
+
+const UI_INDEX: &str = "index.html";
+
+/// Serve the embedded admin UI. `/` and unknown extension-less paths return the
+/// SPA `index.html`; real files are served directly; unmatched API routes 404.
+async fn embedded_ui(uri: Uri) -> Response {
+    let mut path = uri
+        .path()
+        .trim_start_matches('/')
+        .trim_start_matches("./")
+        .to_string();
+
+    if path.is_empty() {
+        path = UI_INDEX.to_string();
+    }
+
+    // Unmatched API routes must 404, not fall through to the SPA.
+    if path.starts_with("api/")
+        || path.starts_with("admin/")
+        || path.starts_with("content-type-builder/")
+        || path.starts_with("uploads/")
+    {
+        return (StatusCode::NOT_FOUND, "not found").into_response();
+    }
+
+    if let Some(content) = UiAssets::get(&path) {
+        let mime = mime_guess::from_path(&path).first_or_octet_stream();
+        return (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, mime.as_ref())],
+            content.data.into_owned(),
+        )
+            .into_response();
+    }
+
+    // SPA fallback: serve index.html for extension-less paths.
+    if !path.contains('.') {
+        if let Some(index) = UiAssets::get(UI_INDEX) {
+            let mime = mime_guess::from_path(UI_INDEX).first_or_octet_stream();
+            return (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, mime.as_ref())],
+                index.data.into_owned(),
+            )
+                .into_response();
+        }
+    }
+
+    (StatusCode::NOT_FOUND, "not found").into_response()
 }
 
 // ---------------------------------------------------------------------------

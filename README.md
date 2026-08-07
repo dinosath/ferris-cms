@@ -227,15 +227,16 @@ CMS can be deployed to Kubernetes.
 
 ### Docker image
 
-Build the `ferriscms-server` image locally (this also builds and embeds the
-Dioxus WASM admin UI, served at the site root):
+Build the `ferriscms-server` image locally. The build produces a **single
+self-contained binary** that embeds both the Axum webserver and the Dioxus WASM
+admin UI (via `rust-embed`):
 
 ```bash
 docker build -t ferriscms-server .
 ```
 
-The image is the webserver and uses **PostgreSQL** (external). It serves the
-admin UI at `/` and the REST API at `/api`, `/admin`, and
+The image is the webserver and uses **PostgreSQL** (external). The one binary
+serves the admin UI at `/` and the REST API at `/api`, `/admin`, and
 `/content-type-builder`. Media is stored in `/data/media`. Set the DB
 connection at run time:
 
@@ -248,8 +249,8 @@ docker run --rm -p 1337:1337 \
   ferriscms-server
 ```
 
-The embedded UI directory is configurable via `FERRISCMS_UI_DIR` (default
-`/app/web`).
+For development, you can serve the UI from a directory instead of the embedded
+copy by setting `FERRISCMS_UI_DIR` (e.g. point it at a `dx serve` output).
 
 ### Helm chart
 
