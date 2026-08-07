@@ -48,7 +48,7 @@ services:
   # registry profile: pull the prebuilt image from GHCR.
   ferriscms-registry:
     profiles: ["registry"]
-    image: ${FERRISCMS_IMAGE:-ghcr.io/dinosath/ferris-cms:0.2.0.rc-3}
+    image: ${FERRISCMS_IMAGE:-ghcr.io/dinosath/ferris-cms:latest}
     depends_on:
       postgres:
         condition: service_healthy
