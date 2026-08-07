@@ -6,7 +6,7 @@ ferriscms reproduces Strapi's core headless-CMS workflow with a single Rust
 codebase that runs in two modes:
 
 - **Offline desktop** — an embedded SQLite database, no server, no config.
-- **Online server** — an Axum server on PostgreSQL (or SQLite) serving a
+- **Online server** — an Axum server on PostgreSQL serving a
   Strapi-compatible REST API plus the Dioxus admin UI.
 
 ```
@@ -106,8 +106,8 @@ ferriscms/
   ```bash
   cargo install dioxus-cli
   ```
-- **PostgreSQL** — optional; only if you run the server against Postgres
-  instead of the default SQLite.
+- **PostgreSQL** — required for the webserver (`server-bin`); the desktop app
+  uses embedded SQLite.
 
 ### Build
 
@@ -157,7 +157,7 @@ integration tests.
 ### Online server (`ferriscms-server`)
 
 Starts the Axum REST API + admin API on the configured port, running
-migrations and seeding roles/locales on boot.
+migrations and seeding roles/locales on boot. The webserver uses **PostgreSQL**.
 
 ```bash
 cargo run -p server-bin
@@ -165,7 +165,7 @@ cargo run -p server-bin
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:ferriscms.db?mode=rwc` | DB connection (use a `postgres://…` URL for Postgres) |
+| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/ferriscms` | PostgreSQL connection URL (the webserver requires Postgres) |
 | `BIND_ADDR` | `0.0.0.0:1337` | HTTP listen address |
 | `JWT_SECRET` | `change-me-in-production` | HS256 signing secret (set in production!) |
 | `MEDIA_STORAGE_DIR` | `media` | Directory for uploaded files |
@@ -233,15 +233,15 @@ Build the `ferriscms-server` image locally:
 docker build -t ferriscms-server .
 ```
 
-The image defaults to SQLite in `/data` with media in `/data/media`. Override
-with env vars at run time:
+The image is the webserver and uses **PostgreSQL** (external). Media is stored
+in `/data/media`. Set the DB connection at run time:
 
 ```bash
 docker run --rm -p 1337:1337 \
   -e DATABASE_URL='postgres://user:pass@host:5432/ferriscms' \
   -e JWT_SECRET='a-strong-secret' \
   -e MEDIA_STORAGE_DIR=/data/media \
-  -v ferriscms-data:/data \
+  -v ferriscms-media:/data/media \
   ferriscms-server
 ```
 
@@ -262,9 +262,9 @@ Useful `--set` overrides:
 | Value | Default | Purpose |
 |---|---|---|
 | `image.tag` | `appVersion` | Image tag to deploy |
-| `env.DATABASE_URL` | `sqlite:/data/ferriscms.db?mode=rwc` | DB connection (use a `postgres://…` URL) |
+| `env.DATABASE_URL` | `postgres://postgres:postgres@postgres:5432/ferriscms` | PostgreSQL connection URL |
 | `env.JWT_SECRET` | `change-me-in-production` | Signing secret — set in production! |
-| `persistence.enabled` | `true` | Mount a PVC at `/data` |
+| `persistence.enabled` | `true` | Mount a PVC at `/data` for media |
 | `persistence.size` | `1Gi` | PVC size |
 
 ---

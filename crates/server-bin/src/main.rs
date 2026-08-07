@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite:ferriscms.db?mode=rwc".into());
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/ferriscms".into());
 
     tracing::info!("connecting to database: {database_url}");
     let db = connect(&database_url).await?;

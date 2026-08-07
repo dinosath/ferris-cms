@@ -14,16 +14,16 @@ service:
   port: 1337
 
 # Environment variables passed to the server container.
-# DATABASE_URL can point to an external PostgreSQL (postgres://...) or to the
-# persistent /data SQLite file (default).
+# The webserver uses PostgreSQL. Set DATABASE_URL to your database
+# (e.g. postgres://user:password@postgres:5432/ferriscms).
 env:
-  DATABASE_URL: "sqlite:/data/ferriscms.db?mode=rwc"
+  DATABASE_URL: "postgres://postgres:postgres@postgres:5432/ferriscms"
   JWT_SECRET: "change-me-in-production"
   MEDIA_STORAGE_DIR: "/data/media"
   BIND_ADDR: "0.0.0.0:1337"
   RUST_LOG: "info"
 
-# Persistent storage for the SQLite database + uploaded media.
+# Persistent storage for uploaded media (the database is external PostgreSQL).
 persistence:
   enabled: true
   size: 1Gi

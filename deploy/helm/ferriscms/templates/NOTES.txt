@@ -9,5 +9,6 @@ Getting started:
 Then open http://localhost:1337/admin/init and register the first admin user.
 
 Set a strong JWT_SECRET in production (--set env.JWT_SECRET=...).
-For PostgreSQL, point env.DATABASE_URL at your database and disable persistence
-(--set persistence.enabled=false) or attach your own PVC.
+The webserver uses PostgreSQL: point env.DATABASE_URL at your database
+(--set env.DATABASE_URL='postgres://user:pass@host:5432/ferriscms').
+The PVC mounts at /data for uploaded media only.
