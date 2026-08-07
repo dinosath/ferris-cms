@@ -17,8 +17,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 ########## Runtime stage ##########
 FROM debian:bookworm-slim AS runtime
 # Pin apt package versions (DL3008) for reproducible, lean image.
+# Bookworm ships ca-certificates 20230311+deb12u1 (verified in bookworm main).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates=20230311 \
+    && apt-get install -y --no-install-recommends ca-certificates=20230311+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/ferriscms-server /usr/local/bin/ferriscms-server
