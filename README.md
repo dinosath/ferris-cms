@@ -290,7 +290,10 @@ Images and charts are published to:
 ### Workflows
 
 - **`build.yml`** — on every push, chooses the mode above and builds/pushes the
-  image + chart. Stable releases skip if the exact version already exists.
+  image + chart. Stable releases skip if the exact version already exists. The
+  Docker build uses the GitHub Actions cache backend (`type=gha`, `mode=max`),
+  so the cargo/compilation cache is persisted across runs and retries — even a
+  failed build never loses the previously-saved cache.
 - **`release-plz.yml`** — on every push to `main`: opens a release PR (version
   bump + changelog), and finalizes a release when that PR is merged (pushes
   `<package>-v<version>` tags + GitHub releases). Release tags trigger the

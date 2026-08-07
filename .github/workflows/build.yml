@@ -103,6 +103,10 @@ jobs:
       - name: Set up Docker Buildx
         if: env.SKIP == 'false'
         uses: docker/setup-buildx-action@v3
+        with:
+          # Required for the GHA cache backend (cache-from/cache-to below);
+          # the default `docker` driver does not support cache export.
+          driver: docker-container
 
       - name: Build and push image
         if: env.SKIP == 'false'
@@ -110,6 +114,14 @@ jobs:
         with:
           context: .
           push: true
+          # Persist the BuildKit cache (including the cargo /app/target cache
+          # mount) to the GitHub Actions cache. This is reused by subsequent
+          # runs and by retries after a failed build, so the expensive Rust
+          # dependency compilation is only done once instead of on every run.
+          # `ignore-error=true` ensures a cache-export failure never fails the
+          # whole build.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           labels: |
