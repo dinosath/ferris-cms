@@ -227,14 +227,17 @@ CMS can be deployed to Kubernetes.
 
 ### Docker image
 
-Build the `ferriscms-server` image locally:
+Build the `ferriscms-server` image locally (this also builds and embeds the
+Dioxus WASM admin UI, served at the site root):
 
 ```bash
 docker build -t ferriscms-server .
 ```
 
-The image is the webserver and uses **PostgreSQL** (external). Media is stored
-in `/data/media`. Set the DB connection at run time:
+The image is the webserver and uses **PostgreSQL** (external). It serves the
+admin UI at `/` and the REST API at `/api`, `/admin`, and
+`/content-type-builder`. Media is stored in `/data/media`. Set the DB
+connection at run time:
 
 ```bash
 docker run --rm -p 1337:1337 \
@@ -244,6 +247,9 @@ docker run --rm -p 1337:1337 \
   -v ferriscms-media:/data/media \
   ferriscms-server
 ```
+
+The embedded UI directory is configurable via `FERRISCMS_UI_DIR` (default
+`/app/web`).
 
 ### Helm chart
 

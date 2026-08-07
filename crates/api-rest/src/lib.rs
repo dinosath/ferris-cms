@@ -94,10 +94,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         tower_http::services::ServeDir::new(&state.ctx.config.media_storage_dir),
     );
 
+    // Serve the embedded Dioxus WASM admin UI at the site root. Any path that
+    // is not an API route falls back to the static bundle (index.html served
+    // for directory requests like `/`). Override the directory with
+    // `FERRISCMS_UI_DIR` (defaults to the container path `/app/web`).
+    let ui_dir = std::env::var("FERRISCMS_UI_DIR")
+        .unwrap_or_else(|_| "/app/web".to_string());
+    let ui_files = tower_http::services::ServeDir::new(&ui_dir)
+        .append_index_html_on_directories(true);
+
     Router::new()
         .merge(public_api)
         .merge(admin)
         .merge(media_serve)
+        .fallback_service(ui_files)
         .with_state(state)
 }
 

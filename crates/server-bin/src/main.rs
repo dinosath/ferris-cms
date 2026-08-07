@@ -1,7 +1,8 @@
 //! ferriscms server binary — online Axum server (design Part II §1).
 //!
-//! Starts the REST API + admin endpoints on the configured port.
-//! Uses PostgreSQL (or SQLite) and serves the Dioxus WASM UI.
+//! Starts the REST API + admin endpoints on the configured port, and serves
+//! the embedded Dioxus WASM admin UI at the site root.
+//! Uses PostgreSQL (or SQLite).
 
 use api_rest::{build_router, AppState};
 use db::{connect, seed, Migrator};
