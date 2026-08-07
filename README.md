@@ -267,6 +267,24 @@ Useful `--set` overrides:
 | `persistence.enabled` | `true` | Mount a PVC at `/data` for media |
 | `persistence.size` | `1Gi` | PVC size |
 
+### Docker Compose
+
+A [`docker-compose.yml`](docker-compose.yml) starts a PostgreSQL database plus
+the webserver, using profiles:
+
+```bash
+# Build the image from the local Dockerfile (dev)
+docker compose --profile local up --build
+
+# Pull and run the prebuilt image from GHCR (registry)
+docker compose --profile registry up
+```
+
+Both profiles share the same Postgres database and expose ferriscms on
+`localhost:1337`. Set `JWT_SECRET` (and optionally `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, `POSTGRES_DB`) via a `.env` file. For the registry
+profile, override the image with `FERRISCMS_IMAGE=ghcr.io/dinosath/ferris-cms:<tag>`.
+
 ---
 
 ## CI & releases
@@ -320,8 +338,14 @@ Images and charts are published to:
 
 ### Requirements
 
-- Actions **Workflow permissions** must allow the default `GITHUB_TOKEN` to
-  create/approve PRs (needed by release-plz).
+- **release-plz PR creation (403 fix)** — the default `GITHUB_TOKEN` can only
+  open PRs if **Settings → Actions → General → Workflow permissions** has
+  *"Allow GitHub Actions to create and approve pull requests"* enabled. If that
+  setting is disabled or blocked by your org (release-plz then fails with
+  `403 ... not permitted to create or approve pull requests`), create a
+  fine-grained/classic PAT with `contents: write` and `pull-requests: write`
+  and add it as the **`RELEASE_PLZ_TOKEN`** secret. The workflow uses that PAT
+  when present and falls back to `GITHUB_TOKEN`.
 - The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
   push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
   secret with the `delete:packages` scope.

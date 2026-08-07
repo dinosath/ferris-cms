@@ -1,0 +1,67 @@
+# docker compose for ferriscms.
+#
+# Two profiles:
+#   local    -> build the image from the local Dockerfile (docker compose --profile local up)
+#   registry -> pull the prebuilt image from GHCR       (docker compose --profile registry up)
+#
+# Both start a PostgreSQL database, since the webserver requires PostgreSQL.
+
+name: ferriscms
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["local", "registry"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-ferriscms}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ferriscms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+
+  # local profile: build the image from the Dockerfile in the repo root.
+  ferriscms-local:
+    profiles: ["local"]
+    build:
+      context: .
+    image: ferriscms-server:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ferriscms}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      MEDIA_STORAGE_DIR: /data/media
+      BIND_ADDR: 0.0.0.0:1337
+    volumes:
+      - media:/data/media
+    ports:
+      - "1337:1337"
+
+  # registry profile: pull the prebuilt image from GHCR.
+  ferriscms-registry:
+    profiles: ["registry"]
+    image: ${FERRISCMS_IMAGE:-ghcr.io/dinosath/ferris-cms:0.2.0.rc-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ferriscms}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      MEDIA_STORAGE_DIR: /data/media
+      BIND_ADDR: 0.0.0.0:1337
+    volumes:
+      - media:/data/media
+    ports:
+      - "1337:1337"
+
+volumes:
+  pgdata:
+  media:

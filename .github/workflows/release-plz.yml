@@ -40,7 +40,7 @@ jobs:
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
   # Open/update the release PR preparing the next version.
   # Concurrency on this job only: if a new commit lands while the PR job is
@@ -71,4 +71,9 @@ jobs:
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The action opens the PR using `--git-token ${GITHUB_TOKEN}`.
+          # If the repo disables "Allow GitHub Actions to create and approve
+          # pull requests" (which blocks the default GITHUB_TOKEN with a 403),
+          # set a fine-grained/classic PAT as RELEASE_PLZ_TOKEN — a PAT can
+          # open PRs regardless of that setting. Falls back to GITHUB_TOKEN.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
