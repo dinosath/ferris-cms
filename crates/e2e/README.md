@@ -52,9 +52,10 @@ you prefer to run the server / browser externally instead of via
 
 ## Tests
 
-- `tests/api_e2e.rs` — backend REST workflow against a fresh Turso database:
-  first-run init → register super admin → login (JWT) → create a content type →
-  list → create an entry → read it back via the public API.
+- `tests/api_e2e.rs` — CRUD REST tests using `reqwest` against a fresh Turso
+  database: register super admin → login (JWT) → create a content type → then
+  Create, Read (single + list), Update and Delete content entries via the admin
+  Content Manager API, plus a public (no-auth) read.
 - `tests/ui_e2e.rs` — Playwright UI tests driving the Obscura headless browser:
   the embedded Dioxus WASM UI loads, hydrates, and navigates, and the
   Content-Type Builder screen no longer shows the "http error: builder error"
