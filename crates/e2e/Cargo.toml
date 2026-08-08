@@ -1,0 +1,16 @@
+[package]
+name = "e2e"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Playwright (playwright-rs) + testcontainers end-to-end tests for ferriscms"
+
+[dependencies]
+playwright-rs = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+anyhow = "1"

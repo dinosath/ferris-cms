@@ -13,6 +13,7 @@ members = [
     "crates/app",
     "crates/server-bin",
     "crates/desktop-bin",
+    "crates/e2e",
 ]
 
 [workspace.package]
@@ -68,6 +69,9 @@ jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 argon2 = "0.5"
 sha2 = "0.10"
 rand = "0.9"
+
+# e2e testing
+playwright-rs = "0.15"
 
 [profile.dev]
 opt-level = 1

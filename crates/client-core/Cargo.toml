@@ -13,3 +13,8 @@ thiserror = { workspace = true }
 async-trait = { workspace = true }
 parking_lot = "0.12"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# On the web the client is same-origin; we read `window.location.origin` so the
+# HTTP transport builds absolute URLs (reqwest rejects relative URLs).
+web-sys = { version = "0.3", features = ["Window", "Location"] }

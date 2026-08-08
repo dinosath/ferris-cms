@@ -231,13 +231,16 @@ fn bigint_null(name: &str) -> ColumnDef {
 
 fn ts(name: &str) -> ColumnDef {
     let mut c = ColumnDef::new(Alias::new(name));
-    c.date_time();
+    // The dynamic store reads/writes all values (including timestamps) as
+    // JSON/text so they behave uniformly on SQLite and Postgres. A `date_time`
+    // column on Postgres would reject the string values the DML writes.
+    c.string();
     c
 }
 
 fn ts_not_null(name: &str) -> ColumnDef {
     let mut c = ColumnDef::new(Alias::new(name));
-    c.date_time().not_null();
+    c.string().not_null();
     c
 }
 

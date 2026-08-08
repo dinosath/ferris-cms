@@ -6,8 +6,14 @@
 
 use sea_orm::DbErr;
 use sea_orm_migration::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Migrator;
+
+/// Whether the current migration run targets Postgres. SeaORM maps the entity
+/// `DateTimeUtc` fields to `TIMESTAMPTZ` on Postgres but `TIMESTAMP` on SQLite,
+/// so the DDL must match per backend. Set at the start of each migration.
+static IS_POSTGRES: AtomicBool = AtomicBool::new(false);
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
@@ -47,13 +53,21 @@ fn bool_col(name: &str) -> ColumnDef {
 
 fn ts_col(name: &str) -> ColumnDef {
     let mut c = ColumnDef::new(Alias::new(name));
-    c.date_time().not_null();
+    if IS_POSTGRES.load(Ordering::Relaxed) {
+        c.timestamp_with_time_zone().not_null();
+    } else {
+        c.date_time().not_null();
+    }
     c
 }
 
 fn ts_opt(name: &str) -> ColumnDef {
     let mut c = ColumnDef::new(Alias::new(name));
-    c.date_time();
+    if IS_POSTGRES.load(Ordering::Relaxed) {
+        c.timestamp_with_time_zone();
+    } else {
+        c.date_time();
+    }
     c
 }
 
@@ -98,6 +112,10 @@ impl MigrationName for M20260731Init {
 #[async_trait::async_trait]
 impl MigrationTrait for M20260731Init {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        IS_POSTGRES.store(
+            matches!(manager.get_database_backend(), sea_orm::DatabaseBackend::Postgres),
+            Ordering::Relaxed,
+        );
         // ---- content_type_schemas ----
         let mut t = Table::create().table(Alias::new("content_type_schemas")).if_not_exists().to_owned();
         t.col(pk_col());

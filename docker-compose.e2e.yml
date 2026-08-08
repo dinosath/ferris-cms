@@ -1,0 +1,58 @@
+# docker compose stack for the Playwright end-to-end tests (crates/e2e).
+#
+# Runs the ferriscms server image plus a headless Chrome (CDP) container that
+# the tests drive. The tests do NOT start containers themselves; they read the
+# endpoints from FERRISCMS_URL / FERRISCMS_BROWSER_URL (defaults below).
+#
+# Usage:
+#   docker compose -f docker-compose.e2e.yml up -d --build
+#   cargo test -p e2e
+#   docker compose -f docker-compose.e2e.yml down
+
+name: ferriscms-e2e
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ferriscms
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ferriscms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [e2e]
+
+  server:
+    image: ferriscms-server:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/ferriscms
+      BIND_ADDR: 0.0.0.0:1337
+      JWT_SECRET: e2e-test-secret
+      MEDIA_STORAGE_DIR: /data/media
+    ports:
+      - "1337:1337"
+    networks: [e2e]
+
+  chrome:
+    # chromedp/headless-shell sets up headless-shell on 9223 and a socat
+    # forward on 9222 (bound to 0.0.0.0), which compose maps to the host. Do not
+    # override the remote-debugging port here — that rebinds it to loopback and
+    # breaks the host->container forward. Only pass browser flags.
+    image: chromedp/headless-shell:latest
+    command:
+      - --no-sandbox
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --headless=new
+    ports:
+      - "9222:9222"
+    networks: [e2e]
+
+networks:
+  e2e: {}

@@ -9,6 +9,15 @@ use std::sync::Arc;
 // Re-export for convenience.
 pub use api_types;
 
+/// Resolve the current web origin (e.g. `http://localhost:1337`) so the HTTP
+/// transport can build absolute URLs in the browser.
+#[cfg(target_arch = "wasm32")]
+fn web_origin() -> String {
+    web_sys::window()
+        .and_then(|w| w.location().origin().ok())
+        .unwrap_or_default()
+}
+
 /// Errors the client can return.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
@@ -53,8 +62,17 @@ pub struct HttpTransport {
 
 impl HttpTransport {
     pub fn new(base_url: impl Into<String>) -> Self {
+        let mut base_url = base_url.into();
+
+        // On the web the UI is served same-origin and `api_base_url()` is empty.
+        // reqwest requires absolute URLs, so resolve to the current origin here.
+        #[cfg(target_arch = "wasm32")]
+        if base_url.is_empty() {
+            base_url = web_origin();
+        }
+
         Self {
-            base_url: base_url.into(),
+            base_url,
             token: parking_lot::RwLock::new(None),
             client: reqwest::Client::new(),
         }
