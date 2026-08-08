@@ -171,9 +171,11 @@ fn spawn_obscura() -> Result<(Child, String)> {
 
     let mut cmd = Command::new("obscura");
     cmd.arg("serve").arg("--port").arg(port.to_string());
+    // Obscura blocks loopback/private IPs by default (SSRF protection); the
+    // in-process ferriscms server runs on 127.0.0.1, so allow private network.
+    cmd.arg("--allow-private-network");
     cmd.stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+        .stderr(Stdio::null());
     let child = cmd
         .spawn()
         .context("spawn `obscura serve` (is the `obscura` binary on PATH?)")?;

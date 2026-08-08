@@ -10,23 +10,32 @@ browser.
   **in-process** against it (through the existing SQLite backend).
 - **Browser:** [Obscura](https://github.com/h4ckf0r0day/obscura) — a lightweight
   Rust headless browser that is a drop-in replacement for headless Chrome. The
-  harness launches `obscura serve` as a local subprocess, and the tests drive it
-  over CDP with Playwright ([playwright-rs](https://crates.io/crates/playwright-rs))
-  and Puppeteer.
+  harness launches `obscura serve` as a local subprocess and the tests drive it
+  over CDP with [playwright-rs](https://crates.io/crates/playwright-rs).
+- **Screenshots:** every UI test saves a PNG of the page it visits to
+  `target/e2e-screenshots/` (override with `E2E_SCREENSHOT_DIR`).
 
 No Postgres container, no Chrome container.
 
 ## Requirements
 
-- A Rust toolchain (playwright-rs bundles its own Node driver at build time; no
-  system Node is required).
-- The `obscura` binary on `PATH` (install from
-  [Obscura releases](https://github.com/h4ckf0r0day/obscura/releases) or `cargo
-  install obscura`). It is spawned by the harness per test.
-- For the UI tests, the Dioxus WASM admin UI must be reachable at the server
-  root. Point `FERRISCMS_UI_DIR` at a built WASM bundle (e.g.
-  `target/dx/ferriscms/release/web`) before running them, or use a server build
-  with the UI embedded.
+- **Rust toolchain** (a stable recent version).
+- **`obscura` binary** on `PATH` (install from
+  [Obscura releases](https://github.com/h4ckf0r0day/obscura/releases)). It is
+  spawned per test with `--allow-private-network`, because the in-process
+  server listens on `127.0.0.1` (Obscura blocks loopback by default).
+- **Node.js 18+** for the playwright-rs driver. `playwright-rs` is a pure Rust
+  API but drives Microsoft's Playwright *server*, which is a Node program. The
+  crate bundles the driver; Node must be on `PATH`.
+- **Built Dioxus WASM UI.** Point `FERRISCMS_UI_DIR` at a built WASM bundle
+  (e.g. `target/dx/ferriscms/release/web/public`) before running the UI tests,
+  or use a server build with the UI embedded. Build it with
+  `cd crates/app && dx build --web --release` (requires `dx`, `wasm-bindgen`,
+  `wasm-opt`, and `esbuild` on `PATH`).
+
+`playwright-rs` needs OpenSSL for its native-TLS websocket; this repo builds it
+**vendored** (see `crates/e2e/Cargo.toml`), so no system `libssl-dev` is
+required.
 
 ## Running
 
@@ -40,15 +49,12 @@ Each `#[tokio::test]` boots its own stack and tears it down on completion.
 
 ## Configuration
 
-| Env var             | Default                                  | Purpose                                              |
-|---------------------|------------------------------------------|------------------------------------------------------|
-| `FERRISCMS_UI_DIR`  | *(embedded UI)*                           | Directory of a built Dioxus WASM UI for the UI tests |
-| `FERRISCMS_URL`     | `http://127.0.0.1:1337`                   | (Legacy) server URL when managing it externally      |
-| `FERRISCMS_BROWSER_URL` | `http://127.0.0.1:9222`               | (Legacy) CDP endpoint when managing the browser externally |
-
-`FERRISCMS_URL` / `FERRISCMS_APP_URL` / `FERRISCMS_BROWSER_URL` are only used if
-you prefer to run the server / browser externally instead of via
-[`harness::E2eHarness`]; the harness is used by default.
+| Env var               | Default                                  | Purpose                                              |
+|-----------------------|------------------------------------------|------------------------------------------------------|
+| `FERRISCMS_UI_DIR`    | *(embedded UI)*                           | Directory of a built Dioxus WASM UI for the UI tests |
+| `E2E_SCREENSHOT_DIR`  | `target/e2e-screenshots`                  | Where each UI test saves its PNG screenshot          |
+| `FERRISCMS_URL`       | `http://127.0.0.1:1337`                   | (Legacy) server URL when managing it externally      |
+| `FERRISCMS_BROWSER_URL` | `http://127.0.0.1:9222`                 | (Legacy) CDP endpoint when managing the browser externally |
 
 ## Tests
 
@@ -56,9 +62,9 @@ you prefer to run the server / browser externally instead of via
   database: register super admin → login (JWT) → create a content type → then
   Create, Read (single + list), Update and Delete content entries via the admin
   Content Manager API, plus a public (no-auth) read.
-- `tests/ui_e2e.rs` — Playwright UI tests driving the Obscura headless browser:
-  the embedded Dioxus WASM UI loads, hydrates, and navigates, and the
+- `tests/ui_e2e.rs` — playwright-rs UI tests driving the Obscura headless
+  browser: the embedded Dioxus WASM UI loads, hydrates, and navigates, and the
   Content-Type Builder screen no longer shows the "http error: builder error"
-  bug (relative API URLs on the web target).
+  bug (relative API URLs on the web target). Each test saves a screenshot.
 
 [playwright-rs]: https://crates.io/crates/playwright-rs

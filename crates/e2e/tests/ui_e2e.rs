@@ -16,6 +16,9 @@
 //! The UI must be reachable at the server root. Point `FERRISCMS_UI_DIR` at a
 //! built Dioxus WASM bundle (e.g. `target/dx/ferriscms/release/web`) before
 //! running these tests, or use a server binary with the UI embedded.
+//!
+//! Each test also saves a PNG screenshot of the page it visits, into
+//! `target/e2e-screenshots/` (override with `E2E_SCREENSHOT_DIR`).
 
 use anyhow::Context;
 use e2e::harness::E2eHarness;
@@ -45,6 +48,21 @@ async fn wait_for_text(page: &Page, predicate: impl Fn(&str) -> bool) -> anyhow:
         }
     }
     anyhow::bail!("condition not met")
+}
+
+/// Save a PNG screenshot of the current page to the screenshots directory.
+/// The directory defaults to `target/e2e-screenshots` and can be overridden
+/// with the `E2E_SCREENSHOT_DIR` environment variable.
+async fn take_screenshot(page: &Page, name: &str) -> anyhow::Result<()> {
+    let dir =
+        std::env::var("E2E_SCREENSHOT_DIR").unwrap_or_else(|_| "target/e2e-screenshots".to_string());
+    std::fs::create_dir_all(&dir).with_context(|| format!("create screenshot dir {dir}"))?;
+    let path = std::path::Path::new(&dir).join(format!("{name}.png"));
+    page.screenshot_to_file(&path, None)
+        .await
+        .with_context(|| format!("capture screenshot {name}"))?;
+    tracing::info!("saved screenshot {name} -> {}", path.display());
+    Ok(())
 }
 
 /// A connected page plus its CDP browser and driver handles.
@@ -96,6 +114,7 @@ async fn admin_ui_loads_and_hydrates() -> anyhow::Result<()> {
     assert!(body.contains("Welcome"), "home screen welcome missing");
     assert!(!body.contains(BUILDER_ERROR), "builder error present");
 
+    take_screenshot(&ui.page, "admin-home").await?;
     Ok(())
 }
 
@@ -132,6 +151,7 @@ async fn content_type_builder_has_no_builder_error() -> anyhow::Result<()> {
         "page still contains the builder error: {body}"
     );
 
+    take_screenshot(page, "content-type-builder").await?;
     Ok(())
 }
 
@@ -151,5 +171,6 @@ async fn sidebar_navigation_renders() -> anyhow::Result<()> {
         assert!(body.contains(label), "missing nav label: {label}");
     }
 
+    take_screenshot(&ui.page, "sidebar").await?;
     Ok(())
 }

@@ -25,5 +25,11 @@ ferriscms.db
 ferriscms-desktop.db
 media/
 
+# Local e2e toolchain (Rust, Obscura, Node, WASM build tools) — not committed
+.toolchain/
+.rustup/
+.cargo/
+rustup-init.sh
+
 # Helm chart packaging output
 dist/

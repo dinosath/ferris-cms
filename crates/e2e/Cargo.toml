@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Playwright (playwright-rs) end-to-end tests for ferriscms against a local Turso database and the Obscura headless browser"
+description = "Playwright (playwright-rs) end-to-end tests for ferriscms against a local Turso database and the Obscura headless browser (no containers)"
 
 [dependencies]
 playwright-rs = { workspace = true }
@@ -12,8 +12,14 @@ tokio = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-reqwest = { version = "0.12", features = ["json"] }
+# rustls TLS avoids requiring system OpenSSL/pkg-config.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 anyhow = "1"
+
+# native-tls (pulled transitively by playwright-rs via tokio-tungstenite) needs
+# OpenSSL. Building it vendored keeps the build self-contained (no system
+# libssl-dev/root required).
+openssl = { version = "0.10", features = ["vendored"] }
 
 # In-process ferriscms server under test.
 db = { workspace = true }
