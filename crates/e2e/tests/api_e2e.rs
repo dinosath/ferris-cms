@@ -1,14 +1,14 @@
-//! Backend REST API end-to-end tests against the containerized ferriscms server.
+//! Backend REST API end-to-end tests against a self-hosted ferriscms server.
 //!
-//! Exercises the admin workflow over HTTP: init → (register super admin on first
-//! run) → login (JWT) → create a content type → list it → create an entry →
-//! read it back via the public API.
+//! Exercises the admin workflow over HTTP: init → (register super admin on a
+//! fresh Turso database) → login (JWT) → create a content type → list it →
+//! create an entry → read it back via the public API.
 //!
-//! The test is idempotent against a persistent compose Postgres volume: it
-//! registers the super admin with FIXED credentials on the first run, and on
-//! subsequent runs logs in with the same credentials.
+//! Each test boots its own stack via [`e2e::harness::E2eHarness`]: a fresh Turso
+//! database plus an in-process server. The database is brand new on every run,
+//! so the first Super Admin is always registered with FIXED credentials.
 
-use e2e::server_url;
+use e2e::harness::E2eHarness;
 use serde_json::{json, Value};
 
 const EMAIL: &str = "e2e@ferriscms.test";
@@ -18,12 +18,13 @@ fn bearer(client: &reqwest::Client, method: reqwest::Method, url: String, token:
     client.request(method, url).bearer_auth(token)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread")]
 async fn init_register_login_and_crud_work_end_to_end() -> anyhow::Result<()> {
-    let base = server_url();
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url().to_string();
     let client = reqwest::Client::new();
 
-    // init reports whether an admin already exists.
+    // init reports whether an admin already exists (false on a fresh Turso DB).
     let init: Value = client
         .get(format!("{base}/admin/init"))
         .send()
@@ -33,7 +34,7 @@ async fn init_register_login_and_crud_work_end_to_end() -> anyhow::Result<()> {
     let has_admin = init["hasAdmin"].as_bool().unwrap_or(false);
 
     if !has_admin {
-        // First run: register the first super admin with fixed credentials.
+        // First run on the fresh Turso database: register the first super admin.
         let register_resp = client
             .post(format!("{base}/admin/register-admin"))
             .json(&json!({

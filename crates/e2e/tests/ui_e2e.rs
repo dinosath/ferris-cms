@@ -1,16 +1,24 @@
-//! Playwright UI end-to-end tests.
+//! Playwright UI end-to-end tests against the **Obscura** headless browser.
 //!
-//! These drive a real headless Chrome (via CDP) against the containerized
-//! ferriscms server, verifying the embedded Dioxus WASM UI loads and that the
-//! data screens no longer hit the "http error: builder error" bug (caused by
+//! These drive a local Obscura browser (a drop-in replacement for headless
+//! Chrome, launched by the harness) over CDP against the in-process ferriscms
+//! server, verifying the embedded Dioxus WASM UI loads and that the data
+//! screens no longer hit the "http error: builder error" bug (caused by
 //! relative API URLs on the web target).
+//!
+//! No Chrome and no containers are involved: `E2eHarness` boots a fresh Turso
+//! database + in-process server and spawns `obscura serve` as the browser.
 //!
 //! The debug WASM build ships Dioxus devtools, whose hot-reload overlay keeps
 //! the page "unstable", so `page.content()` / auto-waiting locators can hang.
 //! We therefore read the DOM only through bounded `evaluate` polls.
+//!
+//! The UI must be reachable at the server root. Point `FERRISCMS_UI_DIR` at a
+//! built Dioxus WASM bundle (e.g. `target/dx/ferriscms/release/web`) before
+//! running these tests, or use a server binary with the UI embedded.
 
 use anyhow::Context;
-use e2e::{browser_app_url, browser_cdp_url};
+use e2e::harness::E2eHarness;
 use playwright_rs::{Page, Playwright};
 use std::time::Duration;
 
@@ -43,9 +51,8 @@ async fn wait_for_text(page: &Page, predicate: impl Fn(&str) -> bool) -> anyhow:
 ///
 /// The `Playwright` (driver) and `Browser` handles must stay alive for the
 /// page's lifetime: dropping them tears down the connection and makes further
-/// `evaluate` calls hang. The browser is connected over CDP to an
-/// externally-managed Chrome container, so it is intentionally never closed
-/// (that would hang trying to shut down the shared browser).
+/// `evaluate` calls hang. The browser is connected over CDP to the harness's
+/// Obscura subprocess, so it is intentionally never closed here.
 struct UiPage {
     page: Page,
     _browser: playwright_rs::Browser,
@@ -59,16 +66,19 @@ impl std::ops::Deref for UiPage {
     }
 }
 
-/// Open a fresh page and wait until the Dioxus WASM app has hydrated.
-async fn open_app() -> anyhow::Result<UiPage> {
+/// Open a fresh page in Obscura and wait until the Dioxus WASM app hydrates.
+async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
     let pw = Playwright::launch().await?;
+    // Obscura speaks CDP exactly like headless Chrome, so Playwright connects
+    // to it over the harness's CDP websocket.
     let browser = pw
         .chromium()
-        .connect_over_cdp(&browser_cdp_url(), None)
+        .connect_over_cdp(harness.browser_cdp_url(), None)
         .await?;
     let page = browser.new_page().await?;
 
-    page.goto(&format!("{}/", browser_app_url()), None).await?;
+    page.goto(&format!("{}/", harness.browser_app_url()), None)
+        .await?;
     wait_for_text(&page, |t| t.contains("ferriscms"))
         .await
         .context("admin UI did not hydrate")?;
@@ -78,7 +88,8 @@ async fn open_app() -> anyhow::Result<UiPage> {
 /// The admin UI shell loads and hydrates: brand + home screen render.
 #[tokio::test(flavor = "multi_thread")]
 async fn admin_ui_loads_and_hydrates() -> anyhow::Result<()> {
-    let ui = open_app().await?;
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
     let body = body_text(&ui.page).await?;
 
     assert!(body.contains("ferriscms"), "brand missing");
@@ -92,7 +103,8 @@ async fn admin_ui_loads_and_hydrates() -> anyhow::Result<()> {
 /// builder error (the specific bug being fixed).
 #[tokio::test(flavor = "multi_thread")]
 async fn content_type_builder_has_no_builder_error() -> anyhow::Result<()> {
-    let ui = open_app().await?;
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
     let page = &ui.page;
 
     // Navigate to the CTB screen via a DOM click on the sidebar nav item.
@@ -126,7 +138,8 @@ async fn content_type_builder_has_no_builder_error() -> anyhow::Result<()> {
 /// The app shell chrome (sidebar navigation) renders all nav labels.
 #[tokio::test(flavor = "multi_thread")]
 async fn sidebar_navigation_renders() -> anyhow::Result<()> {
-    let ui = open_app().await?;
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
     let body = body_text(&ui.page).await?;
 
     for label in [

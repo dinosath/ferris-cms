@@ -1,33 +1,39 @@
 //! Shared e2e harness.
 //!
-//! The e2e suite does NOT start containers itself. It expects a ferriscms
-//! server and a headless Chrome (CDP) to already be running, and reads their
-//! endpoints from environment variables:
+//! The e2e suite is fully self-contained: it does **not** use Docker containers
+//! or testcontainers for the database or the browser. Instead it
 //!
-//! - `FERRISCMS_URL`  — base URL of the ferriscms server, reachable from the
-//!   test process (default `http://127.0.0.1:1337`).
-//! - `FERRISCMS_APP_URL` — base URL the browser should navigate to. Because the
-//!   browser runs inside its own container, this must be a host reachable from
-//!   there (e.g. the compose service name `http://server:1337`), not the test
-//!   process's localhost. Defaults to `FERRISCMS_URL`.
-//! - `FERRISCMS_BROWSER_URL` — CDP endpoint of the Chrome container, reachable
-//!   from the test process (default `http://127.0.0.1:9222`).
+//! - provisions a local **Turso** database (the SQLite-compatible [`turso`]
+//!   engine) in a temp directory, and runs the ferriscms server **in-process**
+//!   against it; and
+//! - launches **Obscura** ([`h4ckf0r0day/obscura`]) as a local subprocess to
+//!   act as the headless browser (a drop-in replacement for headless Chrome),
+//!   driven over the Chrome DevTools Protocol by Playwright (`playwright-rs`)
+//!   or Puppeteer.
 //!
-//! Start those with the bundled `docker-compose.e2e.yml`:
-//!   docker compose -f docker-compose.e2e.yml up -d
+//! See [`harness::E2eHarness`]. Tests boot a stack per test via
+//! `E2eHarness::start().await`; no external services are required beyond the
+//! `obscura` binary being on `PATH`.
 
-/// Base URL of the ferriscms server, reachable from the test process.
+pub mod harness;
+
+/// Base URL of the ferriscms server under test, reachable from the test
+/// process (default `http://127.0.0.1:1337`). Only used when the server is
+/// managed externally instead of via [`harness::E2eHarness`].
 pub fn server_url() -> String {
     std::env::var("FERRISCMS_URL").unwrap_or_else(|_| "http://127.0.0.1:1337".to_string())
 }
 
-/// Base URL the browser navigates to (reachable from inside the browser
-/// container). Defaults to `server_url()`.
+/// Base URL the browser navigates to (defaults to [`server_url`]). Only used
+/// when the server is managed externally instead of via
+/// [`harness::E2eHarness`].
 pub fn browser_app_url() -> String {
     std::env::var("FERRISCMS_APP_URL").unwrap_or_else(|_| server_url())
 }
 
-/// CDP endpoint of the Chrome container, reachable from the test process.
+/// CDP endpoint of the headless browser, reachable from the test process
+/// (default `http://127.0.0.1:9222`). Only used when the browser is managed
+/// externally instead of via [`harness::E2eHarness`].
 pub fn browser_cdp_url() -> String {
     std::env::var("FERRISCMS_BROWSER_URL").unwrap_or_else(|_| "http://127.0.0.1:9222".to_string())
 }

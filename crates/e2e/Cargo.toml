@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Playwright (playwright-rs) + testcontainers end-to-end tests for ferriscms"
+description = "Playwright (playwright-rs) end-to-end tests for ferriscms against a local Turso database and the Obscura headless browser"
 
 [dependencies]
 playwright-rs = { workspace = true }
@@ -14,3 +14,18 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
 anyhow = "1"
+
+# In-process ferriscms server under test.
+db = { workspace = true }
+services = { workspace = true }
+api-rest = { workspace = true }
+sea-orm-migration = { workspace = true }
+axum = { workspace = true }
+
+# Local database engine (SQLite-compatible; no containers / testcontainers).
+# Default features off: we only need the local SQLite-compatible engine, not
+# full-text search (`fts`) or the mimalloc allocator.
+turso = { version = "0.7", default-features = false }
+
+# Temp directories for the per-test Turso database + media storage.
+tempfile = "3"
