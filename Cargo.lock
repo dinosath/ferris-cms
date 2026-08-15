@@ -215,6 +215,7 @@ dependencies = [
  "core-domain",
  "core-schema",
  "db",
+ "dynamic-store",
  "mime_guess",
  "reqwest",
  "rust-embed",
