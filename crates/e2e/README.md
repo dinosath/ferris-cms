@@ -66,6 +66,13 @@ Each `#[tokio::test]` boots its own stack and tears it down on completion.
   browser: the embedded Dioxus WASM UI loads, hydrates, and navigates, and the
   Content-Type Builder screen no longer shows the "http error: builder error"
   bug (relative API URLs on the web target). Each test saves a screenshot.
+- `tests/ui_screens.rs` — comprehensive playwright-rs screen tests covering
+  every screen, the sidebar, and the main modals/inputs in the app's default
+  (unauthenticated) state: Home + all four main screens (Content Manager,
+  Content-Type Builder, Media Library, Settings), the CTB "create collection
+  type" modal (inputs + toggles), the Settings sections and their create
+  modals, and the Login/Register screens with their inputs. These work without
+  authentication and reliably cover the full UI surface.
 - `tests/ui_flows.rs` — playwright-rs UI *flow* tests (playwright-rs + Rust
   only). The admin account is provisioned over the HTTP API, then the tests log
   in, log out and back in, and create a collection type via the Content-Type
