@@ -33,3 +33,7 @@ rustup-init.sh
 
 # Helm chart packaging output
 dist/
+
+# Local server log and embedded-UI build artifacts (not committed)
+server.log
+crates/api-rest/ui/
