@@ -10,5 +10,9 @@ fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     let _ = std::env::var("FERRISCMS_API_URL");
 
+    // Surface Rust panics in the browser console for diagnosis.
+    #[cfg(target_arch = "wasm32")]
+    console_error_panic_hook::set_once();
+
     dioxus::launch(App);
 }
