@@ -67,11 +67,16 @@ Each `#[tokio::test]` boots its own stack and tears it down on completion.
   Content-Type Builder screen no longer shows the "http error: builder error"
   bug (relative API URLs on the web target). Each test saves a screenshot.
 - `tests/ui_flows.rs` — playwright-rs UI *flow* tests (playwright-rs + Rust
-  only): register a super admin through the UI, log out and log back in, and
-  create a collection type via the Content-Type Builder and confirm it appears
-  in the Content Manager. Interaction is driven with `page.evaluate` (native
-  input value setter + bubbling `input` event, and `.click()`), reading the DOM
-  through bounded polls because the debug WASM hydration overlay is unstable.
+  only). The admin account is provisioned over the HTTP API, then the tests log
+  in, log out and back in, and create a collection type via the Content-Type
+  Builder through the browser. Interaction is driven with `page.evaluate`
+  (native input value setter + bubbling `input` event, and `.click()`), reading
+  the DOM through bounded polls because the debug WASM hydration overlay is
+  unstable. **Note:** these flow tests currently expose a Dioxus WASM app bug —
+  submitting the login/register form crashes the app (the document collapses to
+  a blank styled shell). The input values are set correctly and the same
+  credentials log in over the HTTP API, so this is an app defect, not a test
+  problem; the tests act as regression coverage for it until it is fixed.
 
 Backend integration-test coverage for the API suite lives in
 `crates/api-rest/tests` (`auth_workflow.rs`, `api_surface.rs`,
