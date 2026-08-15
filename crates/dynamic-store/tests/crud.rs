@@ -128,6 +128,11 @@ async fn setup() -> (DatabaseConnection, Vec<Schema>) {
             .unwrap();
         assert!(actions.iter().any(|a| a.contains("created table")));
     }
+    // Phase 2: auxiliary tables (relation join/media/component link tables and
+    // inverse FK columns) now that all host tables exist.
+    for s in &schemas {
+        ddl::apply_aux(&db, backend, s, &schemas).await.unwrap();
+    }
     (db, schemas)
 }
 

@@ -306,6 +306,65 @@ async fn relations_components_media_and_dynamic_zones() {
     let status1 = apply_status(&router, &token, phase1).await;
     assert_eq!(status1, StatusCode::OK, "create base schemas: {status1}");
 
+    // Phase 2: add relations (one-to-many author<->article, many-to-many
+    // article<->tag). This drives join-table + inverse-FK DDL.
+    let author2 = ct(
+        "api::author.author",
+        "collectionType",
+        "author",
+        "authors",
+        "Author",
+        serde_json::json!({
+            "name": {"type": "string"},
+            "articles": {"type": "relation", "relation": "oneToMany", "target": "api::article.article", "mappedBy": "author"}
+        }),
+    );
+    let tag2 = ct(
+        "api::tag.tag",
+        "collectionType",
+        "tag",
+        "tags",
+        "Tag",
+        serde_json::json!({
+            "label": {"type": "string"},
+            "articles": {"type": "relation", "relation": "manyToMany", "target": "api::article.article", "mappedBy": "tags"}
+        }),
+    );
+    let article2 = ct(
+        "api::article.article",
+        "collectionType",
+        "article",
+        "articles",
+        "Article",
+        serde_json::json!({
+            "title": {"type": "string", "unique": true, "required": true},
+            "slug": {"type": "uid", "targetField": "title"},
+            "views": {"type": "integer", "default": 0},
+            "author": {"type": "relation", "relation": "manyToOne", "target": "api::author.author", "inversedBy": "articles"},
+            "tags": {"type": "relation", "relation": "manyToMany", "target": "api::tag.tag", "inversedBy": "articles"},
+            "seo": {"type": "component", "component": "shared.seo", "repeatable": false},
+            "cards": {"type": "component", "component": "shared.card", "repeatable": true},
+            "hero": {"type": "media", "multiple": false, "allowedTypes": ["images"]},
+            "blocks": {"type": "dynamiczone", "components": ["shared.seo", "shared.card"]}
+        }),
+    );
+    let phase2 = serde_json::json!([seo, card, author2, tag2, article2]);
+    let status2 = apply_status(&router, &token, phase2).await;
+    if status2 != StatusCode::OK {
+        let resp = router
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/content-type-builder/schema",
+                serde_json::json!({"schemas": [seo, card, author2, tag2, article2]}),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        eprintln!("PHASE2 BODY: {}", body_json(resp).await);
+    }
+    assert_eq!(status2, StatusCode::OK, "add relations: {status2}");
+
     // CRUD an entry with scalar + component/dynamic-zone values (media/relations
     // left unset to avoid requiring pre-uploaded assets).
     let created = router
