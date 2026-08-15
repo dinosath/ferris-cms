@@ -221,3 +221,62 @@ impl AppContext {
             .map_err(|e| ServiceError::Rbac(format!("rbac init failed: {e}")))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_error_display_and_helpers() {
+        assert_eq!(ServiceError::Validation(vec![]).to_string(), "validation error");
+        assert_eq!(ServiceError::NotFound("x".into()).to_string(), "not found: x");
+        assert_eq!(ServiceError::Conflict("c".into()).to_string(), "conflict: c");
+        assert_eq!(ServiceError::Forbidden.to_string(), "forbidden");
+        assert_eq!(ServiceError::Unauthorized.to_string(), "unauthorized");
+        assert_eq!(ServiceError::Internal("i".into()).to_string(), "internal error: i");
+        assert_eq!(ServiceError::Rbac("r".into()).to_string(), "rbac error: r");
+
+        assert_eq!(ServiceError::not_found("n").to_string(), "not found: n");
+        assert_eq!(ServiceError::conflict("f").to_string(), "conflict: f");
+        assert_eq!(ServiceError::internal("x").to_string(), "internal error: x");
+
+        let item = ValidationErrorItem::new(vec!["a".into()], "m", "ValidationError");
+        assert_eq!(item.path, vec!["a"]);
+        assert_eq!(item.message, "m");
+        assert_eq!(item.name, "ValidationError");
+    }
+
+    #[tokio::test]
+    async fn app_context_auth_and_backend() {
+        let db = db::connect_sqlite_memory().await.unwrap();
+        let config = AppConfig {
+            db_driver: "sqlite".into(),
+            ..Default::default()
+        };
+        let ctx = AppContext::new(db.clone(), config);
+
+        assert!(!ctx.is_authenticated());
+        assert!(ctx.require_admin().is_err());
+        assert_eq!(ctx.db_backend(), sea_orm::DbBackend::Sqlite);
+
+        let user = CurrentUser {
+            id: 7,
+            email: "a@b.dev".into(),
+            is_active: true,
+            roles: vec!["strapi-editor".into()],
+        };
+        let c2 = ctx.with_user(Some(user.clone()));
+        assert!(c2.is_authenticated());
+        let admin = c2.require_admin().expect("admin present");
+        assert_eq!(admin.id, 7);
+        assert_eq!(admin.email, "a@b.dev");
+
+        // Postgres driver hint maps to the Postgres backend.
+        let pg = AppConfig {
+            db_driver: "postgres".into(),
+            ..Default::default()
+        };
+        let ctx_pg = AppContext::new(db.clone(), pg);
+        assert_eq!(ctx_pg.db_backend(), sea_orm::DbBackend::Postgres);
+    }
+}

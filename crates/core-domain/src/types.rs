@@ -401,4 +401,52 @@ mod tests {
         // Unknown falls back to oneToOne (safe default).
         assert_eq!(RelationKind::parse("nonsense"), OneToOne);
     }
+
+    #[test]
+    fn content_type_kind_roundtrip() {
+        for (k, s) in [
+            (ContentTypeKind::CollectionType, "collectionType"),
+            (ContentTypeKind::SingleType, "singleType"),
+            (ContentTypeKind::Component, "component"),
+        ] {
+            assert_eq!(k.as_db_str(), s);
+            assert_eq!(ContentTypeKind::from_db_str(s), Some(k));
+        }
+        assert_eq!(ContentTypeKind::from_db_str("nope"), None);
+    }
+
+    #[test]
+    fn api_token_type_roundtrip() {
+        for (t, s) in [
+            (ApiTokenType::ReadOnly, "read-only"),
+            (ApiTokenType::FullAccess, "full-access"),
+            (ApiTokenType::Custom, "custom"),
+        ] {
+            assert_eq!(t.as_db_str(), s);
+            assert_eq!(ApiTokenType::from_db_str(s), Some(t));
+        }
+        assert_eq!(ApiTokenType::from_db_str("nope"), None);
+    }
+
+    #[test]
+    fn field_type_scalar_rules() {
+        for t in [
+            FieldType::String,
+            FieldType::Integer,
+            FieldType::Boolean,
+            FieldType::Uid,
+            FieldType::Json,
+        ] {
+            assert!(t.is_scalar_column(), "{t:?} should be scalar");
+        }
+        for t in [
+            FieldType::Media,
+            FieldType::Relation,
+            FieldType::Component,
+            FieldType::Dynamiczone,
+        ] {
+            assert!(!t.is_scalar_column(), "{t:?} should not be scalar");
+        }
+        assert_eq!(FieldType::default(), FieldType::String);
+    }
 }
