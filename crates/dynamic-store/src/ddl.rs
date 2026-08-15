@@ -343,32 +343,57 @@ async fn create_host_table<C: ConnectionTrait>(
         }
     }
 
-    // aux tables
+    // Auxiliary tables (relation join tables, media/component link tables) and
+    // inverse FK columns are created separately by `apply_aux`, which must run
+    // only after every host table in the batch exists. See the two-phase call
+    // in `ctb_apply`.
+
+    Ok(())
+}
+
+/// Create the auxiliary tables and inverse FK columns for one schema: relation
+/// join tables, media link tables, component/dynamic-zone link tables, and
+/// one-to-many FK columns on the *target* tables.
+///
+/// Must be called after all host tables in the batch have been created, so the
+/// referenced target tables already exist. All aux tables use `if_not_exists`,
+/// so calling this again for an already-created schema is safe (idempotent).
+pub async fn apply_aux<C: ConnectionTrait>(
+    db: &C,
+    backend: DbBackend,
+    schema: &Schema,
+    all: &[Schema],
+) -> Result<DdlActions, StoreError> {
+    let mut actions = Vec::new();
+    let table = schema.table_name();
+
     for (name, attr, target) in join_table_attrs(schema, all) {
-        create_join_table(db, backend, &table, &name, schema, target, &attr, actions).await?;
+        create_join_table(db, backend, &table, &name, schema, target, &attr, &mut actions).await?;
     }
     for (name, _) in media_attrs(schema) {
-        create_media_link_table(db, backend, &table, &name, actions).await?;
+        create_media_link_table(db, backend, &table, &name, &mut actions).await?;
     }
     if !component_attrs(schema).is_empty() {
-        create_component_link_table(db, backend, &table, actions).await?;
+        create_component_link_table(db, backend, &table, &mut actions).await?;
     }
 
     // oneToMany: FK column on the *target* table
     for (name, attr, target) in inverse_fk_attrs(schema, all) {
         let mapped_by = attr.mapped_by.clone().unwrap_or_else(|| name.clone());
+        let fk_col = fk_column(&mapped_by);
+        // If the target already declares an owner FK column with this name (a
+        // manyToOne pairing), that column is created on the target's own table
+        // and must not be added again here ("duplicate column name").
+        let target_owns = owner_fk_columns(target, all).iter().any(|(_, c, _, _)| *c == fk_col);
+        if target_owns {
+            continue;
+        }
         let target_table = target.table_name();
-        add_column_if_supported(
-            db,
-            backend,
-            &target_table,
-            bigint_null(&fk_column(&mapped_by)),
-            actions,
-        )
-        .await?;
+        add_column_if_supported(db, backend, &target_table, bigint_null(&fk_col), &mut actions)
+            .await?;
     }
 
-    Ok(())
+    Ok(actions)
 }
 
 async fn create_join_table<C: ConnectionTrait>(
@@ -535,7 +560,7 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     _schema: &Schema,
     name: &str,
     attr: &Attribute,
-    all: &[Schema],
+    _all: &[Schema],
     actions: &mut DdlActions,
 ) -> Result<(), StoreError> {
     if attr.attr_type.is_scalar_column() {
@@ -553,48 +578,13 @@ async fn add_attribute_storage<C: ConnectionTrait>(
             if kind.owner_has_fk() {
                 add_column_if_supported(db, backend, table, bigint_null(&fk_column(name)), actions)
                     .await?;
-            } else if kind.uses_join_table() {
-                let target_uid = attr.target.as_ref().ok_or_else(|| {
-                    StoreError::Unsupported(format!("relation {name} missing target"))
-                })?;
-                let owner = all
-                    .iter()
-                    .find(|s| s.table_name() == table)
-                    .ok_or_else(|| StoreError::Unsupported(format!("owner for {table}")))?;
-                let target = all
-                    .iter()
-                    .find(|s| &s.uid == target_uid)
-                    .ok_or_else(|| {
-                        StoreError::Unsupported(format!("target {target_uid} not found"))
-                    })?;
-                create_join_table(db, backend, table, name, owner, target, attr, actions).await?;
-            } else if kind == RelationKind::OneToMany {
-                let target_uid = attr.target.as_ref().ok_or_else(|| {
-                    StoreError::Unsupported(format!("relation {name} missing target"))
-                })?;
-                let target = all
-                    .iter()
-                    .find(|s| &s.uid == target_uid)
-                    .ok_or_else(|| {
-                        StoreError::Unsupported(format!("target {target_uid} not found"))
-                    })?;
-                let mapped_by = attr.mapped_by.clone().unwrap_or_else(|| name.to_string());
-                add_column_if_supported(
-                    db,
-                    backend,
-                    &target.table_name(),
-                    bigint_null(&fk_column(&mapped_by)),
-                    actions,
-                )
-                .await?;
             }
+            // Join tables (many-to-many) and one-to-many inverse FK columns are
+            // created by `apply_aux` after every host table in the batch exists
+            // (two-phase DDL), so they are not created inline here.
         }
-        FieldType::Media => {
-            create_media_link_table(db, backend, table, name, actions).await?;
-        }
-        FieldType::Component | FieldType::Dynamiczone => {
-            // link table is created with the host table; create defensively.
-            create_component_link_table(db, backend, table, actions).await?;
+        FieldType::Media | FieldType::Component | FieldType::Dynamiczone => {
+            // Media / component link tables are created by `apply_aux`.
         }
         _ => unreachable!("scalars handled above"),
     }

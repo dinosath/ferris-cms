@@ -69,11 +69,28 @@ pub async fn ctb_apply(
 
     let txn = db.begin().await?;
 
+    // Phase 1: create/update/remove the host tables. Cross-schema auxiliary
+    // tables (relation join tables, media/component link tables, one-to-many
+    // inverse FK columns) are deferred to Phase 2 so every target table exists
+    // before any aux operation references it (fixes "no such table" on relation
+    // DDL when schemas are created in one batch).
     for d in &diffs {
         if d.is_noop() {
             continue;
         }
         let _actions = dynamic_store::ddl::apply_schema_diff(&txn, backend, d, &desired).await?;
+    }
+
+    // Phase 2: auxiliary tables + inverse FK columns, now that all host tables
+    // exist. Removed diffs have no desired schema and are skipped. `apply_aux`
+    // is idempotent (all aux tables use `if_not_exists`).
+    for d in &diffs {
+        if d.is_noop() {
+            continue;
+        }
+        if let Some(schema) = d.desired.as_ref() {
+            let _aux = dynamic_store::ddl::apply_aux(&txn, backend, schema, &desired).await?;
+        }
     }
 
     // 5. Upsert schema JSON rows.
