@@ -76,7 +76,7 @@ pub fn Login() -> Element {
                                     .await;
                                 match resp {
                                     Ok(r) => {
-                                        g.token.set(Some(r.data.token.clone()));
+                                        g.set_token(Some(r.data.token.clone()));
                                         g.route.set(Route::Home);
                                     }
                                     Err(e) => outcome.set(LoginOutcome::Error(e.to_string())),

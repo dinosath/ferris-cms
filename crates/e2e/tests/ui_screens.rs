@@ -2,9 +2,9 @@
 //! browser (playwright-rs + Rust only).
 //!
 //! These drive the Dioxus admin UI through every screen, the sidebar, and the
-//! main modals/inputs, in the app's default (unauthenticated) state. The shell
-//! renders regardless of authentication, so all screens and their controls are
-//! reachable and reliable to assert against without a login session.
+//! main modals/inputs. The shell is gated behind authentication, so `open_app`
+//! seeds a valid JWT into localStorage (bypassing the crashing in-app auth
+//! form) so all screens and their controls are reachable and assertable.
 //!
 //! The login/register **submit** action is deliberately avoided here: the
 //! Dioxus WASM app crashes on auth-form submission (see `ui_flows.rs`), so
@@ -156,6 +156,23 @@ impl std::ops::Deref for UiPage {
     }
 }
 
+/// Register a fresh admin over the HTTP API (registration is open) and return
+/// its JWT. Used to seed an authenticated browser session for the shell.
+async fn register_admin_token(base: &str) -> anyhow::Result<String> {
+    let client = reqwest::Client::new();
+    let reg: serde_json::Value = client
+        .post(format!("{base}/admin/register-admin"))
+        .json(&serde_json::json!({"email":"screen@e2e.dev","password":"AdminPass1"}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    reg["data"]["token"]
+        .as_str()
+        .map(|s| s.to_string())
+        .context("register token missing")
+}
+
 async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
     let pw = Playwright::launch().await?;
     let browser = pw
@@ -163,6 +180,13 @@ async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
         .connect_over_cdp(harness.browser_cdp_url(), None)
         .await?;
     let page = browser.new_page().await?;
+    // Seed a valid JWT before the SPA bootstraps so the protected shell renders
+    // (the in-app auth form submit crashes the WASM app, see file header).
+    let token = register_admin_token(harness.server_url()).await?;
+    page.add_init_script(&format!(
+        "localStorage.setItem('ferriscms_token', '{token}');"
+    ))
+    .await?;
     page.goto(&format!("{}/", harness.browser_app_url()), None)
         .await?;
     wait_for_text(&page, |t| t.contains("ferriscms"))
@@ -324,13 +348,12 @@ async fn content_manager_create_entry_modal() -> anyhow::Result<()> {
         .await?;
     anyhow::ensure!(apply.status().is_success(), "seed content type failed");
 
-    // The app itself is unauthenticated, so it shows the empty CM state (the
-    // seeded schema is not in the app's in-memory cache). This still exercises
-    // the CM screen rendering.
+    // The app is authenticated (open_app seeded a session), so the CM screen
+    // loads the seeded content type from the server.
     let cm = goto_screen(page, "Content Manager", "Content Manager").await?;
-    assert!(cm.contains("Select a content type"), "CM empty state");
+    assert!(cm.contains("Post"), "seeded content type not shown in CM");
 
-    take_screenshot(page, "screen-cm-empty").await?;
+    take_screenshot(page, "screen-cm").await?;
     Ok(())
 }
 
@@ -416,5 +439,31 @@ async fn login_and_register_screens_render() -> anyhow::Result<()> {
     }
 
     take_screenshot(page, "screen-register").await?;
+    Ok(())
+}
+
+/// An unauthenticated visitor is redirected to the Login screen instead of
+/// being shown the protected shell.
+#[tokio::test(flavor = "multi_thread")]
+async fn unauthenticated_redirects_to_login() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let pw = Playwright::launch().await?;
+    let browser = pw
+        .chromium()
+        .connect_over_cdp(harness.browser_cdp_url(), None)
+        .await?;
+    let page = browser.new_page().await?;
+    // No auth token seeded: the app must land on Login, not the shell.
+    page.goto(&format!("{}/", harness.browser_app_url()), None)
+        .await?;
+    let body = wait_for_text(&page, |t| {
+        t.contains("Log in to your account") || t.contains("Welcome!")
+    })
+    .await
+    .context("login screen did not render for unauthenticated visitor")?;
+    assert!(body.contains("Log in to your account"), "expected login screen");
+    assert!(!body.contains("Content Manager"), "shell leaked to unauthenticated visitor");
+
+    take_screenshot(&page, "screen-login-redirect").await?;
     Ok(())
 }
