@@ -15,24 +15,24 @@ pub mod color {
     pub const PRIMARY_300: &str = "#C9C7FF";
     pub const PRIMARY_400: &str = "#9B96FF";
     pub const PRIMARY_500: &str = "#7B79FF";
-    pub const PRIMARY_600: &str = "#4945FF";  // button states, focus rings
+    pub const PRIMARY_600: &str = "#4945FF"; // button states, focus rings
     pub const PRIMARY_700: &str = "#271FE0";
     pub const PRIMARY_800: &str = "#1F15B0";
     pub const PRIMARY_900: &str = "#15088F";
 
     /// Neutrals (backgrounds, text, borders)
-    pub const NEUTRAL_0: &str   = "#FFFFFF";   // pure white, card backgrounds
-    pub const NEUTRAL_50: &str  = "#FAFAF9";   // subtle hover
-    pub const NEUTRAL_100: &str = "#F6F6F9";   // app background
-    pub const NEUTRAL_150: &str = "#EAEAEF";   // subtle dividers
-    pub const NEUTRAL_200: &str = "#DCDCE4";   // input borders, disabled
-    pub const NEUTRAL_300: &str = "#C0C0CF";   // secondary placeholder
-    pub const NEUTRAL_400: &str = "#A5A5BA";   // placeholder text
-    pub const NEUTRAL_500: &str = "#8E8EA9";   // secondary labels
-    pub const NEUTRAL_600: &str = "#666687";   // secondary text
-    pub const NEUTRAL_700: &str = "#4A4A6A";   // body text, copy
-    pub const NEUTRAL_800: &str = "#32324D";   // headings, strong emphasis
-    pub const NEUTRAL_900: &str = "#212134";   // highest contrast
+    pub const NEUTRAL_0: &str = "#FFFFFF"; // pure white, card backgrounds
+    pub const NEUTRAL_50: &str = "#FAFAF9"; // subtle hover
+    pub const NEUTRAL_100: &str = "#F6F6F9"; // app background
+    pub const NEUTRAL_150: &str = "#EAEAEF"; // subtle dividers
+    pub const NEUTRAL_200: &str = "#DCDCE4"; // input borders, disabled
+    pub const NEUTRAL_300: &str = "#C0C0CF"; // secondary placeholder
+    pub const NEUTRAL_400: &str = "#A5A5BA"; // placeholder text
+    pub const NEUTRAL_500: &str = "#8E8EA9"; // secondary labels
+    pub const NEUTRAL_600: &str = "#666687"; // secondary text
+    pub const NEUTRAL_700: &str = "#4A4A6A"; // body text, copy
+    pub const NEUTRAL_800: &str = "#32324D"; // headings, strong emphasis
+    pub const NEUTRAL_900: &str = "#212134"; // highest contrast
 
     /// Semantic – Success (green)
     pub const SUCCESS_100: &str = "#EAFBE7";
@@ -119,15 +119,15 @@ pub mod typography {
 // ---------------------------------------------------------------------------
 
 pub mod spacing {
-    pub const SP_1:  u32 = 4;
-    pub const SP_2:  u32 = 8;
-    pub const SP_3:  u32 = 12;
-    pub const SP_4:  u32 = 16;
-    pub const SP_5:  u32 = 20;
-    pub const SP_6:  u32 = 24;
-    pub const SP_7:  u32 = 32;
-    pub const SP_8:  u32 = 40;
-    pub const SP_9:  u32 = 48;
+    pub const SP_1: u32 = 4;
+    pub const SP_2: u32 = 8;
+    pub const SP_3: u32 = 12;
+    pub const SP_4: u32 = 16;
+    pub const SP_5: u32 = 20;
+    pub const SP_6: u32 = 24;
+    pub const SP_7: u32 = 32;
+    pub const SP_8: u32 = 40;
+    pub const SP_9: u32 = 48;
     pub const SP_10: u32 = 56;
 
     pub const CARD_PADDING: u32 = 24;
@@ -207,12 +207,24 @@ pub fn css_variables() -> String {
     s.push_str(&format!("  --color-danger-700: {};\n", color::DANGER_700));
     // Typography
     s.push_str(&format!("  --font-family: {};\n", typography::FONT_FAMILY));
-    s.push_str(&format!("  --font-size-alpha: {};\n", typography::ALPHA_SIZE));
+    s.push_str(&format!(
+        "  --font-size-alpha: {};\n",
+        typography::ALPHA_SIZE
+    ));
     s.push_str(&format!("  --font-size-beta: {};\n", typography::BETA_SIZE));
-    s.push_str(&format!("  --font-size-delta: {};\n", typography::DELTA_SIZE));
-    s.push_str(&format!("  --font-size-epsilon: {};\n", typography::EPSILON_SIZE));
+    s.push_str(&format!(
+        "  --font-size-delta: {};\n",
+        typography::DELTA_SIZE
+    ));
+    s.push_str(&format!(
+        "  --font-size-epsilon: {};\n",
+        typography::EPSILON_SIZE
+    ));
     s.push_str(&format!("  --font-size-body: {};\n", typography::BODY_SIZE));
-    s.push_str(&format!("  --font-size-label: {};\n", typography::LABEL_SIZE));
+    s.push_str(&format!(
+        "  --font-size-label: {};\n",
+        typography::LABEL_SIZE
+    ));
     s.push_str(&format!("  --font-size-pi: {};\n", typography::PI_SIZE));
     // Spacing
     s.push_str(&format!("  --spacing-1: {}px;\n", spacing::SP_1));

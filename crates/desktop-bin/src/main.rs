@@ -19,8 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // ---------- database ----------
-    let db_path = std::env::var("STRAPI_DB_PATH")
-        .unwrap_or_else(|_| "ferriscms-desktop.db".into());
+    let db_path = std::env::var("STRAPI_DB_PATH").unwrap_or_else(|_| "ferriscms-desktop.db".into());
     let database_url = format!("sqlite:{db_path}?mode=rwc");
 
     tracing::info!("opening database: {db_path}");

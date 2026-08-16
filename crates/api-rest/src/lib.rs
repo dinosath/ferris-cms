@@ -7,8 +7,8 @@
 //! an Axum extension/state.
 
 pub mod auth;
-pub mod ctb;
 pub mod content;
+pub mod ctb;
 pub mod error;
 
 use axum::{
@@ -20,19 +20,13 @@ use axum::{
 };
 use rust_embed::RustEmbed;
 use services::{
-    AppConfig, AppContext, ServiceError,
-    auth_login, auth_register, init_info,
-    ctb_apply, ctb_get, ctb_list, ctb_reserved_names,
-    cm_content_types, cm_create, cm_delete, cm_get, cm_list, cm_publish, cm_update,
-    cm_unpublish, cm_discard_draft,
-    cm_get_configuration, cm_update_configuration,
-    i18n_list as svc_i18n_list, i18n_create as svc_i18n_create,
-    i18n_delete as svc_i18n_delete,
-    media_list as svc_media_list,
-    media_upload as svc_media_upload,
-    api_token_list, api_token_create, api_token_delete,
-    rbac_list_roles, rbac_get_role, rbac_update_permissions,
-    rbac_list_users, rbac_create_user,
+    api_token_create, api_token_delete, api_token_list, auth_login, auth_register,
+    cm_content_types, cm_create, cm_delete, cm_discard_draft, cm_get, cm_get_configuration,
+    cm_list, cm_publish, cm_unpublish, cm_update, cm_update_configuration, ctb_apply, ctb_get,
+    ctb_list, ctb_reserved_names, i18n_create as svc_i18n_create, i18n_delete as svc_i18n_delete,
+    i18n_list as svc_i18n_list, init_info, media_list as svc_media_list,
+    media_upload as svc_media_upload, rbac_create_user, rbac_get_role, rbac_list_roles,
+    rbac_list_users, rbac_update_permissions, AppConfig, AppContext, ServiceError,
 };
 use std::sync::Arc;
 
@@ -53,7 +47,10 @@ impl AppState {
 pub fn build_router(state: Arc<AppState>) -> Router {
     let public_api = Router::new()
         .route("/api/{uid}", get(public_list).post(public_create))
-        .route("/api/{uid}/{document_id}", get(public_get).put(public_update).delete(public_delete));
+        .route(
+            "/api/{uid}/{document_id}",
+            get(public_get).put(public_update).delete(public_delete),
+        );
 
     let admin = Router::new()
         // Auth
@@ -61,34 +58,87 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/login", post(admin_login))
         .route("/admin/register-admin", post(admin_register))
         // Content-Type Builder
-        .route("/content-type-builder/content-types", get(ctb_list_handler).post(ctb_apply_handler))
-        .route("/content-type-builder/content-types/{uid}", get(ctb_get_handler))
+        .route(
+            "/content-type-builder/content-types",
+            get(ctb_list_handler).post(ctb_apply_handler),
+        )
+        .route(
+            "/content-type-builder/content-types/{uid}",
+            get(ctb_get_handler),
+        )
         .route("/content-type-builder/schema", post(ctb_apply_handler))
-        .route("/content-type-builder/reserved-names", get(ctb_reserved_names_handler))
+        .route(
+            "/content-type-builder/reserved-names",
+            get(ctb_reserved_names_handler),
+        )
         .route("/content-type-builder/components", get(ctb_list_handler))
-        .route("/content-type-builder/components/{uid}", get(ctb_get_handler))
+        .route(
+            "/content-type-builder/components/{uid}",
+            get(ctb_get_handler),
+        )
         // Content Manager
-        .route("/admin/content-manager/content-types", get(cm_ct_list_handler))
-        .route("/admin/content-manager/collection-types/{uid}", get(cm_list_handler).post(cm_create_handler))
-        .route("/admin/content-manager/collection-types/{uid}/{document_id}", get(cm_get_handler).put(cm_update_handler).delete(cm_delete_handler))
-        .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish", post(cm_publish_handler))
-        .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish", post(cm_unpublish_handler))
-        .route("/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard", post(cm_discard_handler))
-        .route("/admin/content-manager/single-types/{uid}", get(cm_single_get_handler).put(cm_single_update_handler))
-        .route("/admin/content-manager/content-types/{uid}/configuration", get(cm_config_handler).put(cm_config_update_handler))
+        .route(
+            "/admin/content-manager/content-types",
+            get(cm_ct_list_handler),
+        )
+        .route(
+            "/admin/content-manager/collection-types/{uid}",
+            get(cm_list_handler).post(cm_create_handler),
+        )
+        .route(
+            "/admin/content-manager/collection-types/{uid}/{document_id}",
+            get(cm_get_handler)
+                .put(cm_update_handler)
+                .delete(cm_delete_handler),
+        )
+        .route(
+            "/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish",
+            post(cm_publish_handler),
+        )
+        .route(
+            "/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish",
+            post(cm_unpublish_handler),
+        )
+        .route(
+            "/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard",
+            post(cm_discard_handler),
+        )
+        .route(
+            "/admin/content-manager/single-types/{uid}",
+            get(cm_single_get_handler).put(cm_single_update_handler),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/configuration",
+            get(cm_config_handler).put(cm_config_update_handler),
+        )
         // i18n
-        .route("/admin/i18n/locales", get(i18n_list_handler).post(i18n_create_handler))
+        .route(
+            "/admin/i18n/locales",
+            get(i18n_list_handler).post(i18n_create_handler),
+        )
         .route("/admin/i18n/locales/{id}", delete(i18n_delete_handler))
         // RBAC
         .route("/admin/roles", get(rbac_roles_handler))
         .route("/admin/roles/{id}", get(rbac_role_handler))
-        .route("/admin/roles/{id}/permissions", put(rbac_permissions_handler))
-        .route("/admin/users", get(rbac_users_handler).post(rbac_create_user_handler))
+        .route(
+            "/admin/roles/{id}/permissions",
+            put(rbac_permissions_handler),
+        )
+        .route(
+            "/admin/users",
+            get(rbac_users_handler).post(rbac_create_user_handler),
+        )
         // API tokens
-        .route("/admin/api-tokens", get(api_tokens_list_handler).post(api_tokens_create_handler))
+        .route(
+            "/admin/api-tokens",
+            get(api_tokens_list_handler).post(api_tokens_create_handler),
+        )
         .route("/admin/api-tokens/{id}", delete(api_tokens_delete_handler))
         // Media
-        .route("/admin/upload/files", get(media_list_handler).post(media_upload_handler));
+        .route(
+            "/admin/upload/files",
+            get(media_list_handler).post(media_upload_handler),
+        );
 
     // Serve uploaded media files from the storage directory.
     let media_serve = Router::new().nest_service(
@@ -179,7 +229,9 @@ async fn embedded_ui(uri: Uri) -> Response {
 // Auth handlers
 // ---------------------------------------------------------------------------
 
-async fn admin_init(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, error::AppError> {
+async fn admin_init(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, error::AppError> {
     let info = init_info(&state.ctx).await?;
     Ok(Json(info))
 }
@@ -230,7 +282,9 @@ async fn ctb_apply_handler(
     }))
 }
 
-async fn ctb_reserved_names_handler(_admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+async fn ctb_reserved_names_handler(
+    _admin: auth::AdminCtx,
+) -> Result<impl IntoResponse, error::AppError> {
     let names = ctb_reserved_names();
     Ok(Json(serde_json::json!({ "data": names })))
 }
@@ -471,7 +525,9 @@ async fn rbac_create_user_handler(
 // API tokens handlers
 // ---------------------------------------------------------------------------
 
-async fn api_tokens_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, error::AppError> {
+async fn api_tokens_list_handler(
+    admin: auth::AdminCtx,
+) -> Result<impl IntoResponse, error::AppError> {
     let tokens = api_token_list(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": tokens })))
 }
@@ -510,9 +566,13 @@ async fn media_upload_handler(
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|e| ServiceError::internal(format!("multipart field: {e}")))? {
+        .map_err(|e| ServiceError::internal(format!("multipart field: {e}")))?
+    {
         let filename = field.file_name().unwrap_or("file").to_string();
-        let mime = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let mime = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
         let data = field
             .bytes()
             .await
@@ -521,13 +581,14 @@ async fn media_upload_handler(
         uploaded.push(file);
     }
     if uploaded.is_empty() {
-        return Err(ServiceError::validation("upload", vec![
-            services::ValidationErrorItem::new(
+        return Err(ServiceError::validation(
+            "upload",
+            vec![services::ValidationErrorItem::new(
                 vec!["files".into()],
                 "no file provided in multipart body",
                 "ValidationError",
-            ),
-        ])
+            )],
+        )
         .into());
     }
     Ok(Json(serde_json::json!({ "data": uploaded })))

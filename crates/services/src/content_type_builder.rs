@@ -7,11 +7,9 @@
 
 use crate::{schema_cache::SchemaCache, AppContext, ServiceError, ValidationErrorItem};
 use core_domain::ContentTypeKind;
-use core_schema::{diff, diff_removed, Schema, SchemaDiff, validate_schemas};
+use core_schema::{diff, diff_removed, validate_schemas, Schema, SchemaDiff};
 use db::entities::content_type_schema;
-use sea_orm::{
-    ActiveModelTrait, EntityTrait, QueryFilter, Set, TransactionTrait,
-};
+use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
 use std::collections::HashSet;
 
 /// List all schemas currently in the cache (read path).
@@ -96,8 +94,8 @@ pub async fn ctb_apply(
     // 5. Upsert schema JSON rows.
     let now = chrono::Utc::now();
     for schema in &desired {
-        let json = serde_json::to_value(schema)
-            .map_err(|e| ServiceError::internal(e.to_string()))?;
+        let json =
+            serde_json::to_value(schema).map_err(|e| ServiceError::internal(e.to_string()))?;
 
         let existing = content_type_schema::Entity::find()
             .filter(content_type_schema::COLUMN.uid.eq(schema.uid.as_str()))
@@ -232,9 +230,7 @@ pub async fn rebuild_cache(ctx: &AppContext) -> Result<(), ServiceError> {
 
     let schemas: Vec<Schema> = rows
         .into_iter()
-        .filter_map(|row| {
-            serde_json::from_value::<Schema>(row.schema_json).ok()
-        })
+        .filter_map(|row| serde_json::from_value::<Schema>(row.schema_json).ok())
         .collect();
 
     ctx.schema_cache.replace(schemas);
@@ -253,9 +249,7 @@ pub async fn load_schema_cache(
 
     let schemas: Vec<Schema> = rows
         .into_iter()
-        .filter_map(|row| {
-            serde_json::from_value::<Schema>(row.schema_json).ok()
-        })
+        .filter_map(|row| serde_json::from_value::<Schema>(row.schema_json).ok())
         .collect();
 
     cache.replace(schemas);

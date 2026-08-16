@@ -352,7 +352,10 @@ mod tests {
     #[test]
     fn uid_builders() {
         assert_eq!(api_uid("BlogPost").as_str(), "api::blog-post.blog-post");
-        assert_eq!(component_uid("Shared", "SeoBlock").as_str(), "shared.seo-block");
+        assert_eq!(
+            component_uid("Shared", "SeoBlock").as_str(),
+            "shared.seo-block"
+        );
         assert_eq!(pluralize("article"), "articles");
     }
 

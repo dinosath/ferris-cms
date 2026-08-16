@@ -135,10 +135,7 @@ pub enum RelationKind {
 impl RelationKind {
     /// True when the owning side carries a `<field>_id` FK column.
     pub fn owner_has_fk(&self) -> bool {
-        matches!(
-            self,
-            Self::OneWay | Self::OneToOne | Self::ManyToOne
-        )
+        matches!(self, Self::OneWay | Self::OneToOne | Self::ManyToOne)
     }
 
     /// True when a join table is required.

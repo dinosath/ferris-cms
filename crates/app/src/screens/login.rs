@@ -4,7 +4,7 @@ use api_types::admin::LoginRequest;
 use dioxus::prelude::*;
 use ui::design::tokens::{color, spacing, typography};
 
-use crate::app::{Route, use_global};
+use crate::app::{use_global, Route};
 use crate::components::{Button, Card, TextField};
 
 /// Whether login is loading, plus the outcome.
@@ -27,11 +27,28 @@ pub fn Login() -> Element {
     let mut g_register = global.clone();
 
     let card_width = 456;
-    let brand = format!("width:40px;height:40px;border-radius:8px;background:{}; margin-bottom:{}px;", color::PRIMARY_600, spacing::SP_6);
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::BETA_SIZE, color::NEUTRAL_900);
-    let subtitle_style = format!("font-size:{}; color:{}; margin-bottom:{}px;", typography::BODY_SIZE, color::NEUTRAL_600, spacing::SP_7);
+    let brand = format!(
+        "width:40px;height:40px;border-radius:8px;background:{}; margin-bottom:{}px;",
+        color::PRIMARY_600,
+        spacing::SP_6
+    );
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::BETA_SIZE,
+        color::NEUTRAL_900
+    );
+    let subtitle_style = format!(
+        "font-size:{}; color:{}; margin-bottom:{}px;",
+        typography::BODY_SIZE,
+        color::NEUTRAL_600,
+        spacing::SP_7
+    );
     let error_style = format!("width:100%; background:{}; color:{}; border-radius:4px; padding:12px; font-size:{}; margin-bottom:16px;", color::DANGER_100, color::DANGER_700, typography::BODY_SIZE);
-    let footer_style = format!("font-size:{}; color:{}; margin-top:16px;", typography::PI_SIZE, color::NEUTRAL_500);
+    let footer_style = format!(
+        "font-size:{}; color:{}; margin-top:16px;",
+        typography::PI_SIZE,
+        color::NEUTRAL_500
+    );
 
     rsx! {
         div {

@@ -97,7 +97,9 @@ async fn seed_locales(db: &DatabaseConnection) -> Result<(), DbErr> {
 /// True once at least one admin user exists (drives first-run registration).
 pub async fn has_admin(db: &DatabaseConnection) -> Result<bool, DbErr> {
     use sea_orm::{EntityTrait, PaginatorTrait};
-    let count = crate::entities::admin_user::Entity::find().count(db).await?;
+    let count = crate::entities::admin_user::Entity::find()
+        .count(db)
+        .await?;
     Ok(count > 0)
 }
 

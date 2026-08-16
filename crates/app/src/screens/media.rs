@@ -25,7 +25,12 @@ pub fn MediaLibrary() -> Element {
             spawn(async move {
                 match g.client.media_list().await {
                     Ok(v) => {
-                        files.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default());
+                        files.set(
+                            v.get("data")
+                                .and_then(|d| d.as_array())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
                     }
                     Err(e) => status.set(Some(format!("Failed to load media: {e}"))),
                 }
@@ -33,8 +38,16 @@ pub fn MediaLibrary() -> Element {
         }
     });
 
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let count_style = format!("font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_500);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let count_style = format!(
+        "font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_500
+    );
     let top_bar = format!("display:flex; align-items:center; justify-content:space-between; padding:0 32px; height:56px; border-bottom:1px solid {}; background:{};", color::NEUTRAL_150, color::NEUTRAL_0);
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let count = files().len();
@@ -77,9 +90,21 @@ pub fn MediaLibrary() -> Element {
 /// A single asset card in the media grid.
 #[component]
 fn AssetCard(asset: serde_json::Value) -> Element {
-    let name = asset.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let mime = asset.get("mime").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let url = asset.get("url").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let name = asset
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let mime = asset
+        .get("mime")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let url = asset
+        .get("url")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
     let size = asset.get("size").and_then(|n| n.as_f64()).unwrap_or(0.0);
     rsx! {
         div { style: "border:1px solid {color::NEUTRAL_150}; border-radius:4px; background:#fff; overflow:hidden;",

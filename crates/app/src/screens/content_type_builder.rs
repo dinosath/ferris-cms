@@ -12,33 +12,89 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Dropdown, EmptyState, Icon, IconButton, Modal, NavItem, TextArea, TextField, Toggle};
+use crate::components::{
+    Badge, Button, Card, Dropdown, EmptyState, Icon, IconButton, Modal, NavItem, TextArea,
+    TextField, Toggle,
+};
 
 #[derive(Clone, PartialEq)]
 enum ModalKind {
     None,
     CreateType,
-    FieldPicker { ct_uid: String },
-    FieldConfig { ct_uid: String, field_type: FieldType },
+    FieldPicker {
+        ct_uid: String,
+    },
+    FieldConfig {
+        ct_uid: String,
+        field_type: FieldType,
+    },
 }
 
 /// The official Strapi field picker set, in the exact order Strapi shows them.
 /// Each entry maps a picker label + description to the underlying FieldType.
 const PICKABLE_FIELDS: &[(FieldType, &str, &str)] = &[
-    (FieldType::String, "Text", "Small or long text like title or description"),
-    (FieldType::Blocks, "Rich text (Blocks)", "The new JSON-based rich text editor"),
-    (FieldType::Integer, "Number", "Numbers (integer, float, decimal)"),
-    (FieldType::Datetime, "Date", "A date picker with hours, minutes and seconds"),
-    (FieldType::Boolean, "Boolean", "Yes or no, 1 or 0, true or false"),
-    (FieldType::Relation, "Relation", "Refers to a Collection Type"),
-    (FieldType::Email, "Email", "Email field with validations format"),
-    (FieldType::Password, "Password", "Password field with encryption"),
-    (FieldType::Enumeration, "Enumeration", "List of values, then pick one"),
+    (
+        FieldType::String,
+        "Text",
+        "Small or long text like title or description",
+    ),
+    (
+        FieldType::Blocks,
+        "Rich text (Blocks)",
+        "The new JSON-based rich text editor",
+    ),
+    (
+        FieldType::Integer,
+        "Number",
+        "Numbers (integer, float, decimal)",
+    ),
+    (
+        FieldType::Datetime,
+        "Date",
+        "A date picker with hours, minutes and seconds",
+    ),
+    (
+        FieldType::Boolean,
+        "Boolean",
+        "Yes or no, 1 or 0, true or false",
+    ),
+    (
+        FieldType::Relation,
+        "Relation",
+        "Refers to a Collection Type",
+    ),
+    (
+        FieldType::Email,
+        "Email",
+        "Email field with validations format",
+    ),
+    (
+        FieldType::Password,
+        "Password",
+        "Password field with encryption",
+    ),
+    (
+        FieldType::Enumeration,
+        "Enumeration",
+        "List of values, then pick one",
+    ),
     (FieldType::Media, "Media", "Files like images, videos, etc"),
     (FieldType::Json, "JSON", "Data in JSON format"),
-    (FieldType::Component, "Component", "A group of fields that you can repeat or reuse"),
-    (FieldType::Dynamiczone, "Dynamic Zone", "Dynamically pick components while editing content"),
-    (FieldType::Richtext, "Rich text (Markdown)", "The classic rich text editor"),
+    (
+        FieldType::Component,
+        "Component",
+        "A group of fields that you can repeat or reuse",
+    ),
+    (
+        FieldType::Dynamiczone,
+        "Dynamic Zone",
+        "Dynamically pick components while editing content",
+    ),
+    (
+        FieldType::Richtext,
+        "Rich text (Markdown)",
+        "The classic rich text editor",
+    ),
     (FieldType::Uid, "UID", "Unique identifier"),
 ];
 
@@ -126,7 +182,14 @@ pub fn ContentTypeBuilder() -> Element {
         .map(|s| {
             s.attributes
                 .iter()
-                .map(|(n, a)| (s.uid.as_str().to_string(), n.clone(), a.attr_type, a.required))
+                .map(|(n, a)| {
+                    (
+                        s.uid.as_str().to_string(),
+                        n.clone(),
+                        a.attr_type,
+                        a.required,
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -138,7 +201,8 @@ pub fn ContentTypeBuilder() -> Element {
     );
     let header_style = format!(
         "padding:16px; font-size:{}; font-weight:600; color:{};",
-        typography::DELTA_SIZE, color::NEUTRAL_900
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
     );
     let editor_top_style = format!(
         "display:flex; align-items:center; justify-content:space-between; padding:0 32px; height:64px; border-bottom:1px solid {}; background:{};",
@@ -146,17 +210,24 @@ pub fn ContentTypeBuilder() -> Element {
     );
     let editor_title_style = format!(
         "font-size:{}; font-weight:600; color:{};",
-        typography::BETA_SIZE, color::NEUTRAL_900
+        typography::BETA_SIZE,
+        color::NEUTRAL_900
     );
     let page_title_style = format!(
         "font-size:{}; font-weight:600; color:{};",
-        typography::DELTA_SIZE, color::NEUTRAL_900
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
     );
     let field_name_style = format!(
         "font-size:{}; font-weight:600; color:{};",
-        typography::BODY_BOLD_SIZE, color::NEUTRAL_800
+        typography::BODY_BOLD_SIZE,
+        color::NEUTRAL_800
     );
-    let field_type_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
+    let field_type_style = format!(
+        "font-size:{}; color:{};",
+        typography::PI_SIZE,
+        color::NEUTRAL_500
+    );
     let add_field_style = format!(
         "width:100%; padding:16px; border:1px dashed {}; border-radius:6px; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;",
         color::PRIMARY_400
@@ -332,11 +403,23 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
     let mut i18n = use_signal(|| false);
 
     let is_collection = kind() == "collection";
-    let title = if is_collection { "Create a collection type".to_string() } else { "Create a single type".to_string() };
+    let title = if is_collection {
+        "Create a collection type".to_string()
+    } else {
+        "Create a single type".to_string()
+    };
 
     let build = move || {
-        let singular = if singular().is_empty() { kebab_id(&display()) } else { singular() };
-        let plural = if plural().is_empty() { format!("{singular}s") } else { plural() };
+        let singular = if singular().is_empty() {
+            kebab_id(&display())
+        } else {
+            singular()
+        };
+        let plural = if plural().is_empty() {
+            format!("{singular}s")
+        } else {
+            plural()
+        };
         let resolved_kind = if is_collection {
             ContentTypeKind::CollectionType
         } else {
@@ -349,7 +432,11 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
             info: SchemaInfo {
                 singular_name: singular.clone(),
                 plural_name: plural.clone(),
-                display_name: if display().is_empty() { singular.clone() } else { display() },
+                display_name: if display().is_empty() {
+                    singular.clone()
+                } else {
+                    display()
+                },
                 description: None,
                 icon: None,
             },
@@ -368,8 +455,16 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
         }
     };
 
-    let seg_active = if is_collection { color::PRIMARY_600 } else { color::NEUTRAL_0 };
-    let seg_inactive = if is_collection { color::NEUTRAL_0 } else { color::PRIMARY_600 };
+    let seg_active = if is_collection {
+        color::PRIMARY_600
+    } else {
+        color::NEUTRAL_0
+    };
+    let seg_inactive = if is_collection {
+        color::NEUTRAL_0
+    } else {
+        color::PRIMARY_600
+    };
 
     rsx! {
         Modal { title: title.clone(), width: 640, on_close: move |e| on_close.call(e),
@@ -397,13 +492,24 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
 }
 
 #[component]
-fn FieldPickerModal(on_close: EventHandler<MouseEvent>, on_pick: EventHandler<FieldType>) -> Element {
+fn FieldPickerModal(
+    on_close: EventHandler<MouseEvent>,
+    on_pick: EventHandler<FieldType>,
+) -> Element {
     let card_style = format!(
         "display:flex; align-items:center; gap:12px; padding:12px; border:1px solid {}; border-radius:4px; background:#fff; cursor:pointer; text-align:left;",
         color::NEUTRAL_150
     );
-    let name_style = format!("font-size:{}; font-weight:600; color:{};", typography::BODY_BOLD_SIZE, color::NEUTRAL_800);
-    let desc_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
+    let name_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::BODY_BOLD_SIZE,
+        color::NEUTRAL_800
+    );
+    let desc_style = format!(
+        "font-size:{}; color:{};",
+        typography::PI_SIZE,
+        color::NEUTRAL_500
+    );
     let pickable: Vec<(FieldType, String, String)> = PICKABLE_FIELDS
         .iter()
         .map(|(ft, l, d)| (*ft, l.to_string(), d.to_string()))
@@ -505,7 +611,10 @@ fn FieldConfigModal(
         field_type,
         FieldType::Integer | FieldType::Biginteger | FieldType::Decimal | FieldType::Float
     );
-    let is_date = matches!(field_type, FieldType::Date | FieldType::Datetime | FieldType::Time);
+    let is_date = matches!(
+        field_type,
+        FieldType::Date | FieldType::Datetime | FieldType::Time
+    );
     let is_enum = matches!(field_type, FieldType::Enumeration);
     let is_relation = matches!(field_type, FieldType::Relation);
     let is_component = matches!(field_type, FieldType::Component);
@@ -519,9 +628,10 @@ fn FieldConfigModal(
         ("files".to_string(), "Files".to_string()),
         ("audios".to_string(), "Audios".to_string()),
     ];
-    let uid_target_options: Vec<(String, String)> = std::iter::once(("".to_string(), "None".to_string()))
-        .chain(sibling_fields.iter().map(|f| (f.clone(), f.clone())))
-        .collect();
+    let uid_target_options: Vec<(String, String)> =
+        std::iter::once(("".to_string(), "None".to_string()))
+            .chain(sibling_fields.iter().map(|f| (f.clone(), f.clone())))
+            .collect();
 
     let relation_options: Vec<(String, String)> = vec![
         ("oneWay".to_string(), "One way".to_string()),
@@ -735,7 +845,9 @@ mod tests {
     #[test]
     fn kebab_id_is_valid_api_id() {
         let id = kebab_id("FAQ Page");
-        assert!(id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
+        assert!(id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
         assert!(!id.is_empty());
     }
 }

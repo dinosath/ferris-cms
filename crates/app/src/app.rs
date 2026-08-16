@@ -1,7 +1,7 @@
 //! Root component, app-state context, and manual (signal-based) routing.
 
-use dioxus::prelude::*;
 use dioxus::document::Title;
+use dioxus::prelude::*;
 use std::sync::Arc;
 
 use crate::client::build_client;

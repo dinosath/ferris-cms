@@ -23,16 +23,34 @@ pub struct SidebarState {
 impl SidebarState {
     pub fn primary_nav(&self) -> Vec<NavItem> {
         vec![
-            NavItem { icon: "stack".into(), label: "Content Manager".into(), route: "/content-manager".into(), active: self.active_route.starts_with("/content-manager") },
-            NavItem { icon: "grid".into(), label: "Content-Type Builder".into(), route: "/content-type-builder".into(), active: self.active_route.starts_with("/content-type-builder") },
-            NavItem { icon: "image".into(), label: "Media Library".into(), route: "/media".into(), active: self.active_route.starts_with("/media") },
+            NavItem {
+                icon: "stack".into(),
+                label: "Content Manager".into(),
+                route: "/content-manager".into(),
+                active: self.active_route.starts_with("/content-manager"),
+            },
+            NavItem {
+                icon: "grid".into(),
+                label: "Content-Type Builder".into(),
+                route: "/content-type-builder".into(),
+                active: self.active_route.starts_with("/content-type-builder"),
+            },
+            NavItem {
+                icon: "image".into(),
+                label: "Media Library".into(),
+                route: "/media".into(),
+                active: self.active_route.starts_with("/media"),
+            },
         ]
     }
 
     pub fn general_nav(&self) -> Vec<NavItem> {
-        vec![
-            NavItem { icon: "cog".into(), label: "Settings".into(), route: "/settings".into(), active: self.active_route.starts_with("/settings") },
-        ]
+        vec![NavItem {
+            icon: "cog".into(),
+            label: "Settings".into(),
+            route: "/settings".into(),
+            active: self.active_route.starts_with("/settings"),
+        }]
     }
 }
 

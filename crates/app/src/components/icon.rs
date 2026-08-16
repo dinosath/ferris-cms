@@ -12,7 +12,11 @@ pub fn Icon(
     #[props(default)] color: String,
 ) -> Element {
     let path = resolve_path(&name).to_string();
-    let stroke = if color.is_empty() { "currentColor".to_string() } else { color };
+    let stroke = if color.is_empty() {
+        "currentColor".to_string()
+    } else {
+        color
+    };
     rsx! {
         svg {
             width: "{size}",

@@ -29,16 +29,40 @@ pub struct ButtonSpec {
 
 impl ButtonSpec {
     pub fn primary(label: impl Into<String>) -> Self {
-        Self { label: label.into(), variant: ButtonVariant::Primary, disabled: false, loading: false, width: None }
+        Self {
+            label: label.into(),
+            variant: ButtonVariant::Primary,
+            disabled: false,
+            loading: false,
+            width: None,
+        }
     }
     pub fn secondary(label: impl Into<String>) -> Self {
-        Self { label: label.into(), variant: ButtonVariant::Secondary, disabled: false, loading: false, width: None }
+        Self {
+            label: label.into(),
+            variant: ButtonVariant::Secondary,
+            disabled: false,
+            loading: false,
+            width: None,
+        }
     }
     pub fn danger(label: impl Into<String>) -> Self {
-        Self { label: label.into(), variant: ButtonVariant::Danger, disabled: false, loading: false, width: None }
+        Self {
+            label: label.into(),
+            variant: ButtonVariant::Danger,
+            disabled: false,
+            loading: false,
+            width: None,
+        }
     }
     pub fn success(label: impl Into<String>) -> Self {
-        Self { label: label.into(), variant: ButtonVariant::Success, disabled: false, loading: false, width: None }
+        Self {
+            label: label.into(),
+            variant: ButtonVariant::Success,
+            disabled: false,
+            loading: false,
+            width: None,
+        }
     }
 }
 
@@ -58,10 +82,14 @@ pub struct TextFieldSpec {
 impl Default for TextFieldSpec {
     fn default() -> Self {
         Self {
-            label: None, placeholder: None,
-            input_type: "text".into(), value: String::new(),
-            error: None, helper: None,
-            required: false, disabled: false,
+            label: None,
+            placeholder: None,
+            input_type: "text".into(),
+            value: String::new(),
+            error: None,
+            helper: None,
+            required: false,
+            disabled: false,
         }
     }
 }

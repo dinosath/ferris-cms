@@ -4,7 +4,7 @@ use api_types::admin::RegisterAdminRequest;
 use dioxus::prelude::*;
 use ui::design::tokens::{color, spacing, typography};
 
-use crate::app::{Route, use_global};
+use crate::app::{use_global, Route};
 use crate::components::{Button, Card, TextField};
 
 #[derive(Clone, PartialEq)]
@@ -28,8 +28,17 @@ pub fn Register() -> Element {
     let password_mismatch = !password().is_empty() && password() != confirm();
 
     let card_width = 456;
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::BETA_SIZE, color::NEUTRAL_900);
-    let subtitle_style = format!("font-size:{}; color:{}; text-align:center; margin-bottom:{}px;", typography::BODY_SIZE, color::NEUTRAL_600, spacing::SP_7);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::BETA_SIZE,
+        color::NEUTRAL_900
+    );
+    let subtitle_style = format!(
+        "font-size:{}; color:{}; text-align:center; margin-bottom:{}px;",
+        typography::BODY_SIZE,
+        color::NEUTRAL_600,
+        spacing::SP_7
+    );
     let error_style = format!("width:100%; background:{}; color:{}; border-radius:4px; padding:12px; font-size:{}; margin-bottom:16px;", color::DANGER_100, color::DANGER_700, typography::BODY_SIZE);
 
     rsx! {

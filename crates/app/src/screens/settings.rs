@@ -44,9 +44,14 @@ pub fn Settings() -> Element {
     );
     let header_style = format!(
         "padding:16px; font-size:{}; font-weight:600; color:{};",
-        typography::DELTA_SIZE, color::NEUTRAL_900
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
     );
-    let section_label = format!("padding:4px 16px; font-size:{}; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let section_label = format!(
+        "padding:4px 16px; font-size:{}; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
 
     rsx! {
         div { style: "display:flex; min-height:100vh;",
@@ -88,15 +93,28 @@ fn LocalesSection() -> Element {
             let g = g_load.clone();
             spawn(async move {
                 match g.client.i18n_list().await {
-                    Ok(v) => locales.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default()),
+                    Ok(v) => locales.set(
+                        v.get("data")
+                            .and_then(|d| d.as_array())
+                            .cloned()
+                            .unwrap_or_default(),
+                    ),
                     Err(e) => status.set(Some(format!("Failed to load locales: {e}"))),
                 }
             });
         }
     });
 
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let th_style = format!(
+        "text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let border = color::NEUTRAL_150;
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let locale_list = locales();
@@ -159,11 +177,26 @@ fn LocalesSection() -> Element {
 /// A single locale row.
 #[component]
 fn LocaleRow(locale: serde_json::Value) -> Element {
-    let name = locale.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let code = locale.get("code").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let is_default = locale.get("isDefault").and_then(|n| n.as_bool()).unwrap_or(false);
+    let name = locale
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let code = locale
+        .get("code")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let is_default = locale
+        .get("isDefault")
+        .and_then(|n| n.as_bool())
+        .unwrap_or(false);
     let border = color::NEUTRAL_150;
-    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let td_style = format!(
+        "padding:10px 16px; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
     rsx! {
         tr { style: "border-bottom:1px solid {border};",
             td { style: "{td_style}", "{name}" }
@@ -193,15 +226,28 @@ fn ApiTokensSection() -> Element {
             let g = g_load.clone();
             spawn(async move {
                 match g.client.api_tokens_list().await {
-                    Ok(v) => tokens.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default()),
+                    Ok(v) => tokens.set(
+                        v.get("data")
+                            .and_then(|d| d.as_array())
+                            .cloned()
+                            .unwrap_or_default(),
+                    ),
                     Err(e) => status.set(Some(format!("Failed to load API tokens: {e}"))),
                 }
             });
         }
     });
 
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let th_style = format!(
+        "text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let border = color::NEUTRAL_150;
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let token_list = tokens();
@@ -283,11 +329,27 @@ fn ApiTokensSection() -> Element {
 /// A single API token row.
 #[component]
 fn ApiTokenRow(token: serde_json::Value) -> Element {
-    let name = token.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let desc = token.get("description").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let ty = token.get("type").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let name = token
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let desc = token
+        .get("description")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let ty = token
+        .get("type")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
     let border = color::NEUTRAL_150;
-    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let td_style = format!(
+        "padding:10px 16px; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
     rsx! {
         tr { style: "border-bottom:1px solid {border};",
             td { style: "{td_style}", "{name}" }
@@ -317,7 +379,12 @@ fn UsersSection() -> Element {
             spawn(async move {
                 match g.client.users_list().await {
                     Ok(v) => {
-                        users.set(v.get("data").and_then(|d| d.as_array()).cloned().unwrap_or_default());
+                        users.set(
+                            v.get("data")
+                                .and_then(|d| d.as_array())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
                     }
                     Err(e) => status.set(Some(format!("Failed to load users: {e}"))),
                 }
@@ -325,8 +392,16 @@ fn UsersSection() -> Element {
         }
     });
 
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let th_style = format!(
+        "text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let border = color::NEUTRAL_150;
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let user_list = users();
@@ -395,12 +470,31 @@ fn UsersSection() -> Element {
 /// A single user row.
 #[component]
 fn UserRow(user: serde_json::Value) -> Element {
-    let email = user.get("email").and_then(|e| e.as_str()).unwrap_or("").to_string();
-    let first = user.get("firstname").and_then(|e| e.as_str()).unwrap_or("").to_string();
-    let last = user.get("lastname").and_then(|e| e.as_str()).unwrap_or("").to_string();
-    let active = user.get("isActive").and_then(|a| a.as_bool()).unwrap_or(false);
+    let email = user
+        .get("email")
+        .and_then(|e| e.as_str())
+        .unwrap_or("")
+        .to_string();
+    let first = user
+        .get("firstname")
+        .and_then(|e| e.as_str())
+        .unwrap_or("")
+        .to_string();
+    let last = user
+        .get("lastname")
+        .and_then(|e| e.as_str())
+        .unwrap_or("")
+        .to_string();
+    let active = user
+        .get("isActive")
+        .and_then(|a| a.as_bool())
+        .unwrap_or(false);
     let border = color::NEUTRAL_150;
-    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let td_style = format!(
+        "padding:10px 16px; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
     rsx! {
         tr { style: "border-bottom:1px solid {border};",
             td { style: "{td_style}", "{email}" }
@@ -421,7 +515,9 @@ fn RolesSection() -> Element {
     let mut loaded = use_signal(|| false);
     let mut status = use_signal(|| None::<String>);
     let mut editing_role = use_signal(|| None::<serde_json::Value>);
-    let mut matrices = use_signal(std::collections::HashMap::<String, std::collections::HashMap<String, bool>>::new);
+    let mut matrices = use_signal(
+        std::collections::HashMap::<String, std::collections::HashMap<String, bool>>::new,
+    );
 
     let g_load = global.clone();
     use_effect(move || {
@@ -437,14 +533,24 @@ fn RolesSection() -> Element {
                             .cloned()
                             .unwrap_or_default();
                         // Prefill each role's matrix based on role code.
-                        let mut m = std::collections::HashMap::<String, std::collections::HashMap<String, bool>>::new();
+                        let mut m = std::collections::HashMap::<
+                            String,
+                            std::collections::HashMap<String, bool>,
+                        >::new();
                         for r in &list {
-                            let code = r.get("code").and_then(|c| c.as_str()).unwrap_or("").to_string();
+                            let code = r
+                                .get("code")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("")
+                                .to_string();
                             let mut actions = std::collections::HashMap::<String, bool>::new();
                             for (act, _) in ACTIONS {
                                 actions.insert(act.to_string(), matrix_default(&code, act));
                             }
-                            m.insert(r.get("id").map(|i| i.to_string()).unwrap_or_default(), actions);
+                            m.insert(
+                                r.get("id").map(|i| i.to_string()).unwrap_or_default(),
+                                actions,
+                            );
                         }
                         matrices.set(m);
                         roles.set(list);
@@ -455,8 +561,16 @@ fn RolesSection() -> Element {
         }
     });
 
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let th_style = format!(
+        "text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let border = color::NEUTRAL_150;
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
 
@@ -515,10 +629,22 @@ fn matrix_default(code: &str, action: &str) -> bool {
 /// A single role row in the roles table.
 #[component]
 fn RoleRow(role: serde_json::Value, on_configure: EventHandler<serde_json::Value>) -> Element {
-    let name = role.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let desc = role.get("description").and_then(|n| n.as_str()).unwrap_or("").to_string();
+    let name = role
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let desc = role
+        .get("description")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
     let border = color::NEUTRAL_150;
-    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let td_style = format!(
+        "padding:10px 16px; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
     rsx! {
         tr { style: "border-bottom:1px solid {border};",
             td { style: "{td_style}", "{name}" }
@@ -540,9 +666,17 @@ fn PermissionRow(
     matrix: std::collections::HashMap<String, std::collections::HashMap<String, bool>>,
     on_change: EventHandler<(String, String, bool)>,
 ) -> Element {
-    let checked = matrix.get(&rid).and_then(|m| m.get(&action)).copied().unwrap_or(false);
+    let checked = matrix
+        .get(&rid)
+        .and_then(|m| m.get(&action))
+        .copied()
+        .unwrap_or(false);
     let border = color::NEUTRAL_150;
-    let td_style = format!("padding:8px 12px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
+    let td_style = format!(
+        "padding:8px 12px; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
     let row_rid = rid.clone();
     rsx! {
         tr { style: "border-bottom:1px solid {border};",
@@ -566,8 +700,16 @@ fn RoleEditorModal(
 ) -> Element {
     let global = use_global();
     let rid = role.get("id").map(|i| i.to_string()).unwrap_or_default();
-    let name = role.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-    let th_style = format!("padding:8px 12px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let name = role
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .to_string();
+    let th_style = format!(
+        "padding:8px 12px; font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let border = color::NEUTRAL_150;
     let actions = ACTIONS.map(|(k, _)| k.to_string()).to_vec();
     let save_rid = rid.clone();

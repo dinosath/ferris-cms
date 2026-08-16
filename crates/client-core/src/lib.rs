@@ -39,8 +39,16 @@ pub enum ClientError {
 #[async_trait(?Send)]
 pub trait ApiTransport: Send + Sync {
     async fn get_json(&self, path: &str) -> Result<serde_json::Value, ClientError>;
-    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError>;
-    async fn put_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError>;
+    async fn post_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError>;
+    async fn put_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError>;
     async fn delete_json(&self, path: &str) -> Result<serde_json::Value, ClientError>;
     fn set_token(&self, token: Option<String>);
     /// Downcast to the concrete HTTP transport, if this is one.
@@ -107,7 +115,11 @@ impl ApiTransport for HttpTransport {
         parse_response(resp).await
     }
 
-    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
+    async fn post_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.post(&url).json(body);
         if let Some(tok) = self.token.read().as_ref() {
@@ -117,7 +129,11 @@ impl ApiTransport for HttpTransport {
         parse_response(resp).await
     }
 
-    async fn put_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
+    async fn put_json(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.put(&url).json(body);
         if let Some(tok) = self.token.read().as_ref() {
@@ -197,7 +213,10 @@ impl Client {
         &self,
         req: &api_types::admin::LoginRequest,
     ) -> Result<api_types::admin::LoginResponse, ClientError> {
-        let v = self.transport.post_json("/admin/login", &serde_json::to_value(req)?).await?;
+        let v = self
+            .transport
+            .post_json("/admin/login", &serde_json::to_value(req)?)
+            .await?;
         Ok(serde_json::from_value(v)?)
     }
 
@@ -205,13 +224,18 @@ impl Client {
         &self,
         req: &api_types::admin::RegisterAdminRequest,
     ) -> Result<api_types::admin::LoginResponse, ClientError> {
-        let v = self.transport.post_json("/admin/register-admin", &serde_json::to_value(req)?).await?;
+        let v = self
+            .transport
+            .post_json("/admin/register-admin", &serde_json::to_value(req)?)
+            .await?;
         Ok(serde_json::from_value(v)?)
     }
 
     // -- Content-Type Builder --
     pub async fn ctb_list(&self) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json("/content-type-builder/content-types").await
+        self.transport
+            .get_json("/content-type-builder/content-types")
+            .await
     }
 
     pub async fn ctb_apply(
@@ -219,12 +243,17 @@ impl Client {
         schemas: Vec<core_schema::Schema>,
     ) -> Result<api_types::admin::CtbApplyResponse, ClientError> {
         let req = api_types::admin::CtbApplyRequest { schemas };
-        let v = self.transport.post_json("/content-type-builder/schema", &serde_json::to_value(req)?).await?;
+        let v = self
+            .transport
+            .post_json("/content-type-builder/schema", &serde_json::to_value(req)?)
+            .await?;
         Ok(serde_json::from_value(v)?)
     }
 
     pub async fn ctb_reserved_names(&self) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json("/content-type-builder/reserved-names").await
+        self.transport
+            .get_json("/content-type-builder/reserved-names")
+            .await
     }
 
     // -- Content Manager --
@@ -248,8 +277,11 @@ impl Client {
         uid: &str,
         document_id: &str,
     ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
-        let v = self.transport
-            .get_json(&format!("/admin/content-manager/collection-types/{uid}/{document_id}"))
+        let v = self
+            .transport
+            .get_json(&format!(
+                "/admin/content-manager/collection-types/{uid}/{document_id}"
+            ))
             .await?;
         Ok(serde_json::from_value(v)?)
     }
@@ -260,8 +292,12 @@ impl Client {
         data: &serde_json::Value,
     ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
         let req = api_types::admin::WriteEntryRequest { data: data.clone() };
-        let v = self.transport
-            .post_json(&format!("/admin/content-manager/collection-types/{uid}"), &serde_json::to_value(req)?)
+        let v = self
+            .transport
+            .post_json(
+                &format!("/admin/content-manager/collection-types/{uid}"),
+                &serde_json::to_value(req)?,
+            )
             .await?;
         Ok(serde_json::from_value(v)?)
     }
@@ -273,15 +309,25 @@ impl Client {
         data: &serde_json::Value,
     ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
         let req = api_types::admin::WriteEntryRequest { data: data.clone() };
-        let v = self.transport
-            .put_json(&format!("/admin/content-manager/collection-types/{uid}/{document_id}"), &serde_json::to_value(req)?)
+        let v = self
+            .transport
+            .put_json(
+                &format!("/admin/content-manager/collection-types/{uid}/{document_id}"),
+                &serde_json::to_value(req)?,
+            )
             .await?;
         Ok(serde_json::from_value(v)?)
     }
 
-    pub async fn cm_delete(&self, uid: &str, document_id: &str) -> Result<serde_json::Value, ClientError> {
+    pub async fn cm_delete(
+        &self,
+        uid: &str,
+        document_id: &str,
+    ) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .delete_json(&format!("/admin/content-manager/collection-types/{uid}/{document_id}"))
+            .delete_json(&format!(
+                "/admin/content-manager/collection-types/{uid}/{document_id}"
+            ))
             .await
     }
 
@@ -290,9 +336,12 @@ impl Client {
         uid: &str,
         document_id: &str,
     ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
-        let v = self.transport
+        let v = self
+            .transport
             .post_json(
-                &format!("/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish"),
+                &format!(
+                    "/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish"
+                ),
                 &serde_json::json!({}),
             )
             .await?;
@@ -307,7 +356,9 @@ impl Client {
     ) -> Result<serde_json::Value, ClientError> {
         self.transport
             .post_json(
-                &format!("/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard"),
+                &format!(
+                    "/admin/content-manager/collection-types/{uid}/{document_id}/actions/discard"
+                ),
                 &serde_json::json!({}),
             )
             .await
@@ -319,9 +370,12 @@ impl Client {
         uid: &str,
         document_id: &str,
     ) -> Result<api_types::EntryResponse<serde_json::Value>, ClientError> {
-        let v = self.transport
+        let v = self
+            .transport
             .post_json(
-                &format!("/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish"),
+                &format!(
+                    "/admin/content-manager/collection-types/{uid}/{document_id}/actions/unpublish"
+                ),
                 &serde_json::json!({}),
             )
             .await?;
@@ -331,7 +385,9 @@ impl Client {
     /// Get the Content Manager list-view configuration for a content-type.
     pub async fn cm_get_configuration(&self, uid: &str) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .get_json(&format!("/admin/content-manager/content-types/{uid}/configuration"))
+            .get_json(&format!(
+                "/admin/content-manager/content-types/{uid}/configuration"
+            ))
             .await
     }
 
@@ -422,7 +478,9 @@ impl Client {
 
     /// Delete a locale by id.
     pub async fn i18n_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/i18n/locales/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/i18n/locales/{id}"))
+            .await
     }
 
     /// Create an API token; returns the raw access key once.
@@ -436,7 +494,9 @@ impl Client {
 
     /// Delete an API token by id.
     pub async fn api_token_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/api-tokens/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/api-tokens/{id}"))
+            .await
     }
 
     /// Upload a file as multipart. Returns the JSON `{ "data": [...] }`.
@@ -494,14 +554,22 @@ fn build_query_string(params: &api_types::QueryParams) -> String {
     }
     if let Some(pagination) = &params.pagination {
         match pagination {
-            api_types::PaginationParams::Page { page, page_size, with_count } => {
+            api_types::PaginationParams::Page {
+                page,
+                page_size,
+                with_count,
+            } => {
                 parts.push(format!("pagination[page]={page}"));
                 parts.push(format!("pagination[pageSize]={page_size}"));
                 if let Some(wc) = with_count {
                     parts.push(format!("pagination[withCount]={wc}"));
                 }
             }
-            api_types::PaginationParams::Offset { start, limit, with_count } => {
+            api_types::PaginationParams::Offset {
+                start,
+                limit,
+                with_count,
+            } => {
                 parts.push(format!("pagination[start]={start}"));
                 parts.push(format!("pagination[limit]={limit}"));
                 if let Some(wc) = with_count {

@@ -86,7 +86,10 @@ pub async fn scoped_admin_ctx(
 
 /// Pull the `Bearer <token>` from the `Authorization` header.
 fn extract_bearer(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let value = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
     value
         .strip_prefix("Bearer ")
         .or_else(|| value.strip_prefix("bearer "))

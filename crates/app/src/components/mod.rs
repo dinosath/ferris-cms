@@ -74,7 +74,11 @@ pub fn IconButton(
     if variant == "danger" {
         class.push_str(" btn-icon-danger");
     }
-    let label = if aria_label.is_empty() { name.clone() } else { aria_label };
+    let label = if aria_label.is_empty() {
+        name.clone()
+    } else {
+        aria_label
+    };
     rsx! {
         button {
             "class": "{class}",
@@ -207,10 +211,7 @@ fn badge_class(kind: &str) -> &'static str {
 
 /// A small status badge.
 #[component]
-pub fn Badge(
-    text: String,
-    #[props(default)] kind: String,
-) -> Element {
+pub fn Badge(text: String, #[props(default)] kind: String) -> Element {
     let class = format!("badge {}", badge_class(&kind));
     rsx! { span { "class": "{class}", "{text}" } }
 }
@@ -347,10 +348,7 @@ pub fn NavItem(
 
 /// A simple data table.
 #[component]
-pub fn Table(
-    columns: Vec<(String, String)>,
-    rows: Vec<Vec<String>>,
-) -> Element {
+pub fn Table(columns: Vec<(String, String)>, rows: Vec<Vec<String>>) -> Element {
     rsx! {
         table { "class": "table",
             thead {
@@ -381,8 +379,16 @@ pub fn EmptyState(
     #[props(default)] icon: String,
     children: Element,
 ) -> Element {
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_800);
-    let subtitle_style = format!("font-size:{}; color:{}; max-width:360px;", typography::BODY_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_800
+    );
+    let subtitle_style = format!(
+        "font-size:{}; color:{}; max-width:360px;",
+        typography::BODY_SIZE,
+        color::NEUTRAL_600
+    );
     rsx! {
         div { "class": "empty-state",
             icon::Icon { name: "{icon}", size: 40, color: color::NEUTRAL_400.to_string() }
@@ -457,10 +463,7 @@ pub fn Tabs(
 /// A breadcrumb trail. `crumbs` is a list of `(label, selected)` segments where
 /// `selected == true` marks the current (non-interactive) page.
 #[component]
-pub fn Breadcrumbs(
-    crumbs: Vec<(String, bool)>,
-    on_navigate: EventHandler<usize>,
-) -> Element {
+pub fn Breadcrumbs(crumbs: Vec<(String, bool)>, on_navigate: EventHandler<usize>) -> Element {
     rsx! {
         nav { "class": "breadcrumb", aria_label: "Breadcrumb",
             for (idx, (label, selected)) in crumbs.iter().enumerate() {
@@ -486,7 +489,11 @@ pub fn Pagination(
     on_page_change: EventHandler<i64>,
     on_page_size_change: EventHandler<i64>,
 ) -> Element {
-    let sizes = if sizes.is_empty() { vec![10, 25, 50, 100] } else { sizes };
+    let sizes = if sizes.is_empty() {
+        vec![10, 25, 50, 100]
+    } else {
+        sizes
+    };
     rsx! {
         div { "class": "pagination",
             div { "class": "pagination-info",
@@ -531,10 +538,7 @@ pub fn StatusIndicator(status: String) -> Element {
 
 /// A shimmering skeleton loading block.
 #[component]
-pub fn Skeleton(
-    #[props(default)] width: String,
-    #[props(default)] height: String,
-) -> Element {
+pub fn Skeleton(#[props(default)] width: String, #[props(default)] height: String) -> Element {
     rsx! {
         div { "class": "skeleton", style: "width:{width}; height:{height};" }
     }
@@ -542,10 +546,7 @@ pub fn Skeleton(
 
 /// A small circular spinner used to indicate in-flight work.
 #[component]
-pub fn Spinner(
-    #[props(default)] size: u32,
-    #[props(default)] color: String,
-) -> Element {
+pub fn Spinner(#[props(default)] size: u32, #[props(default)] color: String) -> Element {
     let sz = if size > 0 { size } else { 20 };
     let c = if color.is_empty() {
         ui::design::tokens::color::PRIMARY_600.to_string()

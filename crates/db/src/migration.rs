@@ -113,11 +113,17 @@ impl MigrationName for M20260731Init {
 impl MigrationTrait for M20260731Init {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         IS_POSTGRES.store(
-            matches!(manager.get_database_backend(), sea_orm::DatabaseBackend::Postgres),
+            matches!(
+                manager.get_database_backend(),
+                sea_orm::DatabaseBackend::Postgres
+            ),
             Ordering::Relaxed,
         );
         // ---- content_type_schemas ----
-        let mut t = Table::create().table(Alias::new("content_type_schemas")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("content_type_schemas"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("uid"));
         t.col(str_col("kind"));
@@ -136,7 +142,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "content_type_schemas", &["uid"]).await?;
 
         // ---- content_type_table_map ----
-        let mut t = Table::create().table(Alias::new("content_type_table_map")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("content_type_table_map"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("schema_uid"));
         t.col(str_col("physical_table"));
@@ -147,7 +156,10 @@ impl MigrationTrait for M20260731Init {
         create_index(manager, "content_type_table_map", &["schema_uid"]).await?;
 
         // ---- admin_user ----
-        let mut t = Table::create().table(Alias::new("admin_user")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("admin_user"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("email"));
         t.col(str_opt("first_name"));
@@ -162,7 +174,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "admin_user", &["email"]).await?;
 
         // ---- admin_role ----
-        let mut t = Table::create().table(Alias::new("admin_role")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("admin_role"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("name"));
         t.col(str_col("code"));
@@ -173,7 +188,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "admin_role", &["code"]).await?;
 
         // ---- admin_permission ----
-        let mut t = Table::create().table(Alias::new("admin_permission")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("admin_permission"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(int_col("role_id"));
         t.col(str_col("action"));
@@ -185,7 +203,10 @@ impl MigrationTrait for M20260731Init {
         create_index(manager, "admin_permission", &["role_id"]).await?;
 
         // ---- admin_user_role ----
-        let mut t = Table::create().table(Alias::new("admin_user_role")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("admin_user_role"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(int_col("user_id"));
         t.col(int_col("role_id"));
@@ -193,7 +214,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "admin_user_role", &["user_id", "role_id"]).await?;
 
         // ---- api_token ----
-        let mut t = Table::create().table(Alias::new("api_token")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("api_token"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("name"));
         t.col(str_opt("description"));
@@ -206,7 +230,10 @@ impl MigrationTrait for M20260731Init {
         manager.create_table(t).await?;
 
         // ---- api_token_permission ----
-        let mut t = Table::create().table(Alias::new("api_token_permission")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("api_token_permission"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(int_col("token_id"));
         t.col(str_col("action"));
@@ -214,7 +241,10 @@ impl MigrationTrait for M20260731Init {
         create_index(manager, "api_token_permission", &["token_id"]).await?;
 
         // ---- upload_file ----
-        let mut t = Table::create().table(Alias::new("upload_file")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("upload_file"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("document_id"));
         t.col(str_col("name"));
@@ -246,7 +276,10 @@ impl MigrationTrait for M20260731Init {
         create_index(manager, "upload_file", &["folder_id"]).await?;
 
         // ---- upload_folder ----
-        let mut t = Table::create().table(Alias::new("upload_folder")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("upload_folder"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("name"));
         t.col(int_col("path_id"));
@@ -258,7 +291,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "upload_folder", &["path_id"]).await?;
 
         // ---- i18n_locale ----
-        let mut t = Table::create().table(Alias::new("i18n_locale")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("i18n_locale"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("code"));
         t.col(str_col("name"));
@@ -268,7 +304,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "i18n_locale", &["code"]).await?;
 
         // ---- core_store ----
-        let mut t = Table::create().table(Alias::new("core_store")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("core_store"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("key"));
         {
@@ -283,7 +322,10 @@ impl MigrationTrait for M20260731Init {
         create_unique_index(manager, "core_store", &["key"]).await?;
 
         // ---- schema_change_log ----
-        let mut t = Table::create().table(Alias::new("schema_change_log")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("schema_change_log"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("schema_uid"));
         t.col(int_col("from_version"));
@@ -295,7 +337,10 @@ impl MigrationTrait for M20260731Init {
         create_index(manager, "schema_change_log", &["schema_uid"]).await?;
 
         // ---- sync_state ----
-        let mut t = Table::create().table(Alias::new("sync_state")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("sync_state"))
+            .if_not_exists()
+            .to_owned();
         {
             let mut c = ColumnDef::new(Alias::new("node_id"));
             c.string().not_null().primary_key();
@@ -308,7 +353,10 @@ impl MigrationTrait for M20260731Init {
         manager.create_table(t).await?;
 
         // ---- sync_oplog ----
-        let mut t = Table::create().table(Alias::new("sync_oplog")).if_not_exists().to_owned();
+        let mut t = Table::create()
+            .table(Alias::new("sync_oplog"))
+            .if_not_exists()
+            .to_owned();
         t.col(pk_col());
         t.col(str_col("entity"));
         t.col(str_col("document_id"));
@@ -347,7 +395,12 @@ impl MigrationTrait for M20260731Init {
             "content_type_schemas",
         ] {
             manager
-                .drop_table(Table::drop().table(Alias::new(table)).if_exists().to_owned())
+                .drop_table(
+                    Table::drop()
+                        .table(Alias::new(table))
+                        .if_exists()
+                        .to_owned(),
+                )
                 .await?;
         }
         Ok(())
@@ -374,14 +427,23 @@ impl MigrationTrait for M20260731Rbac {
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in sea_orm::rbac::schema::all_tables() {
             manager
-                .drop_table(Table::drop().table(Alias::new(table)).if_exists().to_owned())
+                .drop_table(
+                    Table::drop()
+                        .table(Alias::new(table))
+                        .if_exists()
+                        .to_owned(),
+                )
                 .await?;
         }
         Ok(())
     }
 }
 
-async fn create_index(manager: &SchemaManager<'_>, table: &str, cols: &[&str]) -> Result<(), DbErr> {
+async fn create_index(
+    manager: &SchemaManager<'_>,
+    table: &str,
+    cols: &[&str],
+) -> Result<(), DbErr> {
     let mut idx = Index::create();
     idx.table(Alias::new(table)).if_not_exists();
     idx.name(format!("idx_{table}_{}", cols.join("_")));

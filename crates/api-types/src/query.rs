@@ -393,7 +393,10 @@ fn parse_string_list(node: &Node) -> Vec<String> {
     }
     let indexed = node.indexed_children();
     if !indexed.is_empty() {
-        return indexed.into_iter().filter_map(|n| n.value.clone()).collect();
+        return indexed
+            .into_iter()
+            .filter_map(|n| n.value.clone())
+            .collect();
     }
     node.children.keys().cloned().collect()
 }
@@ -408,7 +411,10 @@ fn parse_populate(node: &Node) -> PopulateSpec {
     let indexed = node.indexed_children();
     if !indexed.is_empty() && indexed.len() == node.children.len() {
         return PopulateSpec::List(
-            indexed.into_iter().filter_map(|n| n.value.clone()).collect(),
+            indexed
+                .into_iter()
+                .filter_map(|n| n.value.clone())
+                .collect(),
         );
     }
     let mut map = IndexMap::new();
@@ -503,10 +509,16 @@ fn parse_field_filter(field: &str, node: &Node) -> Result<Filter, QueryParseErro
 /// `filters[x][$or][0][$eq]=a` behaves like `$or: [ {x $eq a} ]`.
 fn remap_field(filter: Filter, field: &str) -> Filter {
     match filter {
-        Filter::And(items) => Filter::And(items.into_iter().map(|f| remap_field(f, field)).collect()),
+        Filter::And(items) => {
+            Filter::And(items.into_iter().map(|f| remap_field(f, field)).collect())
+        }
         Filter::Or(items) => Filter::Or(items.into_iter().map(|f| remap_field(f, field)).collect()),
         Filter::Not(inner) => Filter::Not(Box::new(remap_field(*inner, field))),
-        Filter::Leaf { field: _, op, values } => Filter::Leaf {
+        Filter::Leaf {
+            field: _,
+            op,
+            values,
+        } => Filter::Leaf {
             field: field.to_string(),
             op,
             values,
@@ -724,7 +736,13 @@ mod tests {
         let q = QueryParams::parse("filters[title]=hello&filters[n][$between]=1,9").unwrap();
         match q.filters.unwrap() {
             Filter::And(items) => {
-                assert!(matches!(&items[0], Filter::Leaf { op: FilterOp::Eq, .. }));
+                assert!(matches!(
+                    &items[0],
+                    Filter::Leaf {
+                        op: FilterOp::Eq,
+                        ..
+                    }
+                ));
                 assert!(
                     matches!(&items[1], Filter::Leaf { op: FilterOp::Between, values, .. } if values.len() == 2)
                 );

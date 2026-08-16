@@ -145,7 +145,9 @@ pub fn owner_fk_columns<'a>(
         if !kind.owner_has_fk() {
             continue;
         }
-        let Some(target_uid) = &attr.target else { continue };
+        let Some(target_uid) = &attr.target else {
+            continue;
+        };
         let Some(target) = all.iter().find(|s| &s.uid == target_uid) else {
             continue;
         };
@@ -161,11 +163,12 @@ pub fn inverse_fk_attrs<'a>(
 ) -> Vec<(String, Attribute, &'a Schema)> {
     let mut out = Vec::new();
     for (name, attr) in &schema.attributes {
-        if attr.attr_type != FieldType::Relation || attr.relation != Some(RelationKind::OneToMany)
-        {
+        if attr.attr_type != FieldType::Relation || attr.relation != Some(RelationKind::OneToMany) {
             continue;
         }
-        let Some(target_uid) = &attr.target else { continue };
+        let Some(target_uid) = &attr.target else {
+            continue;
+        };
         let Some(target) = all.iter().find(|s| &s.uid == target_uid) else {
             continue;
         };
@@ -188,7 +191,9 @@ pub fn join_table_attrs<'a>(
         if !kind.uses_join_table() {
             continue;
         }
-        let Some(target_uid) = &attr.target else { continue };
+        let Some(target_uid) = &attr.target else {
+            continue;
+        };
         let Some(target) = all.iter().find(|s| &s.uid == target_uid) else {
             continue;
         };
@@ -210,9 +215,7 @@ pub fn component_attrs(schema: &Schema) -> Vec<(String, Attribute)> {
     schema
         .attributes
         .iter()
-        .filter(|(_, a)| {
-            matches!(a.attr_type, FieldType::Component | FieldType::Dynamiczone)
-        })
+        .filter(|(_, a)| matches!(a.attr_type, FieldType::Component | FieldType::Dynamiczone))
         .map(|(n, a)| (n.clone(), a.clone()))
         .collect()
 }
@@ -368,7 +371,17 @@ pub async fn apply_aux<C: ConnectionTrait>(
     let table = schema.table_name();
 
     for (name, attr, target) in join_table_attrs(schema, all) {
-        create_join_table(db, backend, &table, &name, schema, target, &attr, &mut actions).await?;
+        create_join_table(
+            db,
+            backend,
+            &table,
+            &name,
+            schema,
+            target,
+            &attr,
+            &mut actions,
+        )
+        .await?;
     }
     for (name, _) in media_attrs(schema) {
         create_media_link_table(db, backend, &table, &name, &mut actions).await?;
@@ -384,13 +397,21 @@ pub async fn apply_aux<C: ConnectionTrait>(
         // If the target already declares an owner FK column with this name (a
         // manyToOne pairing), that column is created on the target's own table
         // and must not be added again here ("duplicate column name").
-        let target_owns = owner_fk_columns(target, all).iter().any(|(_, c, _, _)| *c == fk_col);
+        let target_owns = owner_fk_columns(target, all)
+            .iter()
+            .any(|(_, c, _, _)| *c == fk_col);
         if target_owns {
             continue;
         }
         let target_table = target.table_name();
-        add_column_if_supported(db, backend, &target_table, bigint_null(&fk_col), &mut actions)
-            .await?;
+        add_column_if_supported(
+            db,
+            backend,
+            &target_table,
+            bigint_null(&fk_col),
+            &mut actions,
+        )
+        .await?;
     }
 
     Ok(actions)
@@ -523,8 +544,7 @@ async fn apply_update<C: ConnectionTrait>(
     // changed attributes
     for change in &diff.changed_attrs {
         if change.compatible {
-            if backend == DbBackend::Postgres
-                && change.from.sql_family() != change.to.sql_family()
+            if backend == DbBackend::Postgres && change.from.sql_family() != change.to.sql_family()
             {
                 // same family per diff(); only reached if families equal, so nothing
             }
@@ -547,7 +567,11 @@ async fn apply_update<C: ConnectionTrait>(
 
     // removed attributes: unmap only (Part IV §8 default)
     for name in &diff.removed_attrs {
-        actions.push(format!("unmapped column {}.{} (retained)", table, column_name(name)));
+        actions.push(format!(
+            "unmapped column {}.{} (retained)",
+            table,
+            column_name(name)
+        ));
     }
 
     Ok(())
@@ -643,8 +667,17 @@ async fn apply_incompatible_change<C: ConnectionTrait>(
                 change = change.name
             ));
         }
-        add_attribute_storage(db, backend, table, schema, &change.name, &change.to, all, actions)
-            .await?;
+        add_attribute_storage(
+            db,
+            backend,
+            table,
+            schema,
+            &change.name,
+            &change.to,
+            all,
+            actions,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -675,9 +708,12 @@ async fn create_index_stmt<C: ConnectionTrait>(
     actions: &mut DdlActions,
 ) -> Result<(), StoreError> {
     let mut idx = Index::create();
-    idx.table(Alias::new(table))
-        .if_not_exists()
-        .name(format!("{}_{}_{}", if unique { "uidx" } else { "idx" }, table, cols.join("_")));
+    idx.table(Alias::new(table)).if_not_exists().name(format!(
+        "{}_{}_{}",
+        if unique { "uidx" } else { "idx" },
+        table,
+        cols.join("_")
+    ));
     if unique {
         idx.unique();
     }
@@ -694,5 +730,3 @@ async fn create_index_stmt<C: ConnectionTrait>(
     ));
     Ok(())
 }
-
-

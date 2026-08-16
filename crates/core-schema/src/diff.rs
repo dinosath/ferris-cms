@@ -212,9 +212,21 @@ mod tests {
         assert_eq!(d.removed_attrs, vec!["old".to_string()]);
         assert_eq!(d.changed_attrs.len(), 2);
         // title: string -> string (required flag) compatible
-        assert!(d.changed_attrs.iter().find(|c| c.name == "title").unwrap().compatible);
+        assert!(
+            d.changed_attrs
+                .iter()
+                .find(|c| c.name == "title")
+                .unwrap()
+                .compatible
+        );
         // views: integer -> biginteger is a family change
-        assert!(!d.changed_attrs.iter().find(|c| c.name == "views").unwrap().compatible);
+        assert!(
+            !d.changed_attrs
+                .iter()
+                .find(|c| c.name == "views")
+                .unwrap()
+                .compatible
+        );
     }
 
     #[test]

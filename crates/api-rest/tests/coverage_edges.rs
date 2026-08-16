@@ -18,7 +18,10 @@ fn app_config() -> AppConfig {
         jwt_secret: "edges-test-secret".into(),
         jwt_expiry_secs: 3600,
         admin_registration_open: true,
-        media_storage_dir: std::env::temp_dir().join("ferris-edges").display().to_string(),
+        media_storage_dir: std::env::temp_dir()
+            .join("ferris-edges")
+            .display()
+            .to_string(),
     }
 }
 
@@ -27,7 +30,9 @@ async fn setup() -> (axum::Router, Arc<AppState>) {
     Migrator::up(&db, None).await.unwrap();
     seed::seed(&db).await.unwrap();
     let state = Arc::new(AppState::new(db.clone(), app_config()));
-    load_schema_cache(&db, &state.ctx.schema_cache).await.unwrap();
+    load_schema_cache(&db, &state.ctx.schema_cache)
+        .await
+        .unwrap();
     let _ = state.ctx.init_rbac().await;
     (build_router(state.clone()), state)
 }
@@ -38,14 +43,16 @@ fn json_request(
     body: serde_json::Value,
     token: Option<&str>,
 ) -> Request<Body> {
-    let mut builder = Request::builder().method(method).uri(uri).header(
-        header::CONTENT_TYPE,
-        "application/json",
-    );
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
     if let Some(t) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
     }
-    builder.body(Body::from(body.to_string())).expect("request builds")
+    builder
+        .body(Body::from(body.to_string()))
+        .expect("request builds")
 }
 
 fn empty_request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {
@@ -127,108 +134,278 @@ async fn validation_error_branches() {
     let cases: Vec<serde_json::Value> = vec![
         // duplicate-uid
         serde_json::json!([
-            ct("api::a.a", "collectionType", "a", "as", "A", serde_json::json!({"x": {"type":"string"}})),
-            ct("api::a.a", "collectionType", "a2", "a2s", "A2", serde_json::json!({"x": {"type":"string"}}))
+            ct(
+                "api::a.a",
+                "collectionType",
+                "a",
+                "as",
+                "A",
+                serde_json::json!({"x": {"type":"string"}})
+            ),
+            ct(
+                "api::a.a",
+                "collectionType",
+                "a2",
+                "a2s",
+                "A2",
+                serde_json::json!({"x": {"type":"string"}})
+            )
         ]),
         // invalid component uid (has "::")
-        serde_json::json!([
-            ct("api::x.x", "component", "x", "xs", "X", serde_json::json!({"x": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::x.x",
+            "component",
+            "x",
+            "xs",
+            "X",
+            serde_json::json!({"x": {"type":"string"}})
+        )]),
         // missing api id
-        serde_json::json!([
-            ct("api::m.m", "collectionType", "", "", "M", serde_json::json!({"x": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::m.m",
+            "collectionType",
+            "",
+            "",
+            "M",
+            serde_json::json!({"x": {"type":"string"}})
+        )]),
         // invalid api id (uppercase/space)
-        serde_json::json!([
-            ct("api::m.m", "collectionType", "Bad Name", "bads", "M", serde_json::json!({"x": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::m.m",
+            "collectionType",
+            "Bad Name",
+            "bads",
+            "M",
+            serde_json::json!({"x": {"type":"string"}})
+        )]),
         // reserved api id
-        serde_json::json!([
-            ct("api::admin.x", "collectionType", "admin", "admins", "M", serde_json::json!({"x": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::admin.x",
+            "collectionType",
+            "admin",
+            "admins",
+            "M",
+            serde_json::json!({"x": {"type":"string"}})
+        )]),
         // missing display name
-        serde_json::json!([
-            ct("api::d.d", "collectionType", "d", "ds", "", serde_json::json!({"x": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::d.d",
+            "collectionType",
+            "d",
+            "ds",
+            "",
+            serde_json::json!({"x": {"type":"string"}})
+        )]),
         // invalid attribute identifier
-        serde_json::json!([
-            ct("api::i.i", "collectionType", "i", "is", "I", serde_json::json!({"with space": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::i.i",
+            "collectionType",
+            "i",
+            "is",
+            "I",
+            serde_json::json!({"with space": {"type":"string"}})
+        )]),
         // reserved attribute
-        serde_json::json!([
-            ct("api::r.r", "collectionType", "r", "rs", "R", serde_json::json!({"documentId": {"type":"string"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::r.r",
+            "collectionType",
+            "r",
+            "rs",
+            "R",
+            serde_json::json!({"documentId": {"type":"string"}})
+        )]),
         // invalid regex
-        serde_json::json!([
-            ct("api::re.re", "collectionType", "re", "res", "Re", serde_json::json!({"x": {"type":"string","regex":"[unclosed"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::re.re",
+            "collectionType",
+            "re",
+            "res",
+            "Re",
+            serde_json::json!({"x": {"type":"string","regex":"[unclosed"}})
+        )]),
         // minLength > maxLength
-        serde_json::json!([
-            ct("api::ml.ml", "collectionType", "ml", "mls", "ML", serde_json::json!({"x": {"type":"string","minLength":5,"maxLength":2}}))
-        ]),
+        serde_json::json!([ct(
+            "api::ml.ml",
+            "collectionType",
+            "ml",
+            "mls",
+            "ML",
+            serde_json::json!({"x": {"type":"string","minLength":5,"maxLength":2}})
+        )]),
         // empty enum
-        serde_json::json!([
-            ct("api::e.e", "collectionType", "e", "es", "E", serde_json::json!({"x": {"type":"enumeration","enum":[]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::e.e",
+            "collectionType",
+            "e",
+            "es",
+            "E",
+            serde_json::json!({"x": {"type":"enumeration","enum":[]}})
+        )]),
         // invalid enum value
-        serde_json::json!([
-            ct("api::e.e", "collectionType", "e", "es", "E", serde_json::json!({"x": {"type":"enumeration","enum":["bad-value"]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::e.e",
+            "collectionType",
+            "e",
+            "es",
+            "E",
+            serde_json::json!({"x": {"type":"enumeration","enum":["bad-value"]}})
+        )]),
         // duplicate enum value
-        serde_json::json!([
-            ct("api::e.e", "collectionType", "e", "es", "E", serde_json::json!({"x": {"type":"enumeration","enum":["a","a"]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::e.e",
+            "collectionType",
+            "e",
+            "es",
+            "E",
+            serde_json::json!({"x": {"type":"enumeration","enum":["a","a"]}})
+        )]),
         // uid target field missing
-        serde_json::json!([
-            ct("api::u.u", "collectionType", "u", "us", "U", serde_json::json!({"x": {"type":"uid","targetField":"nope"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::u.u",
+            "collectionType",
+            "u",
+            "us",
+            "U",
+            serde_json::json!({"x": {"type":"uid","targetField":"nope"}})
+        )]),
         // relation missing kind
-        serde_json::json!([
-            ct("api::rel.rel", "collectionType", "rel", "rels", "Rel", serde_json::json!({"x": {"type":"relation","target":"api::b.b"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::rel.rel",
+            "collectionType",
+            "rel",
+            "rels",
+            "Rel",
+            serde_json::json!({"x": {"type":"relation","target":"api::b.b"}})
+        )]),
         // relation missing target
-        serde_json::json!([
-            ct("api::rel.rel", "collectionType", "rel", "rels", "Rel", serde_json::json!({"x": {"type":"relation","relation":"oneToOne"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::rel.rel",
+            "collectionType",
+            "rel",
+            "rels",
+            "Rel",
+            serde_json::json!({"x": {"type":"relation","relation":"oneToOne"}})
+        )]),
         // relation to undefined target
-        serde_json::json!([
-            ct("api::rel.rel", "collectionType", "rel", "rels", "Rel", serde_json::json!({"x": {"type":"relation","relation":"oneToOne","target":"api::zz.zz"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::rel.rel",
+            "collectionType",
+            "rel",
+            "rels",
+            "Rel",
+            serde_json::json!({"x": {"type":"relation","relation":"oneToOne","target":"api::zz.zz"}})
+        )]),
         // relation targeting a component
         serde_json::json!([
-            ct("shared.comp", "component", "comp", "comps", "Comp", serde_json::json!({"c": {"type":"string"}})),
-            ct("api::rel.rel", "collectionType", "rel", "rels", "Rel", serde_json::json!({"x": {"type":"relation","relation":"oneToOne","target":"shared.comp"}}))
+            ct(
+                "shared.comp",
+                "component",
+                "comp",
+                "comps",
+                "Comp",
+                serde_json::json!({"c": {"type":"string"}})
+            ),
+            ct(
+                "api::rel.rel",
+                "collectionType",
+                "rel",
+                "rels",
+                "Rel",
+                serde_json::json!({"x": {"type":"relation","relation":"oneToOne","target":"shared.comp"}})
+            )
         ]),
         // component undefined
-        serde_json::json!([
-            ct("api::c.c", "collectionType", "c", "cs", "C", serde_json::json!({"x": {"type":"component","component":"shared.nope"}}))
-        ]),
+        serde_json::json!([ct(
+            "api::c.c",
+            "collectionType",
+            "c",
+            "cs",
+            "C",
+            serde_json::json!({"x": {"type":"component","component":"shared.nope"}})
+        )]),
         // component references a non-component
         serde_json::json!([
-            ct("api::other.other", "collectionType", "other", "others", "Other", serde_json::json!({"o": {"type":"string"}})),
-            ct("api::c.c", "collectionType", "c", "cs", "C", serde_json::json!({"x": {"type":"component","component":"api::other.other"}}))
+            ct(
+                "api::other.other",
+                "collectionType",
+                "other",
+                "others",
+                "Other",
+                serde_json::json!({"o": {"type":"string"}})
+            ),
+            ct(
+                "api::c.c",
+                "collectionType",
+                "c",
+                "cs",
+                "C",
+                serde_json::json!({"x": {"type":"component","component":"api::other.other"}})
+            )
         ]),
         // component min > max
         serde_json::json!([
-            ct("shared.comp", "component", "comp", "comps", "Comp", serde_json::json!({"c": {"type":"string"}})),
-            ct("api::c.c", "collectionType", "c", "cs", "C", serde_json::json!({"x": {"type":"component","component":"shared.comp","min":5,"max":2}}))
+            ct(
+                "shared.comp",
+                "component",
+                "comp",
+                "comps",
+                "Comp",
+                serde_json::json!({"c": {"type":"string"}})
+            ),
+            ct(
+                "api::c.c",
+                "collectionType",
+                "c",
+                "cs",
+                "C",
+                serde_json::json!({"x": {"type":"component","component":"shared.comp","min":5,"max":2}})
+            )
         ]),
         // empty dynamic zone
-        serde_json::json!([
-            ct("api::dz.dz", "collectionType", "dz", "dzs", "DZ", serde_json::json!({"x": {"type":"dynamiczone","components":[]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::dz.dz",
+            "collectionType",
+            "dz",
+            "dzs",
+            "DZ",
+            serde_json::json!({"x": {"type":"dynamiczone","components":[]}})
+        )]),
         // dynamic zone missing component
-        serde_json::json!([
-            ct("api::dz.dz", "collectionType", "dz", "dzs", "DZ", serde_json::json!({"x": {"type":"dynamiczone","components":["shared.nope"]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::dz.dz",
+            "collectionType",
+            "dz",
+            "dzs",
+            "DZ",
+            serde_json::json!({"x": {"type":"dynamiczone","components":["shared.nope"]}})
+        )]),
         // invalid media allowed type
-        serde_json::json!([
-            ct("api::med.med", "collectionType", "med", "meds", "Med", serde_json::json!({"x": {"type":"media","allowedTypes":["gifs"]}}))
-        ]),
+        serde_json::json!([ct(
+            "api::med.med",
+            "collectionType",
+            "med",
+            "meds",
+            "Med",
+            serde_json::json!({"x": {"type":"media","allowedTypes":["gifs"]}})
+        )]),
         // duplicate singular api id
         serde_json::json!([
-            ct("api::s1.s1", "collectionType", "same", "one", "S1", serde_json::json!({"x": {"type":"string"}})),
-            ct("api::s2.s2", "collectionType", "same", "two", "S2", serde_json::json!({"x": {"type":"string"}}))
+            ct(
+                "api::s1.s1",
+                "collectionType",
+                "same",
+                "one",
+                "S1",
+                serde_json::json!({"x": {"type":"string"}})
+            ),
+            ct(
+                "api::s2.s2",
+                "collectionType",
+                "same",
+                "two",
+                "S2",
+                serde_json::json!({"x": {"type":"string"}})
+            )
         ]),
     ];
 
@@ -384,8 +561,16 @@ async fn relations_components_media_and_dynamic_zones() {
         ))
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::OK, "create article: {}", created.status());
-    let doc_id = body_json(created).await["data"]["documentId"].as_str().expect("documentId").to_string();
+    assert_eq!(
+        created.status(),
+        StatusCode::OK,
+        "create article: {}",
+        created.status()
+    );
+    let doc_id = body_json(created).await["data"]["documentId"]
+        .as_str()
+        .expect("documentId")
+        .to_string();
 
     // Read it back (component + dynamic-zone values round-trip).
     let got = router
@@ -411,7 +596,11 @@ async fn relations_components_media_and_dynamic_zones() {
         ))
         .await
         .unwrap();
-    assert_ne!(dup.status(), StatusCode::OK, "duplicate unique title should not succeed");
+    assert_ne!(
+        dup.status(),
+        StatusCode::OK,
+        "duplicate unique title should not succeed"
+    );
 
     // Delete.
     let del = router
@@ -445,7 +634,10 @@ async fn schema_mutations_ddl() {
             "published": {"type": "boolean"}
         }),
     );
-    assert_eq!(apply_status(&router, &token, serde_json::json!([base])).await, StatusCode::OK);
+    assert_eq!(
+        apply_status(&router, &token, serde_json::json!([base])).await,
+        StatusCode::OK
+    );
 
     // Mutate 1: compatible scalar type changes (string->text, integer->biginteger).
     let m1 = ct(
@@ -461,7 +653,11 @@ async fn schema_mutations_ddl() {
             "slug": {"type": "uid"}
         }),
     );
-    assert_eq!(apply_status(&router, &token, serde_json::json!([m1])).await, StatusCode::OK, "compatible change");
+    assert_eq!(
+        apply_status(&router, &token, serde_json::json!([m1])).await,
+        StatusCode::OK,
+        "compatible change"
+    );
 
     // Mutate 2: add media + component fields (creates link tables) and drop a
     // boolean column.
@@ -504,8 +700,16 @@ async fn schema_mutations_ddl() {
         ))
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::OK, "create on mutated schema: {}", created.status());
-    let doc_id = body_json(created).await["data"]["documentId"].as_str().expect("documentId").to_string();
+    assert_eq!(
+        created.status(),
+        StatusCode::OK,
+        "create on mutated schema: {}",
+        created.status()
+    );
+    let doc_id = body_json(created).await["data"]["documentId"]
+        .as_str()
+        .expect("documentId")
+        .to_string();
 
     let got = router
         .clone()
@@ -540,7 +744,10 @@ async fn value_conversion_error_branches() {
             "t": {"type": "time"}
         }),
     );
-    assert_eq!(apply_status(&router, &token, serde_json::json!([schema])).await, StatusCode::OK);
+    assert_eq!(
+        apply_status(&router, &token, serde_json::json!([schema])).await,
+        StatusCode::OK
+    );
 
     // Each invalid scalar value must be rejected (never 200), exercising the
     // conversion error branches in dynamic-store/value.rs.
@@ -586,7 +793,12 @@ async fn error_envelope_and_query_paths() {
     }]);
     let bad_resp = router
         .clone()
-        .oneshot(json_request("POST", "/content-type-builder/schema", serde_json::json!({"schemas": bad}), Some(&token)))
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({"schemas": bad}),
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(bad_resp.status(), StatusCode::BAD_REQUEST);
@@ -613,7 +825,11 @@ async fn error_envelope_and_query_paths() {
     // A successful read on an existing type returns the standard envelope.
     let list = router
         .clone()
-        .oneshot(empty_request("GET", "/admin/content-manager/content-types", Some(&token)))
+        .oneshot(empty_request(
+            "GET",
+            "/admin/content-manager/content-types",
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(list.status(), StatusCode::OK);

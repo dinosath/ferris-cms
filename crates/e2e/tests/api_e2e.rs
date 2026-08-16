@@ -15,7 +15,12 @@ const EMAIL: &str = "e2e@ferriscms.test";
 const PASSWORD: &str = "StrongPass1";
 const CT_UID: &str = "api::article.article";
 
-fn bearer(client: &reqwest::Client, method: reqwest::Method, url: String, token: &str) -> reqwest::RequestBuilder {
+fn bearer(
+    client: &reqwest::Client,
+    method: reqwest::Method,
+    url: String,
+    token: &str,
+) -> reqwest::RequestBuilder {
     client.request(method, url).bearer_auth(token)
 }
 
@@ -50,7 +55,10 @@ async fn setup(harness: &E2eHarness) -> anyhow::Result<(reqwest::Client, String)
             register.text().await?
         );
         let register: Value = register.json().await?;
-        assert!(register["data"]["token"].is_string(), "register should return a JWT");
+        assert!(
+            register["data"]["token"].is_string(),
+            "register should return a JWT"
+        );
     }
 
     // Login.
@@ -84,11 +92,20 @@ async fn setup(harness: &E2eHarness) -> anyhow::Result<(reqwest::Client, String)
             "title": { "type": "string", "required": true },
         }
     }]);
-    let ctb = bearer(&client, reqwest::Method::POST, format!("{base}/content-type-builder/content-types"), &token)
-        .json(&json!({ "schemas": schema }))
-        .send()
-        .await?;
-    assert!(ctb.status().is_success(), "ctb apply failed: {}", ctb.text().await?);
+    let ctb = bearer(
+        &client,
+        reqwest::Method::POST,
+        format!("{base}/content-type-builder/content-types"),
+        &token,
+    )
+    .json(&json!({ "schemas": schema }))
+    .send()
+    .await?;
+    assert!(
+        ctb.status().is_success(),
+        "ctb apply failed: {}",
+        ctb.text().await?
+    );
 
     Ok((client, token))
 }
@@ -109,12 +126,21 @@ async fn create_entry(
     .json(&json!({ "data": { "title": title } }))
     .send()
     .await?;
-    assert!(resp.status().is_success(), "create entry failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "create entry failed: {}",
+        resp.text().await?
+    );
     Ok(resp.json().await?)
 }
 
 /// Read a single entry by documentId.
-async fn read_entry(client: &reqwest::Client, base: &str, token: &str, id: &str) -> anyhow::Result<Value> {
+async fn read_entry(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+    id: &str,
+) -> anyhow::Result<Value> {
     let resp = bearer(
         client,
         reqwest::Method::GET,
@@ -123,12 +149,20 @@ async fn read_entry(client: &reqwest::Client, base: &str, token: &str, id: &str)
     )
     .send()
     .await?;
-    assert!(resp.status().is_success(), "read entry failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "read entry failed: {}",
+        resp.text().await?
+    );
     Ok(resp.json().await?)
 }
 
 /// List entries (admin content manager).
-async fn list_entries(client: &reqwest::Client, base: &str, token: &str) -> anyhow::Result<Vec<Value>> {
+async fn list_entries(
+    client: &reqwest::Client,
+    base: &str,
+    token: &str,
+) -> anyhow::Result<Vec<Value>> {
     let resp = bearer(
         client,
         reqwest::Method::GET,
@@ -137,7 +171,11 @@ async fn list_entries(client: &reqwest::Client, base: &str, token: &str) -> anyh
     )
     .send()
     .await?;
-    assert!(resp.status().is_success(), "list entries failed: {}", resp.text().await?);
+    assert!(
+        resp.status().is_success(),
+        "list entries failed: {}",
+        resp.text().await?
+    );
     let body: Value = resp.json().await?;
     Ok(body["data"].as_array().cloned().unwrap_or_default())
 }
@@ -167,13 +205,17 @@ async fn crud_create_and_read() -> anyhow::Result<()> {
     );
 
     // Public (no-auth) read still works.
-    let public_resp = client
-        .get(format!("{base}/api/{CT_UID}"))
-        .send()
-        .await?;
-    assert!(public_resp.status().is_success(), "public read failed: {}", public_resp.text().await?);
+    let public_resp = client.get(format!("{base}/api/{CT_UID}")).send().await?;
+    assert!(
+        public_resp.status().is_success(),
+        "public read failed: {}",
+        public_resp.text().await?
+    );
     let public: Value = public_resp.json().await?;
-    assert!(public["data"].is_array(), "public API should return a data array");
+    assert!(
+        public["data"].is_array(),
+        "public API should return a data array"
+    );
 
     Ok(())
 }
@@ -200,11 +242,19 @@ async fn crud_update() -> anyhow::Result<()> {
     .json(&json!({ "data": { "title": "Updated title" } }))
     .send()
     .await?;
-    assert!(update.status().is_success(), "update entry failed: {}", update.text().await?);
+    assert!(
+        update.status().is_success(),
+        "update entry failed: {}",
+        update.text().await?
+    );
 
     // Read it back and verify the new title persisted.
     let single = read_entry(&client, &base, &token, &id).await?;
-    assert_eq!(single["data"]["title"], json!("Updated title"), "update did not persist");
+    assert_eq!(
+        single["data"]["title"],
+        json!("Updated title"),
+        "update did not persist"
+    );
 
     Ok(())
 }
@@ -230,7 +280,11 @@ async fn crud_delete() -> anyhow::Result<()> {
     )
     .send()
     .await?;
-    assert!(delete.status().is_success(), "delete entry failed: {}", delete.text().await?);
+    assert!(
+        delete.status().is_success(),
+        "delete entry failed: {}",
+        delete.text().await?
+    );
 
     // The list no longer contains it (keyed on title).
     let list = list_entries(&client, &base, &token).await?;

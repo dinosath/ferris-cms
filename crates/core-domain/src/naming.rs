@@ -125,9 +125,7 @@ pub fn singularize(s: &str) -> String {
     if lower.ends_with("ches") || lower.ends_with("shes") {
         return s[..s.len() - 2].to_string();
     }
-    if (lower.ends_with("ses") || lower.ends_with("xes") || lower.ends_with("zes"))
-        && s.len() > 3
-    {
+    if (lower.ends_with("ses") || lower.ends_with("xes") || lower.ends_with("zes")) && s.len() > 3 {
         return s[..s.len() - 2].to_string();
     }
     if lower.ends_with('s') && !lower.ends_with("ss") && s.len() > 1 {
@@ -149,9 +147,27 @@ pub fn column_name(attr: &str) -> String {
 fn is_reserved_sql(word: &str) -> bool {
     matches!(
         word,
-        "order" | "group" | "table" | "select" | "where" | "index" | "default" | "primary"
-            | "references" | "unique" | "check" | "constraint" | "column" | "key" | "values"
-            | "user" | "type" | "when" | "case" | "limit" | "offset"
+        "order"
+            | "group"
+            | "table"
+            | "select"
+            | "where"
+            | "index"
+            | "default"
+            | "primary"
+            | "references"
+            | "unique"
+            | "check"
+            | "constraint"
+            | "column"
+            | "key"
+            | "values"
+            | "user"
+            | "type"
+            | "when"
+            | "case"
+            | "limit"
+            | "offset"
     )
 }
 
@@ -241,6 +257,9 @@ mod tests {
             media_link_table("ct_articles", "cover"),
             "ct_articles_cover_files_links"
         );
-        assert_eq!(component_link_table("ct_articles"), "ct_articles_components");
+        assert_eq!(
+            component_link_table("ct_articles"),
+            "ct_articles_components"
+        );
     }
 }

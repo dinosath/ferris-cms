@@ -5,9 +5,7 @@
 //! are runtime-defined.
 
 use crate::{AppContext, ServiceError};
-use api_types::{
-    EntryResponse, ListResponse, Pagination, QueryParams,
-};
+use api_types::{EntryResponse, ListResponse, Pagination, QueryParams};
 use core_domain::{ContentTypeKind, Uid};
 use core_schema::Schema;
 use dynamic_store::dml;
@@ -138,11 +136,7 @@ pub async fn cm_update(
 }
 
 /// Delete an entry by document_id.
-pub async fn cm_delete(
-    ctx: &AppContext,
-    uid: &str,
-    document_id: &str,
-) -> Result<(), ServiceError> {
+pub async fn cm_delete(ctx: &AppContext, uid: &str, document_id: &str) -> Result<(), ServiceError> {
     let schema = load_schema(ctx, uid)?;
 
     crate::rbac::enforce_action(
@@ -189,10 +183,16 @@ pub async fn cm_publish(
             "publicationState".into(),
             JsonValue::String("published".into()),
         );
-        obj.insert("publishedAt".into(), JsonValue::String(chrono::Utc::now().to_rfc3339()));
+        obj.insert(
+            "publishedAt".into(),
+            JsonValue::String(chrono::Utc::now().to_rfc3339()),
+        );
         // Give the published variant a fresh document id so it is a distinct,
         // findable row and does not collide with the (soon soft-deleted) draft.
-        obj.insert("documentId".into(), JsonValue::String(uuid::Uuid::new_v4().to_string()));
+        obj.insert(
+            "documentId".into(),
+            JsonValue::String(uuid::Uuid::new_v4().to_string()),
+        );
     }
 
     // Insert published variant
