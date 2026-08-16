@@ -106,9 +106,11 @@ pub fn component_styles() -> String {
 
 /* ============================ Switch ============================ */
 .switch {{ position:relative; width:40px; height:22px; border-radius:999px; border:none;
-    cursor:pointer; transition:background-color .15s ease; flex-shrink:0; }}
+    cursor:pointer; transition:background-color .15s ease; flex-shrink:0; background:{neutral300}; }}
+.switch-checked {{ background:{primary600}; }}
 .switch-knob {{ position:absolute; top:2px; width:18px; height:18px; border-radius:50%;
-    background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:left .15s ease; }}
+    background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.2); transition:left .15s ease; left:2px; }}
+.switch-checked .switch-knob {{ left:20px; }}
 
 /* ============================ Table ============================ */
 .table {{ width:100%; border-collapse:collapse; background:#fff; }}
@@ -126,6 +128,59 @@ pub fn component_styles() -> String {
 .badge {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:4px;
     font-size:11px; font-weight:600; line-height:1; }}
 .badge-dot {{ width:6px; height:6px; border-radius:50%; }}
+.badge-draft {{ background:{secondary100}; color:{secondary600}; }}
+.badge-published {{ background:{success100}; color:{success600}; }}
+.badge-modified {{ background:{warning100}; color:{warning600}; }}
+.badge-new {{ background:{primary100}; color:{primary600}; }}
+.badge-danger {{ background:{danger100}; color:{danger700}; }}
+.badge-neutral {{ background:{neutral100}; color:{neutral600}; }}
+
+/* ============================ Card ============================ */
+.card {{ background:{neutral0}; border:1px solid {neutral150}; border-radius:{radius_md}px;
+    box-shadow:{shadow_card}; }}
+.card-header {{ padding:20px 24px; border-bottom:1px solid {neutral150};
+    font-size:15px; font-weight:600; color:{neutral800}; }}
+.card-body {{ padding:24px; }}
+
+/* ============================ Field ============================ */
+.field {{ display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }}
+.field-row {{ display:flex; gap:20px; }}
+
+/* ============================ Tabs ============================ */
+.tabs {{ display:flex; gap:4px; border-bottom:1px solid {neutral150}; }}
+.tab {{ padding:10px 16px; border:none; background:transparent; color:{neutral600};
+    font-size:14px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent;
+    margin-bottom:-1px; transition:color .12s ease, border-color .12s ease; }}
+.tab:hover {{ color:{primary600}; }}
+.tab-active {{ color:{primary600}; border-bottom-color:{primary600}; }}
+
+/* ============================ Breadcrumb ============================ */
+.breadcrumb {{ display:flex; align-items:center; gap:8px; font-size:14px; color:{neutral600}; }}
+.breadcrumb-link {{ background:none; border:none; padding:0; color:{primary600}; font-weight:500;
+    cursor:pointer; font-size:14px; }}
+.breadcrumb-link:hover {{ text-decoration:underline; }}
+.breadcrumb-sep {{ color:{neutral300}; }}
+
+/* ============================ Pagination ============================ */
+.pagination {{ display:flex; align-items:center; justify-content:space-between; padding:16px 32px; }}
+.pagination-info {{ font-size:14px; color:{neutral600}; }}
+.pagination-controls {{ display:flex; align-items:center; gap:8px; }}
+
+/* ============================ Status indicator ============================ */
+.status {{ display:inline-flex; align-items:center; gap:8px; font-size:13px; font-weight:600;
+    padding:6px 12px; border-radius:{radius_md}px; }}
+.status-draft {{ background:{secondary100}; color:{secondary700}; }}
+.status-published {{ background:{success100}; color:{success700}; }}
+.status-modified {{ background:{warning100}; color:{warning700}; }}
+.status-unpublished {{ background:{neutral100}; color:{neutral700}; }}
+
+/* ============================ Icon button ============================ */
+.btn-icon {{ display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px;
+    padding:0; border:none; background:transparent; color:{neutral500}; border-radius:4px;
+    cursor:pointer; transition:background-color .12s ease, color .12s ease; }}
+.btn-icon:hover {{ background:{neutral100}; color:{neutral800}; }}
+.btn-icon-danger:hover {{ background:{danger100}; color:{danger700}; }}
+.btn-block {{ width:100%; }}
 
 /* ============================ Modal ============================ */
 .modal-overlay {{ position:fixed; inset:0; background:rgba(33,33,52,.45);
@@ -173,6 +228,7 @@ pub fn component_styles() -> String {
         primary800 = color::PRIMARY_800,
         primary100 = color::PRIMARY_100,
         primary200 = color::PRIMARY_200,
+        neutral0 = color::NEUTRAL_0,
         neutral100 = color::NEUTRAL_100,
         neutral150 = color::NEUTRAL_150,
         neutral200 = color::NEUTRAL_200,
@@ -181,6 +237,15 @@ pub fn component_styles() -> String {
         neutral600 = color::NEUTRAL_600,
         neutral700 = color::NEUTRAL_700,
         neutral800 = color::NEUTRAL_800,
+        success100 = color::SUCCESS_100,
+        warning100 = color::WARNING_100,
+        warning600 = color::WARNING_600,
+        warning700 = color::WARNING_700,
+        secondary100 = color::SECONDARY_100,
+        secondary600 = color::SECONDARY_600,
+        secondary700 = color::SECONDARY_700,
+        radius_md = RADIUS_MD,
+        shadow_card = ui::design::tokens::SHADOW_CARD,
         danger600 = color::DANGER_600,
         danger700 = color::DANGER_700,
         danger100 = color::DANGER_100,

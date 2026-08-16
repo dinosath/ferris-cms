@@ -1,16 +1,33 @@
 //! Base Dioxus widgets for the ferriscms admin UI.
 //!
 //! These mirror the framework-agnostic widget specs in the `ui` crate
-//! (`crates/ui/src/widgets`) and are styled from the shared design tokens.
+//! (`crates/ui/src/widgets`) and are styled from the shared design tokens via
+//! the class-based stylesheet in `theme::component_styles()`. Keeping the
+//! markup class-driven (rather than inline-styled per call site) means every
+//! screen shares one source of truth for spacing, typography and interaction
+//! states, and real `:hover` / `:focus` / `:disabled` behaviour comes for free.
 
 pub mod icon;
 
 pub use icon::Icon;
 
 use dioxus::prelude::*;
-use ui::design::tokens::{RADIUS_MD, RADIUS_SM, color, typography};
+use ui::design::tokens::{color, typography};
 
-/// A styled button with several variants.
+/// Map a semantic variant name to its button CSS class.
+fn button_class(variant: &str) -> &'static str {
+    match variant {
+        "secondary" => "btn-secondary",
+        "danger" => "btn-danger",
+        "danger-light" => "btn-danger-light",
+        "success" => "btn-success",
+        "tertiary" => "btn-tertiary",
+        "ghost" => "btn-ghost",
+        _ => "btn-primary",
+    }
+}
+
+/// A styled button with several variants, sizes and interaction states.
 #[component]
 pub fn Button(
     label: String,
@@ -18,35 +35,87 @@ pub fn Button(
     #[props(default)] disabled: bool,
     #[props(default)] loading: bool,
     #[props(default)] full_width: bool,
+    #[props(default)] size: String,
     #[props(default)] on_click: Option<EventHandler<MouseEvent>>,
 ) -> Element {
-    let (bg, fg, border) = match variant.as_str() {
-        "secondary" => (color::NEUTRAL_0, color::NEUTRAL_700, color::NEUTRAL_200),
-        "danger" => (color::DANGER_600, "#FFFFFF", color::DANGER_600),
-        "success" => (color::SUCCESS_600, "#FFFFFF", color::SUCCESS_600),
-        "ghost" => ("transparent", color::NEUTRAL_700, "transparent"),
-        _ => (color::PRIMARY_600, "#FFFFFF", color::PRIMARY_600),
+    let size_class = match size.as_str() {
+        "sm" => "btn-sm",
+        "lg" => "btn-lg",
+        _ => "btn-md",
     };
-    let width = if full_width { "width:100%;" } else { "" };
-    let opacity = if disabled { "opacity:0.6; cursor:not-allowed;" } else { "" };
-    let style = format!(
-        "background:{bg}; color:{fg}; border:1px solid {border}; border-radius:{RADIUS_SM}px; padding:8px 16px; font-size:{size}; font-weight:600; {width}{opacity}display:inline-flex; align-items:center; justify-content:center; gap:8px;",
-        size = typography::BODY_SIZE
-    );
+    let mut classes = vec!["btn", button_class(&variant), size_class];
+    if loading {
+        classes.push("btn-loading");
+    }
+    if full_width {
+        classes.push("btn-block");
+    }
+    let class = classes.join(" ");
     rsx! {
         button {
-            style: "{style}",
+            "class": "{class}",
             disabled: disabled,
             onclick: move |e| { if let Some(h) = on_click.as_ref() { h.call(e); } },
-            if loading {
-                span { style: "display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.4); border-top-color:currentColor; border-radius:50%; animation:spin 0.8s linear infinite;" }
-            }
             "{label}"
         }
     }
 }
 
-/// A labelled text input.
+/// A compact icon-only button (row actions, header controls).
+#[component]
+pub fn IconButton(
+    name: String,
+    #[props(default)] variant: String,
+    #[props(default)] size: u32,
+    #[props(default)] aria_label: String,
+    #[props(default)] on_click: Option<EventHandler<MouseEvent>>,
+) -> Element {
+    let mut class = "btn-icon".to_string();
+    if variant == "danger" {
+        class.push_str(" btn-icon-danger");
+    }
+    let label = if aria_label.is_empty() { name.clone() } else { aria_label };
+    rsx! {
+        button {
+            "class": "{class}",
+            r#type: "button",
+            onclick: move |e| { if let Some(h) = on_click.as_ref() { h.call(e); } },
+            aria_label: "{label}",
+            Icon { name, size: if size > 0 { size } else { 16 } }
+        }
+    }
+}
+
+/// A labelled field wrapper that standardises the Label → Input → Hint →
+/// Validation layout used across every form.
+#[component]
+pub fn Field(
+    #[props(default)] label: String,
+    #[props(default)] hint: String,
+    #[props(default)] error: String,
+    #[props(default)] required: bool,
+    children: Element,
+) -> Element {
+    rsx! {
+        div { "class": "field",
+            if !label.is_empty() {
+                label { "class": "field-label",
+                    "{label}"
+                    if required { span { "class": "field-required", " *" } }
+                }
+            }
+            {children}
+            if !hint.is_empty() {
+                span { "class": "field-hint", "{hint}" }
+            }
+            if !error.is_empty() {
+                span { "class": "field-error", "{error}" }
+            }
+        }
+    }
+}
+
+/// A labelled text input with hint/error state.
 #[component]
 pub fn TextField(
     value: String,
@@ -55,35 +124,27 @@ pub fn TextField(
     #[props(default)] input_type: String,
     #[props(default)] error: String,
     #[props(default)] helper: String,
+    #[props(default)] required: bool,
+    #[props(default)] disabled: bool,
     oninput: EventHandler<String>,
 ) -> Element {
-    let border = if error.is_empty() { color::NEUTRAL_200 } else { color::DANGER_600 };
-    let style = format!(
-        "width:100%; padding:8px 16px; border:1px solid {border}; border-radius:{RADIUS_SM}px; font-size:{size}; color:{fg}; background:{bg};",
-        size = typography::BODY_SIZE,
-        fg = color::NEUTRAL_800,
-        bg = color::NEUTRAL_0
-    );
-    let label_style = format!("font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_700);
-    let helper_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
-    let error_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::DANGER_700);
+    let mut input_class = "input".to_string();
+    if !error.is_empty() {
+        input_class.push_str(" input-error");
+    }
     rsx! {
-        div { style: "display:flex; flex-direction:column; gap:6px; margin-bottom:16px;",
-            if !label.is_empty() {
-                label { style: "{label_style}", "{label}" }
-            }
+        Field {
+            label,
+            hint: helper,
+            error,
+            required,
             input {
-                r#type: "{input_type}",
+                "class": "{input_class}",
+                r#type: if input_type.is_empty() { "text".to_string() } else { input_type },
                 value: "{value}",
                 placeholder: "{placeholder}",
-                style: "{style}",
+                disabled: disabled,
                 oninput: move |e| oninput.call(e.value()),
-            }
-            if !helper.is_empty() {
-                span { style: "{helper_style}", "{helper}" }
-            }
-            if !error.is_empty() {
-                span { style: "{error_style}", "{error}" }
             }
         }
     }
@@ -96,26 +157,18 @@ pub fn TextArea(
     #[props(default)] label: String,
     #[props(default)] placeholder: String,
     #[props(default)] rows: u32,
+    #[props(default)] hint: String,
     oninput: EventHandler<String>,
 ) -> Element {
-    let style = format!(
-        "width:100%; padding:8px 16px; border:1px solid {b}; border-radius:{RADIUS_SM}px; font-size:{size}; color:{fg}; background:{bg}; font-family:inherit; resize:vertical;",
-        b = color::NEUTRAL_200,
-        size = typography::BODY_SIZE,
-        fg = color::NEUTRAL_800,
-        bg = color::NEUTRAL_0
-    );
-    let label_style = format!("font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_700);
     rsx! {
-        div { style: "display:flex; flex-direction:column; gap:6px; margin-bottom:16px;",
-            if !label.is_empty() {
-                label { style: "{label_style}", "{label}" }
-            }
+        Field {
+            label,
+            hint,
             textarea {
+                "class": "input textarea",
                 value: "{value}",
                 placeholder: "{placeholder}",
                 rows: rows,
-                style: "{style}",
                 oninput: move |e| oninput.call(e.value()),
             }
         }
@@ -126,15 +179,29 @@ pub fn TextArea(
 #[component]
 pub fn Card(
     #[props(default)] padding: u32,
+    #[props(default)] header: String,
     children: Element,
 ) -> Element {
-    let style = format!(
-        "background:{bg}; border:1px solid {b}; border-radius:{RADIUS_MD}px; padding:{padding}px; box-shadow:0 1px 4px rgba(33,33,52,0.08);",
-        bg = color::NEUTRAL_0,
-        b = color::NEUTRAL_150
-    );
+    let body_pad = if header.is_empty() { padding } else { 24 };
     rsx! {
-        div { style: "{style}", {children} }
+        div { "class": "card", style: "overflow:hidden;",
+            if !header.is_empty() {
+                div { "class": "card-header", "{header}" }
+            }
+            div { "class": "card-body", style: "padding:{body_pad}px;", {children} }
+        }
+    }
+}
+
+/// Map a badge kind to its CSS class (kept in sync with `tokens::badge_colors`).
+fn badge_class(kind: &str) -> &'static str {
+    match kind {
+        "draft" => "badge-draft",
+        "published" | "P" => "badge-published",
+        "modified" | "M" => "badge-modified",
+        "new" | "N" => "badge-new",
+        "deleted" | "D" | "danger" => "badge-danger",
+        _ => "badge-neutral",
     }
 }
 
@@ -144,12 +211,8 @@ pub fn Badge(
     text: String,
     #[props(default)] kind: String,
 ) -> Element {
-    let (fg, bg) = color::badge_colors(&kind);
-    let style = format!(
-        "display:inline-block; padding:2px 8px; border-radius:999px; font-size:{size}; font-weight:600; color:{fg}; background:{bg};",
-        size = typography::PI_SIZE
-    );
-    rsx! { span { style: "{style}", "{text}" } }
+    let class = format!("badge {}", badge_class(&kind));
+    rsx! { span { "class": "{class}", "{text}" } }
 }
 
 /// A labelled checkbox.
@@ -157,17 +220,21 @@ pub fn Badge(
 pub fn Checkbox(
     checked: bool,
     #[props(default)] label: String,
+    #[props(default)] disabled: bool,
     onchange: EventHandler<bool>,
 ) -> Element {
-    let style = format!("display:flex; align-items:center; gap:8px; font-size:{}; color:{}; cursor:pointer;", typography::BODY_SIZE, color::NEUTRAL_700);
     rsx! {
-        label { style: "{style}",
+        label { style: "display:inline-flex; align-items:center; gap:8px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_700}; cursor:pointer;",
             input {
+                "class": "checkbox",
                 r#type: "checkbox",
                 checked: checked,
+                disabled: disabled,
                 onchange: move |e| onchange.call(e.checked()),
             }
-            "{label}"
+            if !label.is_empty() {
+                span { "{label}" }
+            }
         }
     }
 }
@@ -177,23 +244,24 @@ pub fn Checkbox(
 pub fn Toggle(
     checked: bool,
     #[props(default)] label: String,
+    #[props(default)] disabled: bool,
     onchange: EventHandler<bool>,
 ) -> Element {
-    let track = if checked { color::PRIMARY_600 } else { color::NEUTRAL_300 };
-    let style = format!(
-        "position:relative; width:36px; height:20px; border-radius:999px; background:{track}; transition:background 0.2s; border:none; cursor:pointer;"
-    );
-    let knob_left = if checked { "16px" } else { "2px" };
-    let label_style = format!("font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_700);
+    let mut class = "switch".to_string();
+    if checked {
+        class.push_str(" switch-checked");
+    }
     rsx! {
         div { style: "display:flex; align-items:center; gap:8px;",
             button {
+                "class": "{class}",
+                r#type: "button",
+                disabled: disabled,
                 onclick: move |_| onchange.call(!checked),
-                style: "{style}",
-                span { style: "position:absolute; top:2px; left:{knob_left}; width:16px; height:16px; border-radius:50%; background:#fff; transition:left 0.2s;" }
+                span { "class": "switch-knob" }
             }
             if !label.is_empty() {
-                span { style: "{label_style}", "{label}" }
+                span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_700};", "{label}" }
             }
         }
     }
@@ -205,24 +273,16 @@ pub fn Dropdown(
     value: String,
     options: Vec<(String, String)>,
     #[props(default)] label: String,
+    #[props(default)] disabled: bool,
     onchange: EventHandler<String>,
 ) -> Element {
-    let label_style = format!("font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_700);
-    let select_style = format!(
-        "width:100%; padding:8px 16px; border:1px solid {b}; border-radius:{RADIUS_SM}px; font-size:{size}; color:{fg}; background:{bg};",
-        b = color::NEUTRAL_200,
-        size = typography::BODY_SIZE,
-        fg = color::NEUTRAL_800,
-        bg = color::NEUTRAL_0
-    );
     rsx! {
-        div { style: "display:flex; flex-direction:column; gap:6px; margin-bottom:16px;",
-            if !label.is_empty() {
-                label { style: "{label_style}", "{label}" }
-            }
+        Field {
+            label,
             select {
+                "class": "select",
                 value: "{value}",
-                style: "{select_style}",
+                disabled: disabled,
                 onchange: move |e| onchange.call(e.value()),
                 for (opt_value, opt_label) in options.iter() {
                     option { value: "{opt_value}", "{opt_label}" }
@@ -241,19 +301,17 @@ pub fn Modal(
     children: Element,
 ) -> Element {
     let w = if width > 0 { width } else { 512 };
-    let header_border = color::NEUTRAL_150;
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let close_color = color::NEUTRAL_500;
     rsx! {
         div {
-            style: "position:fixed; inset:0; background:rgba(33,33,52,0.5); display:flex; align-items:flex-start; justify-content:center; padding:64px 24px; z-index:100;",
+            "class": "modal-overlay",
             onclick: move |e| on_close.call(e),
             div {
-                style: "background:#fff; border-radius:8px; width:{w}px; max-width:100%; max-height:80vh; overflow:auto; display:flex; flex-direction:column; box-shadow:0 8px 24px rgba(33,33,52,0.2);",
+                "class": "modal-panel",
+                style: "width:{w}px;",
                 onclick: move |e| e.stop_propagation(),
-                div { style: "display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid {header_border};",
-                    span { style: "{title_style}", "{title}" }
-                    button { style: "background:none; border:none; color:{close_color}; font-size:20px; cursor:pointer;", onclick: move |e| on_close.call(e), "✕" }
+                div { style: "display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid {color::NEUTRAL_150}; flex-shrink:0;",
+                    span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "{title}" }
+                    button { "class": "btn-icon", onclick: move |e| on_close.call(e), aria_label: "Close".to_string(), Icon { name: "close".to_string(), size: 18 } }
                 }
                 div { style: "padding:24px;", {children} }
             }
@@ -270,16 +328,13 @@ pub fn NavItem(
     #[props(default)] badge: String,
     onclick: EventHandler<MouseEvent>,
 ) -> Element {
-    let bg = if active { color::PRIMARY_100 } else { "transparent" };
-    let fg = if active { color::PRIMARY_700 } else { color::NEUTRAL_700 };
-    let style = format!(
-        "display:flex; align-items:center; gap:10px; width:100%; padding:8px 12px; border:none; background:{bg}; color:{fg}; font-size:{size}; font-weight:600; border-radius:{r}px; cursor:pointer; text-align:left;",
-        size = typography::BODY_SIZE,
-        r = RADIUS_SM
-    );
+    let mut class = "nav-item".to_string();
+    if active {
+        class.push_str(" nav-item-active");
+    }
     rsx! {
         button {
-            style: "{style}",
+            "class": "{class}",
             onclick: move |e| onclick.call(e),
             icon::Icon { name: "{icon}", size: 18 }
             span { "{label}" }
@@ -296,23 +351,20 @@ pub fn Table(
     columns: Vec<(String, String)>,
     rows: Vec<Vec<String>>,
 ) -> Element {
-    let th_style = format!("text-align:left; padding:10px 16px; font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
-    let td_style = format!("padding:10px 16px; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
-    let border = color::NEUTRAL_150;
     rsx! {
-        table { style: "width:100%; border-collapse:collapse; background:#fff;",
+        table { "class": "table",
             thead {
-                tr { style: "border-bottom:1px solid {border};",
+                tr {
                     for (_, label) in columns.iter() {
-                        th { style: "{th_style}", "{label}" }
+                        th { "class": "table-th", "{label}" }
                     }
                 }
             }
             tbody {
                 for row in rows.iter() {
-                    tr { style: "border-bottom:1px solid {border};",
+                    tr { "class": "table-row",
                         for cell in row.iter() {
-                            td { style: "{td_style}", "{cell}" }
+                            td { "class": "table-td", "{cell}" }
                         }
                     }
                 }
@@ -332,8 +384,8 @@ pub fn EmptyState(
     let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_800);
     let subtitle_style = format!("font-size:{}; color:{}; max-width:360px;", typography::BODY_SIZE, color::NEUTRAL_600);
     rsx! {
-        div { style: "display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:48px; text-align:center;",
-            icon::Icon { name: "{icon}", size: 40 }
+        div { "class": "empty-state",
+            icon::Icon { name: "{icon}", size: 40, color: color::NEUTRAL_400.to_string() }
             span { style: "{title_style}", "{title}" }
             if !subtitle.is_empty() {
                 span { style: "{subtitle_style}", "{subtitle}" }
@@ -346,15 +398,15 @@ pub fn EmptyState(
 /// A toast notification (success / danger / info).
 #[component]
 pub fn Toast(text: String, kind: String, on_close: EventHandler<()>) -> Element {
-    let (bg, fg) = match kind.as_str() {
-        "success" => (color::SUCCESS_600, "#FFFFFF"),
-        "danger" => (color::DANGER_600, "#FFFFFF"),
-        _ => (color::NEUTRAL_800, "#FFFFFF"),
+    let bg = match kind.as_str() {
+        "success" => color::SUCCESS_600,
+        "danger" => color::DANGER_600,
+        _ => color::NEUTRAL_800,
     };
     rsx! {
-        div { style: "display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:{RADIUS_MD}px; background:{bg}; color:{fg}; box-shadow:0 4px 12px rgba(33,33,52,0.2); min-width:240px;",
+        div { style: "display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:4px; background:{bg}; color:#fff; box-shadow:0 4px 12px rgba(33,33,52,0.2); min-width:240px;",
             span { style: "flex:1; font-size:{typography::BODY_SIZE};", "{text}" }
-            button { style: "background:none; border:none; color:{fg}; cursor:pointer; font-size:16px;", onclick: move |_| on_close.call(()), "✕" }
+            button { style: "background:none; border:none; color:#fff; cursor:pointer; font-size:16px;", onclick: move |_| on_close.call(()), "✕" }
         }
     }
 }
@@ -376,5 +428,131 @@ pub fn ConfirmDialog(
                 Button { label: confirm_label, variant: "danger".to_string(), on_click: move |_| on_confirm.call(()) }
             }
         }
+    }
+}
+
+/// A horizontal tab bar. `active` selects the focused tab, `on_change` reports
+/// the selected index.
+#[component]
+pub fn Tabs(
+    labels: Vec<String>,
+    #[props(default)] active: usize,
+    on_change: EventHandler<usize>,
+) -> Element {
+    rsx! {
+        div { "class": "tabs", role: "tablist",
+            for (idx, label) in labels.iter().enumerate() {
+                button {
+                    "class": if idx == active { "tab tab-active" } else { "tab" },
+                    role: "tab",
+                    aria_selected: "{idx == active}",
+                    onclick: move |_| on_change.call(idx),
+                    "{label}"
+                }
+            }
+        }
+    }
+}
+
+/// A breadcrumb trail. `crumbs` is a list of `(label, selected)` segments where
+/// `selected == true` marks the current (non-interactive) page.
+#[component]
+pub fn Breadcrumbs(
+    crumbs: Vec<(String, bool)>,
+    on_navigate: EventHandler<usize>,
+) -> Element {
+    rsx! {
+        nav { "class": "breadcrumb", aria_label: "Breadcrumb",
+            for (idx, (label, selected)) in crumbs.iter().enumerate() {
+                if *selected {
+                    span { "aria_current": "page", "{label}" }
+                } else {
+                    button { "class": "breadcrumb-link", onclick: move |_| on_navigate.call(idx), "{label}" }
+                    span { "class": "breadcrumb-sep", "/" }
+                }
+            }
+        }
+    }
+}
+
+/// Pagination controls with an info line and prev/next.
+#[component]
+pub fn Pagination(
+    #[props(default)] page: i64,
+    #[props(default)] page_count: i64,
+    #[props(default)] page_size: i64,
+    #[props(default)] total: i64,
+    #[props(default)] sizes: Vec<i64>,
+    on_page_change: EventHandler<i64>,
+    on_page_size_change: EventHandler<i64>,
+) -> Element {
+    let sizes = if sizes.is_empty() { vec![10, 25, 50, 100] } else { sizes };
+    rsx! {
+        div { "class": "pagination",
+            div { "class": "pagination-info",
+                span { "Rows per page" }
+                select { "class": "select", style: "width:auto; margin-left:8px;",
+                    value: "{page_size}",
+                    onchange: move |e| {
+                        if let Ok(v) = e.value().parse::<i64>() { on_page_size_change.call(v); }
+                    },
+                    for n in sizes.iter() {
+                        option { value: "{n}", "{n}" }
+                    }
+                }
+            }
+            div { "class": "pagination-controls",
+                span { "class": "pagination-info", "Page {page} of {page_count}" }
+                Button { label: "‹ Prev".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), disabled: page <= 1,
+                    on_click: move |_| on_page_change.call(page - 1) }
+                Button { label: "Next ›".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), disabled: page >= page_count,
+                    on_click: move |_| on_page_change.call(page + 1) }
+            }
+        }
+    }
+}
+
+/// A lifecycle status indicator (Draft / Published / Modified / Unpublished).
+#[component]
+pub fn StatusIndicator(status: String) -> Element {
+    let (class, label) = match status.as_str() {
+        "published" | "P" => ("status-published", "Published"),
+        "modified" | "M" => ("status-modified", "Modified"),
+        "unpublished" | "U" => ("status-unpublished", "Unpublished"),
+        _ => ("status-draft", "Draft"),
+    };
+    rsx! {
+        span { "class": "status {class}",
+            span { "class": "badge-dot" }
+            "{label}"
+        }
+    }
+}
+
+/// A shimmering skeleton loading block.
+#[component]
+pub fn Skeleton(
+    #[props(default)] width: String,
+    #[props(default)] height: String,
+) -> Element {
+    rsx! {
+        div { "class": "skeleton", style: "width:{width}; height:{height};" }
+    }
+}
+
+/// A small circular spinner used to indicate in-flight work.
+#[component]
+pub fn Spinner(
+    #[props(default)] size: u32,
+    #[props(default)] color: String,
+) -> Element {
+    let sz = if size > 0 { size } else { 20 };
+    let c = if color.is_empty() {
+        ui::design::tokens::color::PRIMARY_600.to_string()
+    } else {
+        color
+    };
+    rsx! {
+        div { style: "display:inline-block; width:{sz}px; height:{sz}px; border:2px solid {c}33; border-top-color:{c}; border-radius:50%; animation:fc-spin 0.7s linear infinite;" }
     }
 }
