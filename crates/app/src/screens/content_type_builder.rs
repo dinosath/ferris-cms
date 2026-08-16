@@ -12,7 +12,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Dropdown, Icon, Modal, NavItem, TextArea, TextField, Toggle};
+use crate::components::{Badge, Button, Card, Dropdown, EmptyState, Icon, IconButton, Modal, NavItem, TextArea, TextField, Toggle};
 
 #[derive(Clone, PartialEq)]
 enum ModalKind {
@@ -157,7 +157,6 @@ pub fn ContentTypeBuilder() -> Element {
         typography::BODY_BOLD_SIZE, color::NEUTRAL_800
     );
     let field_type_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
-    let icon_btn_style = format!("background:none;border:none;color:{};cursor:pointer;", color::NEUTRAL_500);
     let add_field_style = format!(
         "width:100%; padding:16px; border:1px dashed {}; border-radius:6px; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;",
         color::PRIMARY_400
@@ -244,8 +243,10 @@ pub fn ContentTypeBuilder() -> Element {
                             }
                             Card { padding: 24,
                                 if selected_attrs.is_empty() {
-                                    div { style: "padding:32px; text-align:center; color:{color::NEUTRAL_600};",
-                                        "This content type has no fields yet. Add your first field."
+                                    EmptyState {
+                                        title: "No fields yet".to_string(),
+                                        subtitle: "This content type has no fields yet. Add your first field.".to_string(),
+                                        icon: "grid".to_string(),
                                     }
                                 } else {
                                     div { style: "display:flex; flex-direction:column;",
@@ -259,11 +260,8 @@ pub fn ContentTypeBuilder() -> Element {
                                                 if req {
                                                     Badge { text: "required".to_string(), kind: "new".to_string() }
                                                 }
-                                                button {
-                                                    style: "{icon_btn_style}",
-                                                    onclick: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }),
-                                                    Icon { name: "pencil".to_string(), size: 16 }
-                                                }
+                                                IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
+                                                    on_click: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }) }
                                             }
                                         }
                                     }
@@ -277,8 +275,12 @@ pub fn ContentTypeBuilder() -> Element {
                             }
                         }
                     } else {
-                        div { style: "padding:48px; text-align:center; color:{color::NEUTRAL_500};",
-                            "Select a content type or create a new one to begin."
+                        div { style: "padding:48px;",
+                            EmptyState {
+                                title: "Select a content type".to_string(),
+                                subtitle: "Select a content type or create a new one to begin.".to_string(),
+                                icon: "grid".to_string(),
+                            }
                         }
                     }
                 }
