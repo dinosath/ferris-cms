@@ -9,9 +9,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 /// List all locales.
 pub async fn i18n_list(ctx: &AppContext) -> Result<Vec<LocaleDto>, ServiceError> {
-    let locales = i18n_locale::Entity::find()
-        .all(&ctx.db)
-        .await?;
+    let locales = i18n_locale::Entity::find().all(&ctx.db).await?;
     Ok(locales
         .into_iter()
         .map(|l| LocaleDto {

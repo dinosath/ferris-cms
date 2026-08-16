@@ -70,13 +70,14 @@ pub async fn media_upload(
     data: &[u8],
 ) -> Result<MediaFile, ServiceError> {
     if data.is_empty() {
-        return Err(ServiceError::validation("upload", vec![
-            crate::ValidationErrorItem::new(
+        return Err(ServiceError::validation(
+            "upload",
+            vec![crate::ValidationErrorItem::new(
                 vec!["file".into()],
                 "cannot upload an empty file",
                 "ValidationError",
-            ),
-        ]));
+            )],
+        ));
     }
 
     // Generate a unique hash-based filename, keep the extension from the mime
@@ -97,8 +98,7 @@ pub async fn media_upload(
         std::fs::create_dir_all(parent)
             .map_err(|e| ServiceError::internal(format!("media dir: {e}")))?;
     }
-    std::fs::write(&path, data)
-        .map_err(|e| ServiceError::internal(format!("media write: {e}")))?;
+    std::fs::write(&path, data).map_err(|e| ServiceError::internal(format!("media write: {e}")))?;
 
     let now = chrono::Utc::now();
     let document_id = uuid::Uuid::new_v4().to_string();
@@ -113,7 +113,11 @@ pub async fn media_upload(
         height: Set(None),
         formats_json: Set(None),
         hash: Set(hash.clone()),
-        ext: Set(if ext.is_empty() { None } else { Some(ext.clone()) }),
+        ext: Set(if ext.is_empty() {
+            None
+        } else {
+            Some(ext.clone())
+        }),
         mime: Set(mime.to_string()),
         size: Set(size as f64),
         url: Set(url.clone()),

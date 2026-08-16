@@ -38,8 +38,7 @@ pub fn resolve_field(schema: &Schema, field: &str) -> Result<(String, SqlFamily)
         if attr.attr_type.is_scalar_column() {
             return Ok((column_name(field), attr.sql_family()));
         }
-        if attr.attr_type == FieldType::Relation
-            && attr.relation.is_some_and(|k| k.owner_has_fk())
+        if attr.attr_type == FieldType::Relation && attr.relation.is_some_and(|k| k.owner_has_fk())
         {
             return Ok((fk_column(field), SqlFamily::BigInt));
         }
@@ -86,7 +85,8 @@ fn apply_filter(schema: &Schema, cond: &mut Condition, filter: &Filter) -> Resul
             *cond = std::mem::replace(cond, Condition::all()).add(inner_cond.not());
         }
         Filter::Leaf { field, op, values } => {
-            *cond = std::mem::replace(cond, Condition::all()).add(leaf_to_expr(schema, field, *op, values)?);
+            *cond = std::mem::replace(cond, Condition::all())
+                .add(leaf_to_expr(schema, field, *op, values)?);
         }
     }
     Ok(())
@@ -109,9 +109,9 @@ fn leaf_to_expr(
     let stringy = matches!(family, SqlFamily::VarChar | SqlFamily::Text);
 
     let val = |idx: usize| -> Result<Value, StoreError> {
-        let v = values
-            .get(idx)
-            .ok_or_else(|| StoreError::bad_value(field, format!("operator {op:?} needs a value")))?;
+        let v = values.get(idx).ok_or_else(|| {
+            StoreError::bad_value(field, format!("operator {op:?} needs a value"))
+        })?;
         coerce_filter_value(family, v)
     };
     let pattern = |idx: usize| -> Result<String, StoreError> {
@@ -141,20 +141,27 @@ fn leaf_to_expr(
         NotIn => col_expr().is_not_in(collect(values, family, field)?),
         Contains => {
             if !stringy {
-                return Err(StoreError::bad_value(field, "$contains requires a string field"));
+                return Err(StoreError::bad_value(
+                    field,
+                    "$contains requires a string field",
+                ));
             }
             col_expr().like(format!("%{}%", pattern(0)?))
         }
         NotContains => {
             if !stringy {
-                return Err(StoreError::bad_value(field, "$notContains requires a string field"));
+                return Err(StoreError::bad_value(
+                    field,
+                    "$notContains requires a string field",
+                ));
             }
             col_expr().not_like(format!("%{}%", pattern(0)?))
         }
-        ContainsI => Expr::expr(Func::lower(col_expr())).like(format!("%{}%", pattern(0)?.to_lowercase())),
-        NotContainsI => {
-            Expr::expr(Func::lower(col_expr())).not_like(format!("%{}%", pattern(0)?.to_lowercase()))
+        ContainsI => {
+            Expr::expr(Func::lower(col_expr())).like(format!("%{}%", pattern(0)?.to_lowercase()))
         }
+        NotContainsI => Expr::expr(Func::lower(col_expr()))
+            .not_like(format!("%{}%", pattern(0)?.to_lowercase())),
         StartsWith => col_expr().like(format!("{}%", pattern(0)?)),
         StartsWithI => {
             Expr::expr(Func::lower(col_expr())).like(format!("{}%", pattern(0)?.to_lowercase()))
@@ -225,17 +232,12 @@ fn base_condition(spec: &SelectSpec, schema: &Schema) -> Condition {
         }
     }
     if let Some(state) = spec.state {
-        cond = cond.add(
-            Expr::col(Alias::new(base::PUBLICATION_STATE)).eq(state.as_db_str()),
-        );
+        cond = cond.add(Expr::col(Alias::new(base::PUBLICATION_STATE)).eq(state.as_db_str()));
     }
     cond
 }
 
-fn build_where(
-    schema: &Schema,
-    spec: &SelectSpec,
-) -> Result<Condition, StoreError> {
+fn build_where(schema: &Schema, spec: &SelectSpec) -> Result<Condition, StoreError> {
     let mut cond = base_condition(spec, schema);
     if let Some(q) = spec.query {
         if let Some(f) = &q.filters {
@@ -264,7 +266,11 @@ fn apply_sort(
         sel = sel
             .order_by(
                 Alias::new(col),
-                if s.descending { Order::Desc } else { Order::Asc },
+                if s.descending {
+                    Order::Desc
+                } else {
+                    Order::Asc
+                },
             )
             .to_owned();
     }
@@ -280,16 +286,16 @@ pub async fn select<C: ConnectionTrait>(
 ) -> Result<(Vec<JsonMap<String, JsonValue>>, i64), StoreError> {
     let table = schema.table_name();
     let where_cond = build_where(schema, spec)?;
-    let eff = spec
-        .query
-        .map(|q| q.effective_pagination())
-        .unwrap_or(api_types::EffectivePagination {
-            limit: 25,
-            offset: 0,
-            page: 1,
-            page_size: 25,
-            with_count: true,
-        });
+    let eff =
+        spec.query
+            .map(|q| q.effective_pagination())
+            .unwrap_or(api_types::EffectivePagination {
+                limit: 25,
+                offset: 0,
+                page: 1,
+                page_size: 25,
+                with_count: true,
+            });
 
     let mut sel = Query::select();
     sel.from(Alias::new(&table));
@@ -383,7 +389,10 @@ pub async fn insert<C: ConnectionTrait>(
     values: Vec<(String, Value)>,
 ) -> Result<i64, StoreError> {
     let cols: Vec<Alias> = values.iter().map(|(c, _)| Alias::new(c)).collect();
-    let vals: Vec<Expr> = values.into_iter().map(|(_, v)| Expr::val(v).into()).collect();
+    let vals: Vec<Expr> = values
+        .into_iter()
+        .map(|(_, v)| Expr::val(v).into())
+        .collect();
     let stmt = Query::insert()
         .into_table(Alias::new(table))
         .columns(cols)
@@ -589,10 +598,7 @@ pub async fn query_rows<C: ConnectionTrait>(
         default_sort: &default_sort,
     };
     let (rows, total) = select(db, backend, schema, &spec).await?;
-    let rows: Vec<_> = rows
-        .into_iter()
-        .map(|m| JsonValue::Object(m))
-        .collect();
+    let rows: Vec<_> = rows.into_iter().map(|m| JsonValue::Object(m)).collect();
     Ok((rows, total))
 }
 
@@ -634,8 +640,14 @@ pub async fn insert_one<C: ConnectionTrait>(
         .unwrap_or("draft");
 
     let mut values = vec![
-        ("document_id".to_string(), Value::String(Some(doc_id.clone()))),
-        ("locale".to_string(), Value::String(Some(locale.to_string()))),
+        (
+            "document_id".to_string(),
+            Value::String(Some(doc_id.clone())),
+        ),
+        (
+            "locale".to_string(),
+            Value::String(Some(locale.to_string())),
+        ),
         (
             "publication_state".to_string(),
             Value::String(Some(state.to_string())),

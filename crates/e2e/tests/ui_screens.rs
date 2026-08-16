@@ -28,9 +28,12 @@ const BUILDER_ERROR: &str = "http error: builder error";
 
 async fn body_text(page: &Page) -> anyhow::Result<String> {
     let none_arg: Option<&serde_json::Value> = None;
-    page.evaluate::<_, String>("() => document.body ? document.body.innerText : ''", none_arg)
-        .await
-        .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
+    page.evaluate::<_, String>(
+        "() => document.body ? document.body.innerText : ''",
+        none_arg,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
 }
 
 async fn wait_for_text(page: &Page, predicate: impl Fn(&str) -> bool) -> anyhow::Result<String> {
@@ -192,7 +195,11 @@ async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
     wait_for_text(&page, |t| t.contains("ferriscms"))
         .await
         .context("admin UI did not hydrate")?;
-    Ok(UiPage { page, _browser: browser, _pw: pw })
+    Ok(UiPage {
+        page,
+        _browser: browser,
+        _pw: pw,
+    })
 }
 
 /// Navigate to a sidebar screen by clicking its nav item and wait for it to
@@ -252,10 +259,7 @@ async fn all_main_screens_render() -> anyhow::Result<()> {
 
     // Content-Type Builder (no types -> empty state).
     let ctb = goto_screen(page, "Content-Type Builder", "Select a content type").await?;
-    assert!(
-        ctb.contains("Content-Type Builder"),
-        "CTB header missing"
-    );
+    assert!(ctb.contains("Content-Type Builder"), "CTB header missing");
 
     // Media Library (no assets -> empty state).
     let media = goto_screen(page, "Media Library", "Media Library").await?;
@@ -263,7 +267,10 @@ async fn all_main_screens_render() -> anyhow::Result<()> {
 
     // Settings.
     let settings = goto_screen(page, "Settings", "Settings").await?;
-    assert!(settings.contains("GLOBAL SETTINGS"), "settings global section missing");
+    assert!(
+        settings.contains("GLOBAL SETTINGS"),
+        "settings global section missing"
+    );
 
     take_screenshot(page, "screen-all-main").await?;
     Ok(())
@@ -286,9 +293,15 @@ async fn content_type_builder_create_type_modal() -> anyhow::Result<()> {
     let modal = wait_for_text(page, |t| t.contains("Create a collection type"))
         .await
         .context("create modal did not open")?;
-    assert!(modal.contains("Collection type") && modal.contains("Single type"), "type segment missing");
+    assert!(
+        modal.contains("Collection type") && modal.contains("Single type"),
+        "type segment missing"
+    );
     assert!(modal.contains("Draft & publish"), "draft toggle missing");
-    assert!(modal.contains("Internationalization"), "i18n toggle missing");
+    assert!(
+        modal.contains("Internationalization"),
+        "i18n toggle missing"
+    );
 
     // Fill each text input.
     for (label, value) in [
@@ -303,7 +316,10 @@ async fn content_type_builder_create_type_modal() -> anyhow::Result<()> {
     }
 
     // Continue accepts the (local) schema.
-    assert!(click_button_by_text(page, "Continue").await?, "Continue not found");
+    assert!(
+        click_button_by_text(page, "Continue").await?,
+        "Continue not found"
+    );
     wait_for_text(page, |t| t.contains("Article"))
         .await
         .context("new type not selected in editor")?;
@@ -365,27 +381,37 @@ async fn settings_all_sections_render() -> anyhow::Result<()> {
     let page = &ui.page;
     let settings = goto_screen(page, "Settings", "Settings").await?;
 
-    for section in [
-        "Internationalization",
-        "API Tokens",
-        "Roles",
-        "Users",
-    ] {
-        assert!(settings.contains(section), "missing settings section: {section}");
+    for section in ["Internationalization", "API Tokens", "Roles", "Users"] {
+        assert!(
+            settings.contains(section),
+            "missing settings section: {section}"
+        );
     }
 
     // Switch to API Tokens section and open its create modal.
-    assert!(click_button_by_text(page, "API Tokens").await?, "API Tokens nav");
+    assert!(
+        click_button_by_text(page, "API Tokens").await?,
+        "API Tokens nav"
+    );
     wait_for_text(page, |t| t.contains("+ Create new API token"))
         .await
         .context("API tokens section did not render")?;
-    assert!(click_button_by_text(page, "+ Create new API token").await?, "create token button");
+    assert!(
+        click_button_by_text(page, "+ Create new API token").await?,
+        "create token button"
+    );
     let token_modal = wait_for_text(page, |t| t.contains("Token type"))
         .await
         .context("token create modal did not open")?;
     assert!(token_modal.contains("Name"), "token name field missing");
-    assert!(fill_input_by_label(page, "Name", "readonly").await?, "token name input");
-    assert!(click_button_by_text(page, "Cancel").await?, "cancel token modal");
+    assert!(
+        fill_input_by_label(page, "Name", "readonly").await?,
+        "token name input"
+    );
+    assert!(
+        click_button_by_text(page, "Cancel").await?,
+        "cancel token modal"
+    );
 
     // Roles section renders its table (headers always present even when empty
     // because the app is unauthenticated and the roles list is empty).
@@ -414,7 +440,10 @@ async fn login_and_register_screens_render() -> anyhow::Result<()> {
     assert!(login.contains("Password"), "login password field missing");
 
     // Login -> Register via the "Create an account" link.
-    assert!(click_link_or_button(page, "Create an account").await?, "create account link");
+    assert!(
+        click_link_or_button(page, "Create an account").await?,
+        "create account link"
+    );
     let register = wait_for_text(page, |t| t.contains("Let's start"))
         .await
         .context("register screen did not appear")?;
@@ -435,7 +464,10 @@ async fn login_and_register_screens_render() -> anyhow::Result<()> {
         ("Password", "AdminPass1"),
         ("Confirm Password", "AdminPass1"),
     ] {
-        assert!(fill_input_by_label(page, label, value).await?, "register input '{label}'");
+        assert!(
+            fill_input_by_label(page, label, value).await?,
+            "register input '{label}'"
+        );
     }
 
     take_screenshot(page, "screen-register").await?;
@@ -461,8 +493,14 @@ async fn unauthenticated_redirects_to_login() -> anyhow::Result<()> {
     })
     .await
     .context("login screen did not render for unauthenticated visitor")?;
-    assert!(body.contains("Log in to your account"), "expected login screen");
-    assert!(!body.contains("Content Manager"), "shell leaked to unauthenticated visitor");
+    assert!(
+        body.contains("Log in to your account"),
+        "expected login screen"
+    );
+    assert!(
+        !body.contains("Content Manager"),
+        "shell leaked to unauthenticated visitor"
+    );
 
     take_screenshot(&page, "screen-login-redirect").await?;
     Ok(())

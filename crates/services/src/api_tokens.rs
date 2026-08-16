@@ -67,14 +67,21 @@ pub async fn api_token_create(
     req: &CreateApiTokenRequest,
 ) -> Result<ApiTokenDto, ServiceError> {
     if req.name.trim().is_empty() {
-        return Err(ServiceError::validation("create-api-token", vec![
-            crate::ValidationErrorItem::new(vec!["name".into()], "name is required", "ValidationError"),
-        ]));
+        return Err(ServiceError::validation(
+            "create-api-token",
+            vec![crate::ValidationErrorItem::new(
+                vec!["name".into()],
+                "name is required",
+                "ValidationError",
+            )],
+        ));
     }
 
     let access_key = generate_access_key();
     let now = chrono::Utc::now();
-    let expires_at = req.lifespan.map(|secs| now + chrono::Duration::seconds(secs));
+    let expires_at = req
+        .lifespan
+        .map(|secs| now + chrono::Duration::seconds(secs));
 
     let model = api_token::ActiveModel {
         name: Set(req.name.clone()),

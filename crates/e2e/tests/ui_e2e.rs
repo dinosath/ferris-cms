@@ -32,9 +32,12 @@ const BUILDER_ERROR: &str = "http error: builder error";
 /// Read `document.body.innerText` via `evaluate`.
 async fn body_text(page: &Page) -> anyhow::Result<String> {
     let none_arg: Option<&serde_json::Value> = None;
-    page.evaluate::<_, String>("() => document.body ? document.body.innerText : ''", none_arg)
-        .await
-        .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
+    page.evaluate::<_, String>(
+        "() => document.body ? document.body.innerText : ''",
+        none_arg,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
 }
 
 /// Poll `body_text` until `predicate` returns true or we time out (~40s).
@@ -54,8 +57,8 @@ async fn wait_for_text(page: &Page, predicate: impl Fn(&str) -> bool) -> anyhow:
 /// The directory defaults to `target/e2e-screenshots` and can be overridden
 /// with the `E2E_SCREENSHOT_DIR` environment variable.
 async fn take_screenshot(page: &Page, name: &str) -> anyhow::Result<()> {
-    let dir =
-        std::env::var("E2E_SCREENSHOT_DIR").unwrap_or_else(|_| "target/e2e-screenshots".to_string());
+    let dir = std::env::var("E2E_SCREENSHOT_DIR")
+        .unwrap_or_else(|_| "target/e2e-screenshots".to_string());
     std::fs::create_dir_all(&dir).with_context(|| format!("create screenshot dir {dir}"))?;
     let path = std::path::Path::new(&dir).join(format!("{name}.png"));
     page.screenshot_to_file(&path, None)
@@ -100,7 +103,11 @@ async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
     wait_for_text(&page, |t| t.contains("ferriscms"))
         .await
         .context("admin UI did not hydrate")?;
-    Ok(UiPage { page, _browser: browser, _pw: pw })
+    Ok(UiPage {
+        page,
+        _browser: browser,
+        _pw: pw,
+    })
 }
 
 /// The admin UI shell loads and hydrates: brand + home screen render.

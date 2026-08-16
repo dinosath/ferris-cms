@@ -1,6 +1,6 @@
 //! Design-token driven inline styles (mirrors `ui::design::tokens`).
 
-use ui::design::tokens::{RADIUS_MD, color, typography};
+use ui::design::tokens::{color, typography, RADIUS_MD};
 
 /// The global font family shared by every widget.
 pub const FONT: &str = typography::FONT_FAMILY;
@@ -253,7 +253,6 @@ pub fn component_styles() -> String {
         success700 = color::SUCCESS_700,
     )
 }
-
 
 // ---- color helpers ---------------------------------------------------------
 

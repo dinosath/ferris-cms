@@ -92,7 +92,9 @@ pub fn coerce_filter_value(family: SqlFamily, v: &JsonValue) -> Result<Value, St
         SqlFamily::Timestamp => {
             let s = as_string(v, "filter")?;
             let dt = chrono::DateTime::parse_from_rfc3339(&s)
-                .map_err(|e| StoreError::bad_value("filter", format!("invalid datetime `{s}`: {e}")))?
+                .map_err(|e| {
+                    StoreError::bad_value("filter", format!("invalid datetime `{s}`: {e}"))
+                })?
                 .with_timezone(&chrono::Utc);
             Ok(Value::ChronoDateTimeUtc(Some(dt)))
         }
@@ -120,7 +122,10 @@ fn as_string(v: &JsonValue, field: &str) -> Result<String, StoreError> {
         JsonValue::String(s) => Ok(s.clone()),
         JsonValue::Number(n) => Ok(n.to_string()),
         JsonValue::Bool(b) => Ok(b.to_string()),
-        other => Err(StoreError::bad_value(field, format!("expected string, got {other}"))),
+        other => Err(StoreError::bad_value(
+            field,
+            format!("expected string, got {other}"),
+        )),
     }
 }
 
@@ -134,7 +139,10 @@ fn as_i64(v: &JsonValue, field: &str) -> Result<i64, StoreError> {
             .trim()
             .parse::<i64>()
             .map_err(|e| StoreError::bad_value(field, format!("expected integer, got `{s}`: {e}"))),
-        other => Err(StoreError::bad_value(field, format!("expected integer, got {other}"))),
+        other => Err(StoreError::bad_value(
+            field,
+            format!("expected integer, got {other}"),
+        )),
     }
 }
 
@@ -147,7 +155,10 @@ fn as_f64(v: &JsonValue, field: &str) -> Result<f64, StoreError> {
             .trim()
             .parse::<f64>()
             .map_err(|e| StoreError::bad_value(field, format!("expected number, got `{s}`: {e}"))),
-        other => Err(StoreError::bad_value(field, format!("expected number, got {other}"))),
+        other => Err(StoreError::bad_value(
+            field,
+            format!("expected number, got {other}"),
+        )),
     }
 }
 
@@ -157,7 +168,10 @@ fn as_bool(v: &JsonValue, field: &str) -> Result<bool, StoreError> {
         JsonValue::String(s) if s == "true" || s == "1" => Ok(true),
         JsonValue::String(s) if s == "false" || s == "0" => Ok(false),
         JsonValue::Number(n) => Ok(n.as_i64() != Some(0)),
-        other => Err(StoreError::bad_value(field, format!("expected boolean, got {other}"))),
+        other => Err(StoreError::bad_value(
+            field,
+            format!("expected boolean, got {other}"),
+        )),
     }
 }
 

@@ -21,7 +21,10 @@ fn app_config() -> AppConfig {
         jwt_secret: "test-secret".into(),
         jwt_expiry_secs: 3600,
         admin_registration_open: true,
-        media_storage_dir: std::env::temp_dir().join("ferris-api-surface").display().to_string(),
+        media_storage_dir: std::env::temp_dir()
+            .join("ferris-api-surface")
+            .display()
+            .to_string(),
     }
 }
 
@@ -30,7 +33,9 @@ async fn setup() -> (axum::Router, Arc<AppState>) {
     Migrator::up(&db, None).await.unwrap();
     seed::seed(&db).await.unwrap();
     let state = Arc::new(AppState::new(db.clone(), app_config()));
-    load_schema_cache(&db, &state.ctx.schema_cache).await.unwrap();
+    load_schema_cache(&db, &state.ctx.schema_cache)
+        .await
+        .unwrap();
     let _ = state.ctx.init_rbac().await;
     (build_router(state.clone()), state)
 }
@@ -41,14 +46,16 @@ fn json_request(
     body: serde_json::Value,
     token: Option<&str>,
 ) -> Request<Body> {
-    let mut builder = Request::builder().method(method).uri(uri).header(
-        header::CONTENT_TYPE,
-        "application/json",
-    );
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
     if let Some(t) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
     }
-    builder.body(Body::from(body.to_string())).expect("request builds")
+    builder
+        .body(Body::from(body.to_string()))
+        .expect("request builds")
 }
 
 fn empty_request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {
@@ -130,7 +137,10 @@ async fn public_api_crud_and_errors() {
         .unwrap();
     assert_eq!(created.status(), StatusCode::OK, "public create");
     let created_json = body_json(created).await;
-    let doc_id = created_json["data"]["documentId"].as_str().expect("documentId").to_string();
+    let doc_id = created_json["data"]["documentId"]
+        .as_str()
+        .expect("documentId")
+        .to_string();
 
     // Public list with query params.
     let list = router
@@ -144,16 +154,15 @@ async fn public_api_crud_and_errors() {
         .unwrap();
     assert_eq!(list.status(), StatusCode::OK, "public list");
     let list_json = body_json(list).await;
-    assert!(list_json["meta"]["pagination"].is_object(), "list has pagination meta");
+    assert!(
+        list_json["meta"]["pagination"].is_object(),
+        "list has pagination meta"
+    );
 
     // Public get by document id.
     let get_one = router
         .clone()
-        .oneshot(empty_request(
-            "GET",
-            &format!("/api/{uid}/{doc_id}"),
-            None,
-        ))
+        .oneshot(empty_request("GET", &format!("/api/{uid}/{doc_id}"), None))
         .await
         .unwrap();
     assert_eq!(get_one.status(), StatusCode::OK, "public get");
@@ -247,9 +256,19 @@ async fn admin_handlers_and_single_types() {
         ))
         .await
         .unwrap();
-    assert_eq!(single_get.status(), StatusCode::OK, "single get not found -> 200");
+    assert_eq!(
+        single_get.status(),
+        StatusCode::OK,
+        "single get not found -> 200"
+    );
     let single_json = body_json(single_get).await;
-    assert!(single_json["data"].as_object().map(|m| m.is_empty()).unwrap_or(false), "empty template");
+    assert!(
+        single_json["data"]
+            .as_object()
+            .map(|m| m.is_empty())
+            .unwrap_or(false),
+        "empty template"
+    );
 
     // The single-type PUT updates the canonical "default" entry, which must
     // already exist (update_one returns NotFound otherwise). Create it directly
@@ -306,7 +325,10 @@ async fn admin_handlers_and_single_types() {
         .await
         .unwrap();
     assert_eq!(ctb_get.status(), StatusCode::OK, "ctb get by uid");
-    assert_eq!(body_json(ctb_get).await["data"]["uid"], "api::homepage.homepage");
+    assert_eq!(
+        body_json(ctb_get).await["data"]["uid"],
+        "api::homepage.homepage"
+    );
 
     // CTB reserved names.
     let reserved = router
@@ -334,7 +356,10 @@ async fn admin_handlers_and_single_types() {
         .await
         .unwrap();
     assert_eq!(cm_cts.status(), StatusCode::OK, "cm content types");
-    assert!(!body_json(cm_cts).await["data"].as_array().unwrap().is_empty());
+    assert!(!body_json(cm_cts).await["data"]
+        .as_array()
+        .unwrap()
+        .is_empty());
 
     // CTB get unknown uid -> 404.
     let ctb_unknown = router
@@ -346,7 +371,11 @@ async fn admin_handlers_and_single_types() {
         ))
         .await
         .unwrap();
-    assert_eq!(ctb_unknown.status(), StatusCode::NOT_FOUND, "ctb get unknown 404");
+    assert_eq!(
+        ctb_unknown.status(),
+        StatusCode::NOT_FOUND,
+        "ctb get unknown 404"
+    );
 
     // RBAC role get by id.
     let roles = body_json(
@@ -375,7 +404,11 @@ async fn admin_handlers_and_single_types() {
         .oneshot(empty_request("GET", "/admin/roles/999999", Some(&token)))
         .await
         .unwrap();
-    assert_eq!(role_unknown.status(), StatusCode::NOT_FOUND, "unknown role 404");
+    assert_eq!(
+        role_unknown.status(),
+        StatusCode::NOT_FOUND,
+        "unknown role 404"
+    );
 }
 
 #[tokio::test]
@@ -422,7 +455,11 @@ async fn validation_and_bad_requests() {
         ))
         .await
         .unwrap();
-    assert_ne!(missing.status(), StatusCode::OK, "missing required should not succeed");
+    assert_ne!(
+        missing.status(),
+        StatusCode::OK,
+        "missing required should not succeed"
+    );
 
     // Duplicate UID create -> 409 Conflict.
     let dup = router
@@ -444,7 +481,11 @@ async fn validation_and_bad_requests() {
         .await
         .unwrap();
     // Applying the same UID twice may be a no-op or conflict; assert it's not 500.
-    assert_ne!(dup.status(), StatusCode::INTERNAL_SERVER_ERROR, "no 500 on re-apply");
+    assert_ne!(
+        dup.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "no 500 on re-apply"
+    );
 }
 
 #[tokio::test]
@@ -466,7 +507,11 @@ async fn spa_fallback_and_upload_errors() {
         .oneshot(empty_request("GET", "/some/spa/route", None))
         .await
         .unwrap();
-    assert_eq!(spa.status(), StatusCode::OK, "SPA fallback for non-API path");
+    assert_eq!(
+        spa.status(),
+        StatusCode::OK,
+        "SPA fallback for non-API path"
+    );
 
     // Upload with no file -> 400 validation.
     let empty_upload = router
@@ -482,7 +527,11 @@ async fn spa_fallback_and_upload_errors() {
         )
         .await
         .unwrap();
-    assert_eq!(empty_upload.status(), StatusCode::BAD_REQUEST, "no file -> 400");
+    assert_eq!(
+        empty_upload.status(),
+        StatusCode::BAD_REQUEST,
+        "no file -> 400"
+    );
     let up_json = body_json(empty_upload).await;
     assert_eq!(up_json["error"]["name"], "ValidationError");
 }

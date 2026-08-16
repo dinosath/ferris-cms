@@ -114,8 +114,13 @@ pub async fn init_rbac(db: &DatabaseConnection) -> Result<(), DbErr> {
         .await?;
 
     // super-admin: can insert/update/delete EVERYTHING (already inherits select from public)
-    ctx.add_role_permissions(db, ROLE_SUPER_ADMIN, &["insert", "update", "delete"], &["*"])
-        .await?;
+    ctx.add_role_permissions(
+        db,
+        ROLE_SUPER_ADMIN,
+        &["insert", "update", "delete"],
+        &["*"],
+    )
+    .await?;
 
     // Reload the engine with updated rules.
     db.load_rbac().await?;
@@ -355,7 +360,11 @@ pub async fn can_perform(
     let exact = admin_permission::Entity::find()
         .filter(admin_permission::COLUMN.role_id.is_in(role_ids.clone()))
         .filter(admin_permission::COLUMN.action.eq(action))
-        .filter(admin_permission::COLUMN.subject.eq(Some(subject.to_string())))
+        .filter(
+            admin_permission::COLUMN
+                .subject
+                .eq(Some(subject.to_string())),
+        )
         .count(db)
         .await?;
     if exact > 0 {
@@ -365,7 +374,11 @@ pub async fn can_perform(
     let wild = admin_permission::Entity::find()
         .filter(admin_permission::COLUMN.role_id.is_in(role_ids))
         .filter(admin_permission::COLUMN.action.eq(action))
-        .filter(admin_permission::COLUMN.subject.eq(Some(action::SUBJECT_WILDCARD.to_string())))
+        .filter(
+            admin_permission::COLUMN
+                .subject
+                .eq(Some(action::SUBJECT_WILDCARD.to_string())),
+        )
         .count(db)
         .await?;
     Ok(wild > 0)
@@ -465,48 +478,117 @@ mod tests {
 
         // Super Admin bypasses the matrix entirely.
         let super_admin = user(1, ROLE_SUPER_ADMIN);
-        assert!(can_perform(&db, &super_admin, action::PUBLISH, "any.uid").await.unwrap());
-        assert!(can_perform(&db, &super_admin, action::DELETE, "unrelated.uid").await.unwrap());
+        assert!(can_perform(&db, &super_admin, action::PUBLISH, "any.uid")
+            .await
+            .unwrap());
+        assert!(
+            can_perform(&db, &super_admin, action::DELETE, "unrelated.uid")
+                .await
+                .unwrap()
+        );
 
         // Grant standard per-content-type permissions for a new content-type.
-        grant_content_permissions(&db, "api::article.article").await.unwrap();
+        grant_content_permissions(&db, "api::article.article")
+            .await
+            .unwrap();
 
         // Editor: full CRUD + publish.
         let editor = user(2, ROLE_EDITOR);
-        assert!(can_perform(&db, &editor, action::CREATE, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &editor, action::READ, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &editor, action::UPDATE, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &editor, action::DELETE, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &editor, action::PUBLISH, "api::article.article").await.unwrap());
+        assert!(
+            can_perform(&db, &editor, action::CREATE, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &editor, action::READ, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &editor, action::UPDATE, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &editor, action::DELETE, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &editor, action::PUBLISH, "api::article.article")
+                .await
+                .unwrap()
+        );
 
         // Author: create/read/update but NOT publish/delete.
         let author = user(3, ROLE_AUTHOR);
-        assert!(can_perform(&db, &author, action::CREATE, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &author, action::READ, "api::article.article").await.unwrap());
-        assert!(can_perform(&db, &author, action::UPDATE, "api::article.article").await.unwrap());
-        assert!(!can_perform(&db, &author, action::PUBLISH, "api::article.article").await.unwrap());
-        assert!(!can_perform(&db, &author, action::DELETE, "api::article.article").await.unwrap());
+        assert!(
+            can_perform(&db, &author, action::CREATE, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &author, action::READ, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            can_perform(&db, &author, action::UPDATE, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !can_perform(&db, &author, action::PUBLISH, "api::article.article")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !can_perform(&db, &author, action::DELETE, "api::article.article")
+                .await
+                .unwrap()
+        );
 
         // No grant for a different content-type => denied.
-        assert!(!can_perform(&db, &editor, action::CREATE, "api::author.author").await.unwrap());
+        assert!(
+            !can_perform(&db, &editor, action::CREATE, "api::author.author")
+                .await
+                .unwrap()
+        );
 
         // enforce_action maps a denied decision to Forbidden and allows permitted.
-        assert!(enforce_action(&db, Some(&author), action::PUBLISH, "api::article.article").await.is_err());
-        assert!(enforce_action(&db, Some(&author), action::READ, "api::article.article").await.is_ok());
+        assert!(
+            enforce_action(&db, Some(&author), action::PUBLISH, "api::article.article")
+                .await
+                .is_err()
+        );
+        assert!(
+            enforce_action(&db, Some(&author), action::READ, "api::article.article")
+                .await
+                .is_ok()
+        );
         // Unauthenticated (public) access is not governed by the admin matrix.
-        assert!(enforce_action(&db, None, action::READ, "api::article.article").await.is_ok());
+        assert!(
+            enforce_action(&db, None, action::READ, "api::article.article")
+                .await
+                .is_ok()
+        );
     }
 }
 
 use crate::AppContext;
 
 /// Alias for list_roles using AppContext.
-pub async fn rbac_list_roles(ctx: &AppContext) -> Result<Vec<api_types::admin::AdminRoleDto>, ServiceError> {
+pub async fn rbac_list_roles(
+    ctx: &AppContext,
+) -> Result<Vec<api_types::admin::AdminRoleDto>, ServiceError> {
     list_roles(&ctx.db).await
 }
 
 /// Alias for get_role using AppContext.
-pub async fn rbac_get_role(ctx: &AppContext, role_id: i64) -> Result<api_types::admin::AdminRoleDto, ServiceError> {
+pub async fn rbac_get_role(
+    ctx: &AppContext,
+    role_id: i64,
+) -> Result<api_types::admin::AdminRoleDto, ServiceError> {
     get_role(&ctx.db, role_id).await
 }
 

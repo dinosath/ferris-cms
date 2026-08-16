@@ -41,9 +41,12 @@ const BUILDER_ERROR: &str = "http error: builder error";
 
 async fn body_text(page: &Page) -> anyhow::Result<String> {
     let none_arg: Option<&serde_json::Value> = None;
-    page.evaluate::<_, String>("() => document.body ? document.body.innerText : ''", none_arg)
-        .await
-        .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
+    page.evaluate::<_, String>(
+        "() => document.body ? document.body.innerText : ''",
+        none_arg,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("evaluate body text failed: {e}"))
 }
 
 async fn wait_for_text(page: &Page, predicate: impl Fn(&str) -> bool) -> anyhow::Result<String> {
@@ -163,7 +166,11 @@ async fn open_app(harness: &E2eHarness) -> anyhow::Result<UiPage> {
     wait_for_text(&page, |t| t.contains("ferriscms"))
         .await
         .context("admin UI did not hydrate")?;
-    Ok(UiPage { page, _browser: browser, _pw: pw })
+    Ok(UiPage {
+        page,
+        _browser: browser,
+        _pw: pw,
+    })
 }
 
 /// Provision a super admin over the HTTP API (reliable) with fixed credentials.
@@ -179,7 +186,11 @@ async fn register_admin_via_api(harness: &E2eHarness, email: &str) -> anyhow::Re
         }))
         .send()
         .await?;
-    anyhow::ensure!(resp.status().is_success(), "register-admin failed: {}", resp.status());
+    anyhow::ensure!(
+        resp.status().is_success(),
+        "register-admin failed: {}",
+        resp.status()
+    );
     Ok(())
 }
 
@@ -199,10 +210,15 @@ async fn login_via_ui(page: &Page, email: &str) -> anyhow::Result<()> {
         fill_input_by_label(page, "Password", "AdminPass1").await?,
         "login password input not found"
     );
-    assert!(click_button_by_text(page, "Login").await?, "login button not found");
-    wait_for_text(page, |t| t.contains("Content Manager") && t.contains("Settings"))
-        .await
-        .context("shell did not render after login")?;
+    assert!(
+        click_button_by_text(page, "Login").await?,
+        "login button not found"
+    );
+    wait_for_text(page, |t| {
+        t.contains("Content Manager") && t.contains("Settings")
+    })
+    .await
+    .context("shell did not render after login")?;
     Ok(())
 }
 
@@ -255,10 +271,15 @@ async fn logout_then_login_via_ui() -> anyhow::Result<()> {
         fill_input_by_label(page, "Password", "AdminPass1").await?,
         "login password input not found"
     );
-    assert!(click_button_by_text(page, "Login").await?, "login button not found");
-    wait_for_text(page, |t| t.contains("Content Manager") && t.contains("Settings"))
-        .await
-        .context("shell did not restore after login")?;
+    assert!(
+        click_button_by_text(page, "Login").await?,
+        "login button not found"
+    );
+    wait_for_text(page, |t| {
+        t.contains("Content Manager") && t.contains("Settings")
+    })
+    .await
+    .context("shell did not restore after login")?;
 
     take_screenshot(page, "ui-relogged-shell").await?;
     Ok(())
@@ -309,13 +330,19 @@ async fn create_collection_type_via_ctb() -> anyhow::Result<()> {
         fill_input_by_label(page, "API ID (Plural)", "articles").await?,
         "plural input not found"
     );
-    assert!(click_button_by_text(page, "Continue").await?, "Continue not found");
+    assert!(
+        click_button_by_text(page, "Continue").await?,
+        "Continue not found"
+    );
 
     // The new type is now selected in the editor; save it to the backend.
     wait_for_text(page, |t| t.contains("Article"))
         .await
         .context("new type not selected in editor")?;
-    assert!(click_button_by_text(page, "Save").await?, "Save button not found");
+    assert!(
+        click_button_by_text(page, "Save").await?,
+        "Save button not found"
+    );
     wait_for_text(page, |t| t.contains("Saved"))
         .await
         .context("schema did not save")?;
@@ -331,7 +358,10 @@ async fn create_collection_type_via_ctb() -> anyhow::Result<()> {
         .context("Article type not listed in Content Manager")?;
 
     let body = body_text(page).await?;
-    assert!(!body.contains(BUILDER_ERROR), "builder error present: {body}");
+    assert!(
+        !body.contains(BUILDER_ERROR),
+        "builder error present: {body}"
+    );
     take_screenshot(page, "ui-created-article").await?;
     Ok(())
 }

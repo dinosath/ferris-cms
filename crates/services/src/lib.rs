@@ -12,8 +12,8 @@
 //! - `i18n` — locale CRUD, localized content lookup
 //! - `schema_cache` — lock-free schema cache (arc-swap), rebuilt on save
 
-mod auth;
 mod api_tokens;
+mod auth;
 mod content;
 mod content_type_builder;
 mod i18n;
@@ -21,8 +21,8 @@ mod media;
 mod rbac;
 mod schema_cache;
 
-pub use auth::*;
 pub use api_tokens::*;
+pub use auth::*;
 pub use content::*;
 pub use content_type_builder::*;
 pub use i18n::*;
@@ -174,9 +174,7 @@ impl AppContext {
 
     /// Require an authenticated admin user or return `Unauthorized`.
     pub fn require_admin(&self) -> Result<&CurrentUser, ServiceError> {
-        self.current_user
-            .as_ref()
-            .ok_or(ServiceError::Unauthorized)
+        self.current_user.as_ref().ok_or(ServiceError::Unauthorized)
     }
 
     /// Return a per-request clone with the given authenticated identity.
@@ -199,14 +197,8 @@ impl AppContext {
     /// Get a SeaORM RBAC-restricted connection for the current user.
     /// Returns the raw database connection if no user is authenticated (public).
     /// Requires that `init_rbac` was called at boot.
-    pub fn restricted_connection(
-        &self,
-    ) -> Result<sea_orm::RestrictedConnection, ServiceError> {
-        let user_id = self
-            .current_user
-            .as_ref()
-            .map(|u| u.id)
-            .unwrap_or(0); // 0 = unauthenticated/public
+    pub fn restricted_connection(&self) -> Result<sea_orm::RestrictedConnection, ServiceError> {
+        let user_id = self.current_user.as_ref().map(|u| u.id).unwrap_or(0); // 0 = unauthenticated/public
 
         self.db
             .restricted_for(sea_orm::rbac::RbacUserId(user_id))
@@ -228,12 +220,24 @@ mod tests {
 
     #[test]
     fn service_error_display_and_helpers() {
-        assert_eq!(ServiceError::Validation(vec![]).to_string(), "validation error");
-        assert_eq!(ServiceError::NotFound("x".into()).to_string(), "not found: x");
-        assert_eq!(ServiceError::Conflict("c".into()).to_string(), "conflict: c");
+        assert_eq!(
+            ServiceError::Validation(vec![]).to_string(),
+            "validation error"
+        );
+        assert_eq!(
+            ServiceError::NotFound("x".into()).to_string(),
+            "not found: x"
+        );
+        assert_eq!(
+            ServiceError::Conflict("c".into()).to_string(),
+            "conflict: c"
+        );
         assert_eq!(ServiceError::Forbidden.to_string(), "forbidden");
         assert_eq!(ServiceError::Unauthorized.to_string(), "unauthorized");
-        assert_eq!(ServiceError::Internal("i".into()).to_string(), "internal error: i");
+        assert_eq!(
+            ServiceError::Internal("i".into()).to_string(),
+            "internal error: i"
+        );
         assert_eq!(ServiceError::Rbac("r".into()).to_string(), "rbac error: r");
 
         assert_eq!(ServiceError::not_found("n").to_string(), "not found: n");

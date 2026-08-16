@@ -13,7 +13,10 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Button, Card, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal, NavItem, Pagination, StatusIndicator, TextField, Toggle};
+use crate::components::{
+    Button, Card, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal, NavItem,
+    Pagination, StatusIndicator, TextField, Toggle,
+};
 
 /// Marker document id used for a brand-new entry in the edit view.
 const NEW_ENTRY: &str = "__new__";
@@ -83,7 +86,9 @@ pub fn ContentManager() -> Element {
                 editing_doc.set(Some("default".to_string()));
                 spawn(async move {
                     match g.client.cm_get(&uid, "default").await {
-                        Ok(resp) => editing_map.set(resp.data.as_object().cloned().unwrap_or_default()),
+                        Ok(resp) => {
+                            editing_map.set(resp.data.as_object().cloned().unwrap_or_default())
+                        }
                         Err(_) => editing_map.set(serde_json::Map::new()),
                     }
                 });
@@ -129,7 +134,10 @@ pub fn ContentManager() -> Element {
         .iter()
         .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
         .cloned();
-    let main_field = selected.as_ref().map(|s| s.main_field()).unwrap_or_default();
+    let main_field = selected
+        .as_ref()
+        .map(|s| s.main_field())
+        .unwrap_or_default();
 
     // Client-side search filter on the main field.
     let query = search().trim().to_lowercase();
@@ -147,19 +155,34 @@ pub fn ContentManager() -> Element {
     };
 
     // Which view we are showing: editing an entry (collection) or a single type.
-    let is_single = selected.as_ref().map(|s| s.kind == ContentTypeKind::SingleType).unwrap_or(false);
+    let is_single = selected
+        .as_ref()
+        .map(|s| s.kind == ContentTypeKind::SingleType)
+        .unwrap_or(false);
     let show_edit = editing_doc().is_some() || is_single;
 
     // Precompute table rows (id, main field, state, updated, selected).
     let rows_data: Vec<(String, String, String, String, bool)> = filtered
         .iter()
         .map(|e| {
-            let id = e.get("documentId").map(|v| v.to_string())
+            let id = e
+                .get("documentId")
+                .map(|v| v.to_string())
                 .or_else(|| e.get("id").map(|v| v.to_string()))
                 .unwrap_or_default();
-            let main = e.get(&main_field).map(|v| v.to_string()).unwrap_or_default();
-            let state = e.get("publicationState").and_then(|v| v.as_str()).unwrap_or("draft").to_string();
-            let updated = e.get("updatedAt").map(|v| v.to_string()).unwrap_or_default();
+            let main = e
+                .get(&main_field)
+                .map(|v| v.to_string())
+                .unwrap_or_default();
+            let state = e
+                .get("publicationState")
+                .and_then(|v| v.as_str())
+                .unwrap_or("draft")
+                .to_string();
+            let updated = e
+                .get("updatedAt")
+                .map(|v| v.to_string())
+                .unwrap_or_default();
             let selected = selected_ids().contains(&id);
             (id, main, state, updated, selected)
         })
@@ -249,11 +272,27 @@ pub fn ContentManager() -> Element {
         "width:240px; min-width:240px; background:{}; border-right:1px solid {}; display:flex; flex-direction:column;",
         color::NEUTRAL_0, color::NEUTRAL_150
     );
-    let nav_header = format!("padding:16px; font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let section_label = format!("padding:4px 16px; font-size:{}; color:{};", typography::LABEL_SIZE, color::NEUTRAL_600);
+    let nav_header = format!(
+        "padding:16px; font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let section_label = format!(
+        "padding:4px 16px; font-size:{}; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_600
+    );
     let top_bar = format!("display:flex; align-items:center; justify-content:space-between; padding:0 32px; height:56px; border-bottom:1px solid {}; background:{};", color::NEUTRAL_150, color::NEUTRAL_0);
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let count_style = format!("font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_500);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let count_style = format!(
+        "font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_500
+    );
     let status_style = format!("padding:12px; margin-bottom:16px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let toolbar_style = format!("display:flex; align-items:center; gap:12px; padding:16px 32px;");
     let count_display = format!("({} entries found)", total());
@@ -522,10 +561,7 @@ fn DeleteConfirmDialog(
 /// Loads the current configuration and lets the user choose which columns to
 /// display and the page size, then persists via PUT.
 #[component]
-fn ConfigureViewModal(
-    uid: String,
-    on_close: EventHandler<()>,
-) -> Element {
+fn ConfigureViewModal(uid: String, on_close: EventHandler<()>) -> Element {
     let global = use_global();
     let mut config = use_signal(|| None::<api_types::admin::ViewConfiguration>);
     let mut status = use_signal(|| None::<String>);
@@ -539,7 +575,9 @@ fn ConfigureViewModal(
             spawn(async move {
                 match g.client.cm_get_configuration(&uid).await {
                     Ok(v) => {
-                        if let Ok(c) = serde_json::from_value(v.get("data").cloned().unwrap_or(serde_json::Value::Null)) {
+                        if let Ok(c) = serde_json::from_value(
+                            v.get("data").cloned().unwrap_or(serde_json::Value::Null),
+                        ) {
                             config.set(Some(c));
                         }
                     }
@@ -549,7 +587,11 @@ fn ConfigureViewModal(
         }
     });
 
-    let label_style = format!("font-size:{}; font-weight:600; color:{};", typography::LABEL_SIZE, color::NEUTRAL_700);
+    let label_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_700
+    );
     let status_style = format!("padding:12px; margin-bottom:12px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
     let g_save = global.clone();
     let uid_save = uid.clone();
@@ -684,9 +726,14 @@ fn EntryEditView(
             .unwrap_or_else(|| "Edit entry".to_string())
     };
 
-    let back_style = "background:none; border:none; color:{color::NEUTRAL_700}; cursor:pointer; font-size:16px;";
+    let back_style =
+        "background:none; border:none; color:{color::NEUTRAL_700}; cursor:pointer; font-size:16px;";
     let top_bar = format!("display:flex; align-items:center; gap:12px; padding:0 32px; height:64px; border-bottom:1px solid {}; background:{};", color::NEUTRAL_150, color::NEUTRAL_0);
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::BETA_SIZE, color::NEUTRAL_900);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::BETA_SIZE,
+        color::NEUTRAL_900
+    );
     let status_style = format!("padding:12px; border-radius:4px; background:{}; color:{}; font-size:{}; margin-bottom:16px;", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
 
     let scalar: Vec<(String, FieldType, Vec<String>)> = schema
@@ -716,7 +763,15 @@ fn EntryEditView(
         .attributes
         .iter()
         .filter(|(_, a)| a.attr_type == FieldType::Dynamiczone)
-        .map(|(name, a)| (name.clone(), a.components.iter().map(|u| u.as_str().to_string()).collect()))
+        .map(|(name, a)| {
+            (
+                name.clone(),
+                a.components
+                    .iter()
+                    .map(|u| u.as_str().to_string())
+                    .collect(),
+            )
+        })
         .collect();
 
     let g = global.clone();
@@ -900,7 +955,11 @@ fn EntryEditView(
 
 /// Modal that renders a form from a schema and calls back with a JSON object.
 #[component]
-fn CreateEntryModal(schema: Schema, on_close: EventHandler<MouseEvent>, on_create: EventHandler<serde_json::Value>) -> Element {
+fn CreateEntryModal(
+    schema: Schema,
+    on_close: EventHandler<MouseEvent>,
+    on_create: EventHandler<serde_json::Value>,
+) -> Element {
     let mut form = use_signal(serde_json::Map::new);
     let scalar: Vec<(String, FieldType, Vec<String>)> = schema
         .attributes

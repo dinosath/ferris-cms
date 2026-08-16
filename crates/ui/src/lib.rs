@@ -6,9 +6,9 @@
 //! - `screens/`  — full-page screens (login, shell, CTB, CM)
 
 pub mod design;
-pub mod widgets;
 pub mod screens;
+pub mod widgets;
 
 // Re-export commonly used items.
-pub use design::tokens;
 pub use design::icons::Icon;
+pub use design::tokens;

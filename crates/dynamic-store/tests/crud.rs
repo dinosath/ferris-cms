@@ -159,7 +159,10 @@ async fn ddl_creates_expected_tables() {
         "ct_articles_cover_files_links",
         "ct_articles_components",
     ] {
-        assert!(tables.contains(&expected.to_string()), "missing {expected} in {tables:?}");
+        assert!(
+            tables.contains(&expected.to_string()),
+            "missing {expected} in {tables:?}"
+        );
     }
 }
 
@@ -325,7 +328,9 @@ async fn crud_and_filters() {
     .await
     .unwrap();
     assert_eq!(n, 1);
-    let (_, total) = dml::select(&db, backend, article, &spec_all()).await.unwrap();
+    let (_, total) = dml::select(&db, backend, article, &spec_all())
+        .await
+        .unwrap();
     assert_eq!(total, 1);
 }
 
@@ -347,7 +352,9 @@ async fn alter_adds_column() {
         .insert("subtitle".to_string(), Attribute::new(FieldType::String));
     let d = diff(Some(&schemas[0]), &v2);
     assert_eq!(d.added_attrs.len(), 1);
-    ddl::apply_schema_diff(&db, backend, &d, &schemas).await.unwrap();
+    ddl::apply_schema_diff(&db, backend, &d, &schemas)
+        .await
+        .unwrap();
 
     // subtitle is writable now
     let mut data = JsonMap::new();
@@ -361,7 +368,12 @@ async fn alter_adds_column() {
         (base::UPDATED_AT.into(), chrono::Utc::now().into()),
         (base::SYNC_VERSION.into(), 1_i64.into()),
     ]);
-    let id = dml::insert(&db, backend, &v2.table_name(), values).await.unwrap();
-    let row = dml::find_by_id(&db, backend, &v2, id).await.unwrap().unwrap();
+    let id = dml::insert(&db, backend, &v2.table_name(), values)
+        .await
+        .unwrap();
+    let row = dml::find_by_id(&db, backend, &v2, id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row["subtitle"], json!("y"));
 }

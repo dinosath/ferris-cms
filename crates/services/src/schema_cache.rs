@@ -66,10 +66,7 @@ impl SchemaCache {
     /// Look up a schema by uid.
     pub fn get(&self, uid: &Uid) -> Option<Schema> {
         let inner = self.inner.load();
-        inner
-            .by_uid
-            .get(uid)
-            .map(|&i| inner.schemas[i].clone())
+        inner.by_uid.get(uid).map(|&i| inner.schemas[i].clone())
     }
 
     /// All collection types (for content-manager nav).

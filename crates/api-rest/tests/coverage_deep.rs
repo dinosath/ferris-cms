@@ -22,7 +22,10 @@ fn app_config() -> AppConfig {
         jwt_secret: "deep-test-secret".into(),
         jwt_expiry_secs: 3600,
         admin_registration_open: true,
-        media_storage_dir: std::env::temp_dir().join("ferris-deep").display().to_string(),
+        media_storage_dir: std::env::temp_dir()
+            .join("ferris-deep")
+            .display()
+            .to_string(),
     }
 }
 
@@ -31,7 +34,9 @@ async fn setup() -> (axum::Router, Arc<AppState>) {
     Migrator::up(&db, None).await.unwrap();
     seed::seed(&db).await.unwrap();
     let state = Arc::new(AppState::new(db.clone(), app_config()));
-    load_schema_cache(&db, &state.ctx.schema_cache).await.unwrap();
+    load_schema_cache(&db, &state.ctx.schema_cache)
+        .await
+        .unwrap();
     let _ = state.ctx.init_rbac().await;
     (build_router(state.clone()), state)
 }
@@ -42,14 +47,16 @@ fn json_request(
     body: serde_json::Value,
     token: Option<&str>,
 ) -> Request<Body> {
-    let mut builder = Request::builder().method(method).uri(uri).header(
-        header::CONTENT_TYPE,
-        "application/json",
-    );
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
     if let Some(t) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
     }
-    builder.body(Body::from(body.to_string())).expect("request builds")
+    builder
+        .body(Body::from(body.to_string()))
+        .expect("request builds")
 }
 
 fn empty_request(method: &str, uri: &str, token: Option<&str>) -> Request<Body> {
@@ -164,16 +171,33 @@ async fn diverse_field_types_and_schema_mutation() {
     // Create an entry with every attribute populated.
     let created = router
         .clone()
-        .oneshot(json_request("POST", &format!("/admin/content-manager/collection-types/{uid}"), rich_entry(), Some(&token)))
+        .oneshot(json_request(
+            "POST",
+            &format!("/admin/content-manager/collection-types/{uid}"),
+            rich_entry(),
+            Some(&token),
+        ))
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::OK, "create diverse entry: {}", created.status());
-    let doc_id = body_json(created).await["data"]["documentId"].as_str().expect("documentId").to_string();
+    assert_eq!(
+        created.status(),
+        StatusCode::OK,
+        "create diverse entry: {}",
+        created.status()
+    );
+    let doc_id = body_json(created).await["data"]["documentId"]
+        .as_str()
+        .expect("documentId")
+        .to_string();
 
     // Read it back.
     let got = router
         .clone()
-        .oneshot(empty_request("GET", &format!("/admin/content-manager/collection-types/{uid}/{doc_id}"), Some(&token)))
+        .oneshot(empty_request(
+            "GET",
+            &format!("/admin/content-manager/collection-types/{uid}/{doc_id}"),
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(got.status(), StatusCode::OK);
@@ -231,12 +255,21 @@ async fn diverse_field_types_and_schema_mutation() {
         ))
         .await
         .unwrap();
-    assert_eq!(second.status(), StatusCode::OK, "create on mutated schema: {}", second.status());
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "create on mutated schema: {}",
+        second.status()
+    );
 
     // Delete the first entry.
     let del = router
         .clone()
-        .oneshot(empty_request("DELETE", &format!("/admin/content-manager/collection-types/{uid}/{doc_id}"), Some(&token)))
+        .oneshot(empty_request(
+            "DELETE",
+            &format!("/admin/content-manager/collection-types/{uid}/{doc_id}"),
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(del.status(), StatusCode::OK, "delete");
@@ -278,22 +311,38 @@ async fn content_type_removal_single_and_component() {
     // temp should be gone (404 on get).
     let gone = router
         .clone()
-        .oneshot(empty_request("GET", "/content-type-builder/content-types/api::temp.temp", Some(&token)))
+        .oneshot(empty_request(
+            "GET",
+            "/content-type-builder/content-types/api::temp.temp",
+            Some(&token),
+        ))
         .await
         .unwrap();
-    assert_eq!(gone.status(), StatusCode::NOT_FOUND, "removed temp type should 404");
+    assert_eq!(
+        gone.status(),
+        StatusCode::NOT_FOUND,
+        "removed temp type should 404"
+    );
 
     // Single type config + list of components.
     let config = router
         .clone()
-        .oneshot(empty_request("GET", "/admin/content-manager/content-types/api::settings.settings/configuration", Some(&token)))
+        .oneshot(empty_request(
+            "GET",
+            "/admin/content-manager/content-types/api::settings.settings/configuration",
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(config.status(), StatusCode::OK, "single config");
 
     let comps = router
         .clone()
-        .oneshot(empty_request("GET", "/content-type-builder/components", Some(&token)))
+        .oneshot(empty_request(
+            "GET",
+            "/content-type-builder/components",
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(comps.status(), StatusCode::OK, "components list");
@@ -304,7 +353,11 @@ async fn content_type_removal_single_and_component() {
         .oneshot(empty_request("GET", "/api/api::settings.settings", None))
         .await
         .unwrap();
-    assert_eq!(conflict.status(), StatusCode::CONFLICT, "single type public list -> 409");
+    assert_eq!(
+        conflict.status(),
+        StatusCode::CONFLICT,
+        "single type public list -> 409"
+    );
 }
 
 #[tokio::test]
@@ -348,7 +401,11 @@ async fn auth_init_login_and_failures() {
         ))
         .await
         .unwrap();
-    assert_eq!(bad_login.status(), StatusCode::UNAUTHORIZED, "login bad password 401");
+    assert_eq!(
+        bad_login.status(),
+        StatusCode::UNAUTHORIZED,
+        "login bad password 401"
+    );
     assert_eq!(body_json(bad_login).await["error"]["name"], "Unauthorized");
 
     // Unknown user -> 401.
@@ -362,7 +419,11 @@ async fn auth_init_login_and_failures() {
         ))
         .await
         .unwrap();
-    assert_eq!(unknown.status(), StatusCode::UNAUTHORIZED, "login unknown user 401");
+    assert_eq!(
+        unknown.status(),
+        StatusCode::UNAUTHORIZED,
+        "login unknown user 401"
+    );
 
     // The JWT still authorizes a normal admin request.
     let roles = router
@@ -389,7 +450,12 @@ async fn api_tokens_authorize_public_read() {
         ))
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::OK, "create api token: {}", created.status());
+    assert_eq!(
+        created.status(),
+        StatusCode::OK,
+        "create api token: {}",
+        created.status()
+    );
     let created_json = body_json(created).await;
     let api_token = created_json["data"]["accessKey"]
         .as_str()
@@ -419,7 +485,11 @@ async fn api_tokens_authorize_public_read() {
         .await
         .unwrap();
     // Either authorized (200) or rejected with a client error; must not be a 500.
-    assert_ne!(pub_list.status(), StatusCode::INTERNAL_SERVER_ERROR, "no 500 on token auth");
+    assert_ne!(
+        pub_list.status(),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "no 500 on token auth"
+    );
 
     // Delete the token.
     let list_json = body_json(
@@ -433,7 +503,11 @@ async fn api_tokens_authorize_public_read() {
     let token_id = list_json["data"][0]["id"].as_i64().expect("token id");
     let del = router
         .clone()
-        .oneshot(empty_request("DELETE", &format!("/admin/api-tokens/{token_id}"), Some(&token)))
+        .oneshot(empty_request(
+            "DELETE",
+            &format!("/admin/api-tokens/{token_id}"),
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(del.status(), StatusCode::OK, "delete api token");

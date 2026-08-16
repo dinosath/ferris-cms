@@ -78,9 +78,7 @@ impl E2eHarness {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .context("bind server listener")?;
-        let addr = listener
-            .local_addr()
-            .context("read server bound address")?;
+        let addr = listener.local_addr().context("read server bound address")?;
         let server_url = format!("http://{addr}");
 
         let server_task = tokio::spawn(async move {
@@ -147,12 +145,9 @@ async fn provision_turso_db(path: &str) -> Result<()> {
     )
     .await
     .map_err(|e| anyhow!("Turso create probe table: {e}"))?;
-    conn.execute(
-        "INSERT OR IGNORE INTO _turso_e2e_probe (id) VALUES (1)",
-        (),
-    )
-    .await
-    .map_err(|e| anyhow!("Turso insert probe row: {e}"))?;
+    conn.execute("INSERT OR IGNORE INTO _turso_e2e_probe (id) VALUES (1)", ())
+        .await
+        .map_err(|e| anyhow!("Turso insert probe row: {e}"))?;
     // Drop the Turso handle so the ferriscms server can open the file via its
     // SQLite backend without a second engine holding it open.
     drop(conn);
@@ -174,8 +169,7 @@ fn spawn_obscura() -> Result<(Child, String)> {
     // Obscura blocks loopback/private IPs by default (SSRF protection); the
     // in-process ferriscms server runs on 127.0.0.1, so allow private network.
     cmd.arg("--allow-private-network");
-    cmd.stdout(Stdio::null())
-        .stderr(Stdio::null());
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
     let child = cmd
         .spawn()
         .context("spawn `obscura serve` (is the `obscura` binary on PATH?)")?;

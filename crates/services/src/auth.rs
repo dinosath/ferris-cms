@@ -1,15 +1,11 @@
 //! Auth service — admin JWT, login, registration (design Part V §6).
 
 use crate::{AppConfig, AppContext, CurrentUser, ServiceError};
-use api_types::admin::{
-    AdminUserDto, InitInfo, LoginRequest, LoginResponse, RegisterAdminRequest,
-};
+use api_types::admin::{AdminUserDto, InitInfo, LoginRequest, LoginResponse, RegisterAdminRequest};
 use chrono::Utc;
 use db::entities::{admin_role, admin_user, admin_user_role};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use sea_orm::{
-    ActiveModelTrait, EntityTrait, QueryFilter, Set,
-};
+use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -25,7 +21,8 @@ pub struct AdminClaims {
 /// Hash a plaintext password with argon2id.
 pub fn hash_password(password: &str) -> Result<String, ServiceError> {
     use argon2::password_hash::{PasswordHasher, SaltString};
-    let salt = SaltString::from_b64("c29tZXNhbHRzYWx0MTIzNA").map_err(|e| ServiceError::internal(e.to_string()))?;
+    let salt = SaltString::from_b64("c29tZXNhbHRzYWx0MTIzNA")
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
     use argon2::Argon2;
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
@@ -116,7 +113,10 @@ async fn load_user_roles(
 }
 
 /// Admin login.
-pub async fn auth_login(ctx: &AppContext, req: &LoginRequest) -> Result<LoginResponse, ServiceError> {
+pub async fn auth_login(
+    ctx: &AppContext,
+    req: &LoginRequest,
+) -> Result<LoginResponse, ServiceError> {
     let user = admin_user::Entity::find()
         .filter(admin_user::COLUMN.email.eq(&req.email))
         .one(&ctx.db)
@@ -153,9 +153,14 @@ pub async fn auth_login(ctx: &AppContext, req: &LoginRequest) -> Result<LoginRes
 }
 
 /// Register the first super admin.
-pub async fn auth_register(ctx: &AppContext, req: &RegisterAdminRequest) -> Result<LoginResponse, ServiceError> {
+pub async fn auth_register(
+    ctx: &AppContext,
+    req: &RegisterAdminRequest,
+) -> Result<LoginResponse, ServiceError> {
     if db::seed::has_admin(&ctx.db).await? {
-        return Err(ServiceError::Conflict("An admin user already exists".into()));
+        return Err(ServiceError::Conflict(
+            "An admin user already exists".into(),
+        ));
     }
 
     let password_hash = hash_password(&req.password)?;
@@ -191,7 +196,8 @@ pub async fn auth_register(ctx: &AppContext, req: &RegisterAdminRequest) -> Resu
         link.insert(&ctx.db).await?;
 
         // Also assign to SeaORM RBAC role for table-level access control.
-        let _ = crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
+        let _ =
+            crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
     }
 
     let token = sign_admin_token(user.id, &ctx.config)?;

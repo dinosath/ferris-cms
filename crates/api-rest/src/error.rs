@@ -43,9 +43,11 @@ impl IntoResponse for AppError {
             ServiceError::NotFound(msg) => (StatusCode::NOT_FOUND, "NotFound", msg.clone()),
             ServiceError::Conflict(msg) => (StatusCode::CONFLICT, "Conflict", msg.clone()),
             ServiceError::Forbidden => (StatusCode::FORBIDDEN, "Forbidden", "Forbidden".into()),
-            ServiceError::Unauthorized => {
-                (StatusCode::UNAUTHORIZED, "Unauthorized", "Unauthorized".into())
-            }
+            ServiceError::Unauthorized => (
+                StatusCode::UNAUTHORIZED,
+                "Unauthorized",
+                "Unauthorized".into(),
+            ),
             ServiceError::Db(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "DatabaseError",
@@ -56,12 +58,12 @@ impl IntoResponse for AppError {
                 "StoreError",
                 e.to_string(),
             ),
-            ServiceError::Internal(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "InternalError", msg.clone())
-            }
-            ServiceError::Rbac(msg) => {
-                (StatusCode::FORBIDDEN, "RbacError", msg.clone())
-            }
+            ServiceError::Internal(msg) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "InternalError",
+                msg.clone(),
+            ),
+            ServiceError::Rbac(msg) => (StatusCode::FORBIDDEN, "RbacError", msg.clone()),
         };
 
         let body = api_types::ErrorResponse::new(status.as_u16(), name, message);

@@ -21,7 +21,10 @@ fn app_config() -> AppConfig {
         jwt_secret: "test-secret".into(),
         jwt_expiry_secs: 3600,
         admin_registration_open: true,
-        media_storage_dir: std::env::temp_dir().join("ferris-media-test").display().to_string(),
+        media_storage_dir: std::env::temp_dir()
+            .join("ferris-media-test")
+            .display()
+            .to_string(),
     }
 }
 
@@ -30,7 +33,9 @@ async fn setup() -> (axum::Router, Arc<AppState>) {
     Migrator::up(&db, None).await.unwrap();
     seed::seed(&db).await.unwrap();
     let state = Arc::new(AppState::new(db.clone(), app_config()));
-    load_schema_cache(&db, &state.ctx.schema_cache).await.unwrap();
+    load_schema_cache(&db, &state.ctx.schema_cache)
+        .await
+        .unwrap();
     let _ = state.ctx.init_rbac().await;
     (build_router(state.clone()), state)
 }
@@ -41,10 +46,10 @@ fn json_request(
     body: serde_json::Value,
     token: Option<&str>,
 ) -> Request<Body> {
-    let mut builder = Request::builder().method(method).uri(uri).header(
-        header::CONTENT_TYPE,
-        "application/json",
-    );
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header(header::CONTENT_TYPE, "application/json");
     if let Some(t) = token {
         builder = builder.header(header::AUTHORIZATION, format!("Bearer {t}"));
     }
@@ -85,7 +90,10 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(reg.status(), StatusCode::OK);
     let reg_json = body_json(reg).await;
-    let token = reg_json["data"]["token"].as_str().expect("token").to_string();
+    let token = reg_json["data"]["token"]
+        .as_str()
+        .expect("token")
+        .to_string();
     assert!(!token.is_empty());
 
     // 2. Unauthenticated admin request must be rejected.
@@ -187,7 +195,9 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(publish.status(), StatusCode::OK, "publish by documentId");
     let publish_json = body_json(publish).await;
-    let published_doc = publish_json["data"]["documentId"].as_str().unwrap_or(doc_id.as_str());
+    let published_doc = publish_json["data"]["documentId"]
+        .as_str()
+        .unwrap_or(doc_id.as_str());
 
     // 7a. Unpublish the published variant (go back to draft).
     let unpublish = router
@@ -204,7 +214,10 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(unpublish.status(), StatusCode::OK, "unpublish");
     let unpub_json = body_json(unpublish).await;
-    assert_eq!(unpub_json["data"]["publicationState"], "draft", "unpublished entry is a draft");
+    assert_eq!(
+        unpub_json["data"]["publicationState"], "draft",
+        "unpublished entry is a draft"
+    );
 
     // 7b. Discard draft changes (edit-view control) is accepted.
     let discard = router
@@ -233,7 +246,10 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(get_cfg.status(), StatusCode::OK, "get view config");
     let cfg_json = body_json(get_cfg).await;
-    assert!(cfg_json["data"]["settings"]["pageSize"].is_i64(), "config has pageSize");
+    assert!(
+        cfg_json["data"]["settings"]["pageSize"].is_i64(),
+        "config has pageSize"
+    );
 
     let put_cfg = router
         .clone()
@@ -268,7 +284,11 @@ async fn full_admin_workflow() {
         ))
         .await
         .unwrap();
-    assert_eq!(update_perms.status(), StatusCode::OK, "role permissions update");
+    assert_eq!(
+        update_perms.status(),
+        StatusCode::OK,
+        "role permissions update"
+    );
 
     // 10. Users UI data source: list + create admin users.
     let users = router
@@ -317,7 +337,9 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(create_token.status(), StatusCode::OK, "create api token");
     let tok_json = body_json(create_token).await;
-    let raw_key = tok_json["data"]["accessKey"].as_str().expect("raw access key returned");
+    let raw_key = tok_json["data"]["accessKey"]
+        .as_str()
+        .expect("raw access key returned");
     assert!(raw_key.starts_with("ferris_"), "access key prefix");
     let token_id = tok_json["data"]["id"].as_i64().expect("token id");
 
@@ -343,7 +365,10 @@ async fn full_admin_workflow() {
         .unwrap();
     assert_eq!(locales.status(), StatusCode::OK, "i18n locales list");
     let locales_json = body_json(locales).await;
-    assert!(locales_json["data"].as_array().unwrap().len() >= 1, "at least seeded en");
+    assert!(
+        locales_json["data"].as_array().unwrap().len() >= 1,
+        "at least seeded en"
+    );
 
     let create_locale = router
         .clone()

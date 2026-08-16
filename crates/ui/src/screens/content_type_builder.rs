@@ -31,9 +31,9 @@ impl CtbScreen {
     }
 
     pub fn selected_schema(&self) -> Option<&Schema> {
-        self.selected_uid.as_ref().and_then(|uid| {
-            self.working_schemas.iter().find(|s| s.uid.as_str() == uid)
-        })
+        self.selected_uid
+            .as_ref()
+            .and_then(|uid| self.working_schemas.iter().find(|s| s.uid.as_str() == uid))
     }
 
     pub fn collection_types(&self) -> Vec<&Schema> {
@@ -76,13 +76,19 @@ pub enum CtbModal {
     CreateCollectionType,
     CreateSingleType,
     CreateComponent,
-    EditSettings { ct_uid: String },
-    FieldPicker { ct_uid: String },
+    EditSettings {
+        ct_uid: String,
+    },
+    FieldPicker {
+        ct_uid: String,
+    },
     FieldConfig {
         ct_uid: String,
         field_name: Option<String>,
         field_type: core_domain::FieldType,
     },
-    ConfirmDelete { ct_uid: String },
+    ConfirmDelete {
+        ct_uid: String,
+    },
     ConfirmDiscard,
 }

@@ -1,9 +1,9 @@
 //! App shell — global sidebar + routed main content area (design doc §3).
 
 use dioxus::prelude::*;
-use ui::design::tokens::{SIDEBAR_WIDTH, color, typography};
+use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 
-use crate::app::{Route, use_global};
+use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
 use crate::screens::{content_manager, content_type_builder, home, media, settings};
 
@@ -92,9 +92,17 @@ fn Sidebar() -> Element {
         "display:flex; align-items:center; gap:8px; padding:8px 16px; height:56px; border-bottom:1px solid {};",
         color::NEUTRAL_150
     );
-    let brand_text = format!("font-size:{}; font-weight:600; color:{};", typography::EPSILON_SIZE, color::NEUTRAL_900);
+    let brand_text = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::EPSILON_SIZE,
+        color::NEUTRAL_900
+    );
     let nav_style = "padding:12px; display:flex; flex-direction:column; gap:4px;";
-    let section_label = format!("padding:4px 16px; font-size:{}; color:{};", typography::LABEL_SIZE, color::NEUTRAL_500);
+    let section_label = format!(
+        "padding:4px 16px; font-size:{}; color:{};",
+        typography::LABEL_SIZE,
+        color::NEUTRAL_500
+    );
     let footer_style = format!(
         "display:flex; align-items:center; gap:10px; padding:8px 16px; height:56px; border-top:1px solid {};",
         color::NEUTRAL_150
@@ -103,8 +111,15 @@ fn Sidebar() -> Element {
         "width:32px;height:32px;border-radius:50%;background:{}; display:flex; align-items:center; justify-content:center; color:{}; font-size:{}; font-weight:600;",
         color::PRIMARY_100, color::PRIMARY_600, typography::PI_SIZE
     );
-    let user_style = format!("flex:1; font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_800);
-    let logout_style = format!("background:none; border:none; color:{}; cursor:pointer; display:flex; align-items:center;", color::NEUTRAL_500);
+    let user_style = format!(
+        "flex:1; font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_800
+    );
+    let logout_style = format!(
+        "background:none; border:none; color:{}; cursor:pointer; display:flex; align-items:center;",
+        color::NEUTRAL_500
+    );
 
     rsx! {
         aside { style: "{sidebar_style}",

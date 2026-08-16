@@ -21,7 +21,11 @@ pub struct FieldError {
 }
 
 impl FieldError {
-    pub fn new(path: impl Into<String>, code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(
+        path: impl Into<String>,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             path: path.into(),
             code: code.into(),
@@ -38,10 +42,7 @@ static ENUM_VALUE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[a-zA-Z][a-zA-Z0-
 /// (the batch is rejected wholesale when this is non-empty).
 pub fn validate_schemas(schemas: &[Schema]) -> Vec<FieldError> {
     let mut errors = Vec::new();
-    let by_uid: HashMap<&str, &Schema> = schemas
-        .iter()
-        .map(|s| (s.uid.as_str(), s))
-        .collect();
+    let by_uid: HashMap<&str, &Schema> = schemas.iter().map(|s| (s.uid.as_str(), s)).collect();
 
     // Global uniqueness of uids / api ids / tables.
     let mut uids: HashSet<&str> = HashSet::new();
@@ -255,10 +256,7 @@ fn validate_attributes(
             }
             Media => {
                 for t in &attr.allowed_types {
-                    if !matches!(
-                        t.as_str(),
-                        "images" | "videos" | "audios" | "files"
-                    ) {
+                    if !matches!(t.as_str(), "images" | "videos" | "audios" | "files") {
                         errors.push(FieldError::new(
                             format!("{path}.allowedTypes"),
                             "invalid-media-type",

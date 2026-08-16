@@ -3,14 +3,26 @@
 use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
-use crate::app::{Route, use_global};
+use crate::app::{use_global, Route};
 use crate::components::{Card, Icon};
 
 #[component]
 pub fn Home() -> Element {
-    let page_title = format!("font-size:{}; font-weight:600; color:{};", typography::DELTA_SIZE, color::NEUTRAL_900);
-    let card_title = format!("font-size:{}; font-weight:600; color:{};", typography::EPSILON_SIZE, color::NEUTRAL_900);
-    let card_sub = format!("font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_600);
+    let page_title = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::DELTA_SIZE,
+        color::NEUTRAL_900
+    );
+    let card_title = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::EPSILON_SIZE,
+        color::NEUTRAL_900
+    );
+    let card_sub = format!(
+        "font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_600
+    );
 
     rsx! {
         div { style: "padding:32px;",
@@ -44,8 +56,16 @@ pub fn Home() -> Element {
 fn QuickLink(icon: String, title: String, subtitle: String, route: Route) -> Element {
     let mut global = use_global();
     let target = route.clone();
-    let title_style = format!("font-size:{}; font-weight:600; color:{};", typography::EPSILON_SIZE, color::NEUTRAL_900);
-    let sub_style = format!("font-size:{}; color:{};", typography::BODY_SIZE, color::NEUTRAL_600);
+    let title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
+        typography::EPSILON_SIZE,
+        color::NEUTRAL_900
+    );
+    let sub_style = format!(
+        "font-size:{}; color:{};",
+        typography::BODY_SIZE,
+        color::NEUTRAL_600
+    );
     rsx! {
         button {
             style: "background:#fff; border:1px solid {color::NEUTRAL_150}; border-radius:4px; padding:24px; text-align:left; cursor:pointer; display:flex; flex-direction:column; gap:10px;",
