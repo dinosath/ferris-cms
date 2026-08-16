@@ -78,17 +78,26 @@ fn persist_token(token: Option<&str>) {
 
 impl Global {
     pub fn new() -> Self {
+        let token = load_persisted_token();
+        let client = Arc::new(build_client());
+        // Keep the HTTP transport's bearer token in sync with the persisted
+        // session so authenticated API calls succeed immediately after a reload.
+        if let Some(t) = &token {
+            client.set_token(Some(t.clone()));
+        }
         Self {
-            client: Arc::new(build_client()),
-            token: Signal::new(load_persisted_token()),
+            client,
+            token: Signal::new(token),
             route: Signal::new(Route::Home),
             toasts: Signal::new(Vec::new()),
         }
     }
 
-    /// Set the auth token (updating the signal and the persisted session).
+    /// Set the auth token, keeping the persisted session and the HTTP transport
+    /// bearer token in sync.
     pub fn set_token(&mut self, token: Option<String>) {
         persist_token(token.as_deref());
+        self.client.set_token(token.clone());
         self.token.set(token);
     }
 
