@@ -158,8 +158,15 @@ pub fn ContentTypeBuilder() -> Element {
     );
     let field_type_style = format!("font-size:{}; color:{};", typography::PI_SIZE, color::NEUTRAL_500);
     let icon_btn_style = format!("background:none;border:none;color:{};cursor:pointer;", color::NEUTRAL_500);
+    let add_field_style = format!(
+        "width:100%; padding:16px; border:1px dashed {}; border-radius:6px; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;",
+        color::PRIMARY_400
+    );
     let g_save = global.clone();
     let toast_signal = global.clone();
+    // Owned copy for the bottom dashed add-field button (the header button's
+    // `move` closure already moves `uid_for_picker`).
+    let picker_uid = uid_for_picker.clone();
 
     rsx! {
         div { style: "display:flex; min-height:100vh;",
@@ -231,10 +238,8 @@ pub fn ContentTypeBuilder() -> Element {
                         div { style: "display:flex; flex-direction:column; gap:16px;",
                             div { style: "display:flex; align-items:center; justify-content:space-between;",
                                 span { style: "{page_title_style}", "{display}" }
-                                if !selected_attrs.is_empty() {
-                                    Button { label: "+ Add another field".to_string(), variant: "secondary".to_string(),
-                                        on_click: move |_| modal.set(ModalKind::FieldPicker { ct_uid: uid_for_picker.clone() })
-                                    }
+                                Button { label: "+ Add another field".to_string(), variant: "secondary".to_string(),
+                                    on_click: move |_| modal.set(ModalKind::FieldPicker { ct_uid: uid_for_picker.clone() })
                                 }
                             }
                             Card { padding: 24,
@@ -263,6 +268,12 @@ pub fn ContentTypeBuilder() -> Element {
                                         }
                                     }
                                 }
+                            }
+                            button {
+                                style: "{add_field_style}",
+                                onclick: move |_| modal.set(ModalKind::FieldPicker { ct_uid: picker_uid.clone() }),
+                                Icon { name: "plus".to_string(), size: 16, color: color::PRIMARY_600.to_string() }
+                                span { style: "font-size:{typography::BODY_SIZE}; font-weight:600; color:{color::PRIMARY_600};", "+ Add another field" }
                             }
                         }
                     } else {
@@ -322,7 +333,7 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
     let title = if is_collection { "Create a collection type".to_string() } else { "Create a single type".to_string() };
 
     let build = move || {
-        let singular = if singular().is_empty() { display().to_lowercase().replace(' ', "_") } else { singular() };
+        let singular = if singular().is_empty() { kebab_id(&display()) } else { singular() };
         let plural = if plural().is_empty() { format!("{singular}s") } else { plural() };
         let resolved_kind = if is_collection {
             ContentTypeKind::CollectionType
@@ -412,6 +423,28 @@ fn FieldPickerModal(on_close: EventHandler<MouseEvent>, on_pick: EventHandler<Fi
             }
         }
     }
+}
+
+/// Derive a kebab-case api id from a human display name ("Blog Post" -> "blog-post").
+/// The API id regex only allows lowercase letters, digits and dashes, so spaces
+/// and other punctuation must become dashes (Strapi behaviour).
+fn kebab_id(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_dash = false;
+    for ch in s.trim().chars() {
+        let c = ch.to_ascii_lowercase();
+        if c.is_ascii_alphanumeric() {
+            out.push(c);
+            prev_dash = false;
+        } else if !out.is_empty() && !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
 }
 
 /// Resolve the concrete FieldType for a picked type given the sub-format
@@ -682,4 +715,25 @@ fn icon_for(ft: FieldType) -> String {
         _ => "text",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kebab_id_lowercases_and_dashes() {
+        assert_eq!(kebab_id("Blog Post"), "blog-post");
+        assert_eq!(kebab_id("  My  Article "), "my-article");
+        assert_eq!(kebab_id("Article"), "article");
+        assert_eq!(kebab_id("Q&A"), "q-a");
+        assert_eq!(kebab_id("  "), "");
+    }
+
+    #[test]
+    fn kebab_id_is_valid_api_id() {
+        let id = kebab_id("FAQ Page");
+        assert!(id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
+        assert!(!id.is_empty());
+    }
 }
