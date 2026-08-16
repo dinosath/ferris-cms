@@ -505,3 +505,55 @@ async fn unauthenticated_redirects_to_login() -> anyhow::Result<()> {
     take_screenshot(&page, "screen-login-redirect").await?;
     Ok(())
 }
+
+/// The admin UI is reachable only by authorized users: an anonymous visitor is
+/// held on the Login screen with the protected shell (and its data nav) hidden,
+/// while a visitor with a valid session token reaches the admin shell.
+#[tokio::test(flavor = "multi_thread")]
+async fn ui_access_requires_authorization() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let pw = Playwright::launch().await?;
+    let browser = pw
+        .chromium()
+        .connect_over_cdp(harness.browser_cdp_url(), None)
+        .await?;
+    let page = browser.new_page().await?;
+
+    // (1) Unauthorized: no token -> Login screen, and none of the protected
+    // shell's navigation leaks through.
+    page.goto(&format!("{}/", harness.browser_app_url()), None)
+        .await?;
+    let unauth = wait_for_text(&page, |t| {
+        t.contains("Log in to your account") || t.contains("Welcome!")
+    })
+    .await
+    .context("login screen did not render for unauthenticated visitor")?;
+    assert!(
+        unauth.contains("Log in to your account"),
+        "expected login screen for anonymous visitor"
+    );
+    for leaked in ["Content Manager", "Content-Type Builder", "Media Library"] {
+        assert!(
+            !unauth.contains(leaked),
+            "protected shell nav leaked to anonymous visitor: {leaked}"
+        );
+    }
+
+    // (2) Authorized: a valid token lets the visitor into the admin shell.
+    let token = register_admin_token(harness.server_url()).await?;
+    page.add_init_script(&format!(
+        "localStorage.setItem('ferriscms_token', '{token}');"
+    ))
+    .await?;
+    page.reload(None).await?;
+    let authed = wait_for_text(&page, |t| t.contains("Content Manager"))
+        .await
+        .context("authorized visitor did not reach the admin shell")?;
+    assert!(
+        authed.contains("Content-Type Builder") && authed.contains("Settings"),
+        "admin shell did not fully render for the authorized visitor"
+    );
+
+    take_screenshot(&page, "screen-ui-access-boundary").await?;
+    Ok(())
+}
