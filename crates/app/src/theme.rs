@@ -18,10 +18,17 @@ pub fn component_styles() -> String {
     format!(
         r#"
 /* ---- Focus ring shared by all interactive elements ---- */
+* {{ box-sizing: border-box; }}
+html, body {{ margin:0; min-width:0; }}
 *:focus-visible {{
     outline: 2px solid {primary600};
     outline-offset: 1px;
     border-radius: 4px;
+}}
+
+/* ---- Responsive: let stacked form rows reflow on narrow screens ---- */
+@media (max-width: 1024px) {{
+    .field-row {{ flex-direction: column; }}
 }}
 
 /* ============================ Buttons ============================ */

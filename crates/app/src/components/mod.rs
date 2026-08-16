@@ -336,6 +336,7 @@ pub fn NavItem(
     rsx! {
         button {
             "class": "{class}",
+            aria_current: if active { "page".to_string() } else { "false".to_string() },
             onclick: move |e| onclick.call(e),
             icon::Icon { name: "{icon}", size: 18 }
             span { "{label}" }
