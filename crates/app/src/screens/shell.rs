@@ -18,13 +18,15 @@ pub fn Shell() -> Element {
             Sidebar {}
             div { style: "flex:1; min-width:0;",
                 TopBar {}
-                match route() {
-                    Route::Home => rsx! { home::Home {} },
-                    Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
-                    Route::ContentManager => rsx! { content_manager::ContentManager {} },
-                    Route::Media => rsx! { media::MediaLibrary {} },
-                    Route::Settings => rsx! { settings::Settings {} },
-                    _ => rsx! { home::Home {} },
+                main { style: "min-width:0;",
+                    match route() {
+                        Route::Home => rsx! { home::Home {} },
+                        Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
+                        Route::ContentManager => rsx! { content_manager::ContentManager {} },
+                        Route::Media => rsx! { media::MediaLibrary {} },
+                        Route::Settings => rsx! { settings::Settings {} },
+                        _ => rsx! { home::Home {} },
+                    }
                 }
             }
         }
