@@ -13,7 +13,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, Checkbox, ConfirmDialog, Dropdown, Modal, NavItem, TextField, Toggle};
+use crate::components::{Button, Card, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal, NavItem, Pagination, StatusIndicator, TextField, Toggle};
 
 /// Marker document id used for a brand-new entry in the edit view.
 const NEW_ENTRY: &str = "__new__";
@@ -363,8 +363,18 @@ pub fn ContentManager() -> Element {
 
                         Card { padding: 0,
                             if filtered.is_empty() {
-                                div { style: "padding:40px; text-align:center; color:{color::NEUTRAL_600};",
-                                    if query.is_empty() { "No entries yet. Create your first entry." } else { "No results match your search." }
+                                if query.is_empty() {
+                                    EmptyState {
+                                        title: "No entries yet".to_string(),
+                                        subtitle: "Create your first entry to start managing content.".to_string(),
+                                        icon: "stack".to_string(),
+                                    }
+                                } else {
+                                    EmptyState {
+                                        title: "No results".to_string(),
+                                        subtitle: "No entries match your search.".to_string(),
+                                        icon: "search".to_string(),
+                                    }
                                 }
                             } else {
                                 table { style: "width:100%; border-collapse:collapse; background:#fff;",
@@ -410,30 +420,21 @@ pub fn ContentManager() -> Element {
                             }
                         }
 
-                        div { style: "display:flex; align-items:center; justify-content:space-between; padding:16px 32px;",
-                            div { style: "display:flex; align-items:center; gap:8px;",
-                                span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Rows per page" }
-                                select { style: "padding:6px 8px; border:1px solid {color::NEUTRAL_200}; border-radius:4px;",
-                                    value: "{page_size}",
-                                    onchange: move |e| {
-                                        if let Ok(v) = e.value().parse::<i64>() { page_size.set(v); page.set(1); }
-                                    },
-                                    for n in [10, 25, 50, 100] {
-                                        option { value: "{n}", "{n}" }
-                                    }
-                                }
-                            }
-                            div { style: "display:flex; align-items:center; gap:12px;",
-                                span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Page {page} of {page_count}" }
-                                Button { label: "‹ Prev".to_string(), variant: "secondary".to_string(), disabled: page() <= 1,
-                                    on_click: move |_| { if page() > 1 { page.set(page() - 1); } } }
-                                Button { label: "Next ›".to_string(), variant: "secondary".to_string(), disabled: page() >= page_count,
-                                    on_click: move |_| { page.set(page() + 1); } }
-                            }
+                        Pagination {
+                            page: page(),
+                            page_count,
+                            page_size: page_size(),
+                            total: total(),
+                            on_page_change: move |p| { if p >= 1 { page.set(p); } },
+                            on_page_size_change: move |ps| { page_size.set(ps); page.set(1); },
                         }
                     } else {
-                        div { style: "padding:48px; text-align:center; color:{color::NEUTRAL_500};",
-                            "Select a content type to manage its entries."
+                        div { style: "padding:48px;",
+                            EmptyState {
+                                title: "Select a content type".to_string(),
+                                subtitle: "Select a content type to manage its entries.".to_string(),
+                                icon: "stack".to_string(),
+                            }
                         }
                     }
                 }
@@ -628,7 +629,6 @@ fn EntryRow(
     let did = id.clone();
     let border = color::NEUTRAL_150;
     let td_style = "padding:10px 16px;";
-    let action_btn = "background:none; border:none; color:{color::NEUTRAL_500}; cursor:pointer; font-size:14px;";
     rsx! {
         tr {
             style: "border-bottom:1px solid {border}; cursor:pointer;",
@@ -643,13 +643,15 @@ fn EntryRow(
             td { style: "padding:10px 16px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_800};", "{id}" }
             td { style: "padding:10px 16px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_800};", "{main}" }
             td { style: "padding:10px 16px;",
-                Badge { text: state.clone(), kind: state.clone() }
+                StatusIndicator { status: state.clone() }
             }
             td { style: "padding:10px 16px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "{updated}" }
             td { style: "padding:10px 16px;",
-                div { style: "display:flex; gap:8px;",
-                    button { style: "{action_btn}", onclick: move |e| { e.stop_propagation(); on_edit.call(eid.clone()); }, "✎" }
-                    button { style: "{action_btn}", onclick: move |e| { e.stop_propagation(); on_delete.call(did.clone()); }, "🗑" }
+                div { style: "display:flex; gap:4px;",
+                    IconButton { name: "pencil".to_string(), aria_label: "Edit".to_string(),
+                        on_click: move |e: MouseEvent| { e.stop_propagation(); on_edit.call(eid.clone()); } }
+                    IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(),
+                        on_click: move |e: MouseEvent| { e.stop_propagation(); on_delete.call(did.clone()); } }
                 }
             }
         }
@@ -885,7 +887,7 @@ fn EntryEditView(
                     Card { padding: 24,
                         div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Information" }
                         div { style: "display:flex; flex-direction:column; gap:8px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};",
-                            div { style: "display:flex; justify-content:space-between;", span { "State" }, Badge { text: "draft".to_string(), kind: "draft".to_string() } }
+                            div { style: "display:flex; justify-content:space-between; align-items:center;", span { "State" }, StatusIndicator { status: "draft".to_string() } }
                             div { style: "display:flex; justify-content:space-between;", span { "Document ID" }, span { "{document_id}" } }
                             div { style: "display:flex; justify-content:space-between;", span { "Content type" }, span { "{schema.info.display_name}" } }
                         }
