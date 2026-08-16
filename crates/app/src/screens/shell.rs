@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{SIDEBAR_WIDTH, color, typography};
 
 use crate::app::{Route, use_global};
-use crate::components::{Icon, NavItem, Toast};
+use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
 use crate::screens::{content_manager, content_type_builder, home, media, settings};
 
 #[component]
@@ -17,6 +17,7 @@ pub fn Shell() -> Element {
         div { style: "display:flex; min-height:100vh;",
             Sidebar {}
             div { style: "flex:1; min-width:0;",
+                TopBar {}
                 match route() {
                     Route::Home => rsx! { home::Home {} },
                     Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
@@ -43,6 +44,34 @@ pub fn Shell() -> Element {
     }
 }
 
+/// A slim Strapi-style breadcrumb strip rendered above every authenticated
+/// screen, giving a persistent sense of place in the admin hierarchy.
+#[component]
+fn TopBar() -> Element {
+    let global = use_global();
+    let mut route = global.route;
+    let section = match route() {
+        Route::ContentManager => "Content Manager",
+        Route::ContentTypeBuilder => "Content-Type Builder",
+        Route::Media => "Media Library",
+        Route::Settings => "Settings",
+        _ => "Home",
+    };
+    let crumbs = vec![("Home".to_string(), false), (section.to_string(), true)];
+    let bar_style = format!(
+        "display:flex; align-items:center; height:56px; padding:0 32px; border-bottom:1px solid {}; background:{}; position:sticky; top:0; z-index:50;",
+        color::NEUTRAL_150, color::NEUTRAL_0
+    );
+    rsx! {
+        div { style: "{bar_style}",
+            Breadcrumbs {
+                crumbs,
+                on_navigate: move |_| route.set(Route::Home),
+            }
+        }
+    }
+}
+
 #[component]
 fn Sidebar() -> Element {
     let global = use_global();
@@ -55,7 +84,7 @@ fn Sidebar() -> Element {
     let mut g_logout = global.clone();
 
     let sidebar_style = format!(
-        "width:{SIDEBAR_WIDTH}px; min-width:{SIDEBAR_WIDTH}px; background:{}; border-right:1px solid {}; display:flex; flex-direction:column; padding-top:16px;",
+        "position:sticky; top:0; height:100vh; width:{SIDEBAR_WIDTH}px; min-width:{SIDEBAR_WIDTH}px; background:{}; border-right:1px solid {}; display:flex; flex-direction:column;",
         color::NEUTRAL_0,
         color::NEUTRAL_150
     );
