@@ -109,7 +109,7 @@ impl ApiTransport for HttpTransport {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.get(&url);
         if let Some(tok) = self.token.read().as_ref() {
-            req = req.bearer_auth(tok);
+            req = req.header("Authorization", format!("Bearer {tok}"));
         }
         let resp = req.send().await?;
         parse_response(resp).await
@@ -123,7 +123,7 @@ impl ApiTransport for HttpTransport {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.post(&url).json(body);
         if let Some(tok) = self.token.read().as_ref() {
-            req = req.bearer_auth(tok);
+            req = req.header("Authorization", format!("Bearer {tok}"));
         }
         let resp = req.send().await?;
         parse_response(resp).await
@@ -137,7 +137,7 @@ impl ApiTransport for HttpTransport {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.put(&url).json(body);
         if let Some(tok) = self.token.read().as_ref() {
-            req = req.bearer_auth(tok);
+            req = req.header("Authorization", format!("Bearer {tok}"));
         }
         let resp = req.send().await?;
         parse_response(resp).await
@@ -147,7 +147,7 @@ impl ApiTransport for HttpTransport {
         let url = format!("{}{}", self.base_url, path);
         let mut req = self.client.delete(&url);
         if let Some(tok) = self.token.read().as_ref() {
-            req = req.bearer_auth(tok);
+            req = req.header("Authorization", format!("Bearer {tok}"));
         }
         let resp = req.send().await?;
         parse_response(resp).await
@@ -201,6 +201,11 @@ impl Client {
 
     pub fn set_token(&self, token: Option<String>) {
         self.transport.set_token(token);
+    }
+
+    /// Read the current transport bearer token (useful for diagnostics/tests).
+    pub fn token(&self) -> Option<String> {
+        self.transport.as_http().and_then(|h| h.token())
     }
 
     // -- Auth --
@@ -520,7 +525,7 @@ impl Client {
         let form = Form::new().part("files", part);
         let mut req = http.client().post(&url).multipart(form);
         if let Some(tok) = http.token().as_ref() {
-            req = req.bearer_auth(tok);
+            req = req.header("Authorization", format!("Bearer {tok}"));
         }
         let resp = req.send().await?;
         Ok(resp.json().await?)
