@@ -138,10 +138,11 @@ pub fn App() -> Element {
         r => r,
     };
 
+    let styles = format!("{}{}", theme::token_styles(), theme::component_styles());
     rsx! {
         Title { "ferriscms" }
-        style { {theme::token_styles()} }
-        div { style: "height:100%; min-height:100vh; background:{theme::neutral_100()};",
+        style { {styles} }
+        div { style: "height:100%; min-height:100vh; background:{theme::neutral_100()}; font-family:Inter, system-ui, -apple-system, sans-serif;",
             match effective {
                 Route::Login => rsx! { screens::login::Login {} },
                 Route::Register => rsx! { screens::register::Register {} },
