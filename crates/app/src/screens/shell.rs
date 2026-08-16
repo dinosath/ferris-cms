@@ -100,7 +100,7 @@ fn Sidebar() -> Element {
                 button {
                     style: "{logout_style}",
                     onclick: move |_| {
-                        g_logout.token.set(None);
+                        g_logout.set_token(None);
                         g_logout.route.set(Route::Login);
                     },
                     Icon { name: "external_link".to_string(), size: 18 }
