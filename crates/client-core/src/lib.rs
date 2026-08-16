@@ -104,7 +104,7 @@ impl ApiTransport for HttpTransport {
             req = req.bearer_auth(tok);
         }
         let resp = req.send().await?;
-        Ok(resp.json().await?)
+        parse_response(resp).await
     }
 
     async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
@@ -114,7 +114,7 @@ impl ApiTransport for HttpTransport {
             req = req.bearer_auth(tok);
         }
         let resp = req.send().await?;
-        Ok(resp.json().await?)
+        parse_response(resp).await
     }
 
     async fn put_json(&self, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
@@ -124,7 +124,7 @@ impl ApiTransport for HttpTransport {
             req = req.bearer_auth(tok);
         }
         let resp = req.send().await?;
-        Ok(resp.json().await?)
+        parse_response(resp).await
     }
 
     async fn delete_json(&self, path: &str) -> Result<serde_json::Value, ClientError> {
@@ -134,12 +134,40 @@ impl ApiTransport for HttpTransport {
             req = req.bearer_auth(tok);
         }
         let resp = req.send().await?;
-        Ok(resp.json().await?)
+        parse_response(resp).await
     }
 
     fn set_token(&self, token: Option<String>) {
         *self.token.write() = token;
     }
+}
+
+/// Turn a `reqwest::Response` into a `serde_json::Value`, but check the HTTP
+/// status first. On a non-2xx response the server returns a Strapi error
+/// envelope `{ data: null, error: {...} }`; surfacing the real `error.message`
+/// (plus validation details) is far more useful than letting downstream typed
+/// deserializers fail with a misleading "invalid type: null" error.
+async fn parse_response(resp: reqwest::Response) -> Result<serde_json::Value, ClientError> {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp.json().await?);
+    }
+    let text = resp.text().await.unwrap_or_default();
+    if let Ok(err) = serde_json::from_str::<api_types::ErrorResponse>(&text) {
+        let mut msg = err.error.message;
+        if let Some(details) = err.error.details {
+            let joined: Vec<String> = details.errors.iter().map(|e| e.message.clone()).collect();
+            if !joined.is_empty() {
+                msg = format!("{msg}: {}", joined.join("; "));
+            }
+        }
+        return Err(ClientError::Service(msg));
+    }
+    Err(ClientError::Service(format!(
+        "HTTP {}: {}",
+        status.as_u16(),
+        text.chars().take(300).collect::<String>()
+    )))
 }
 
 // ---------------------------------------------------------------------------
