@@ -44,9 +44,13 @@ jobs:
           fi
 
           STATUS=0
+          # Put the pattern in a variable: a literal regex inside `[[ =~ ]]`
+          # that contains unbalanced parentheses confuses bash's conditional
+          # parser ("unexpected token `)'"), so it must be quoted as a variable.
+          PATTERN='^(feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert)(\([^)]*\))?!?:[[:space:]].+'
           while IFS='|' read -r sha subject; do
             # Conventional Commits: type(optional scope)[!]: subject
-            if [[ ! "$subject" =~ ^(feat|fix|build|chore|ci|docs|style|refactor|perf|test|revert)(\([^)]*\))?!?:[[:space:]].+ ]]; then
+            if [[ ! "$subject" =~ $PATTERN ]]; then
               echo "::error::$sha is not a Conventional Commit: '$subject'"
               echo "  Expected format: <type>(<scope>)[!]: <description>"
               echo "  e.g. feat(ctb): add relation field"
