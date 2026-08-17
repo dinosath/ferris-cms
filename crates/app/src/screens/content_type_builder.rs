@@ -398,9 +398,26 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
     let mut display = use_signal(String::new);
     let mut singular = use_signal(String::new);
     let mut plural = use_signal(String::new);
+    // Tracks whether the user has hand-edited the API ID fields, so they aren't
+    // clobbered when the display name changes.
+    let mut singular_manual = use_signal(|| false);
+    let mut plural_manual = use_signal(|| false);
     let mut kind = use_signal(|| "collection".to_string());
     let mut draft = use_signal(|| true);
     let mut i18n = use_signal(|| false);
+
+    // As the display name is typed, auto-populate the API IDs from it (unless
+    // the user has manually overridden them).
+    let on_display = move |v: String| {
+        let (singular_id, plural_id) = api_ids_from_display(&v);
+        display.set(v);
+        if !singular_manual() {
+            singular.set(singular_id);
+        }
+        if !plural_manual() {
+            plural.set(plural_id);
+        }
+    };
 
     let is_collection = kind() == "collection";
     let title = if is_collection {
@@ -478,9 +495,11 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
                     "Single type"
                 }
             }
-            TextField { value: "{display}", label: "Display name".to_string(), placeholder: "Article".to_string(), oninput: move |v| display.set(v) }
-            TextField { value: "{singular}", label: "API ID (Singular)".to_string(), placeholder: "article".to_string(), oninput: move |v| singular.set(v) }
-            TextField { value: "{plural}", label: "API ID (Plural)".to_string(), placeholder: "articles".to_string(), oninput: move |v| plural.set(v) }
+            TextField { value: "{display}", label: "Display name".to_string(), placeholder: "Article".to_string(), oninput: on_display }
+            TextField { value: "{singular}", label: "API ID (Singular)".to_string(), placeholder: "article".to_string(),
+                oninput: move |v| { singular.set(v); singular_manual.set(true); } }
+            TextField { value: "{plural}", label: "API ID (Plural)".to_string(), placeholder: "articles".to_string(),
+                oninput: move |v| { plural.set(v); plural_manual.set(true); } }
             Toggle { checked: draft(), label: "Draft & publish".to_string(), onchange: move |v| draft.set(v) }
             Toggle { checked: i18n(), label: "Internationalization".to_string(), onchange: move |v| i18n.set(v) }
             div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
@@ -553,6 +572,14 @@ fn kebab_id(s: &str) -> String {
         out.pop();
     }
     out
+}
+
+/// Derive the singular and plural API IDs from a display name (e.g. "Blog Post"
+/// -> ("blog-post", "blog-posts")).
+fn api_ids_from_display(display: &str) -> (String, String) {
+    let singular = kebab_id(display);
+    let plural = format!("{singular}s");
+    (singular, plural)
 }
 
 /// Resolve the concrete FieldType for a picked type given the sub-format
@@ -849,5 +876,23 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
         assert!(!id.is_empty());
+    }
+
+    #[test]
+    fn api_ids_derive_from_display_name() {
+        assert_eq!(
+            api_ids_from_display("Blog Post"),
+            ("blog-post".to_string(), "blog-posts".to_string())
+        );
+        assert_eq!(
+            api_ids_from_display("Article"),
+            ("article".to_string(), "articles".to_string())
+        );
+        assert_eq!(
+            api_ids_from_display("  My  Page "),
+            ("my-page".to_string(), "my-pages".to_string())
+        );
+        // Empty display name yields an empty singular and a bare "s" plural.
+        assert_eq!(api_ids_from_display(""), ("".to_string(), "s".to_string()));
     }
 }
