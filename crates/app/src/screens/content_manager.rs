@@ -21,6 +21,35 @@ use crate::components::{
 /// Marker document id used for a brand-new entry in the edit view.
 const NEW_ENTRY: &str = "__new__";
 
+/// Whether an entry field's string value satisfies a filter condition.
+fn filter_matches(value: &serde_json::Value, op: &str, expected: &str) -> bool {
+    let actual = value.to_string().trim_matches('"').to_string();
+    match op {
+        "neq" => actual != expected,
+        "contains" => actual.to_lowercase().contains(&expected.to_lowercase()),
+        _ => actual == expected, // "eq"
+    }
+}
+
+/// A comparable sort key for an entry column. `"state"` maps to publication
+/// status so Draft sorts before Published.
+fn sort_key(e: &serde_json::Value, field: &str) -> String {
+    if field == "state" {
+        let s = e
+            .get("publicationState")
+            .and_then(|v| v.as_str())
+            .unwrap_or("draft");
+        return if s == "published" {
+            "1".to_string()
+        } else {
+            "0".to_string()
+        };
+    }
+    e.get(field)
+        .map(|v| v.to_string().trim_matches('"').to_string())
+        .unwrap_or_default()
+}
+
 #[component]
 pub fn ContentManager() -> Element {
     let global = use_global();
@@ -32,6 +61,13 @@ pub fn ContentManager() -> Element {
     let mut page = use_signal(|| 1i64);
     let mut page_size = use_signal(|| 10i64);
     let mut search = use_signal(String::new);
+    // Condition-based filters: (field, operator, value). Operators: eq / neq /
+    // contains. All active filters AND together (Strapi behaviour).
+    let mut filters = use_signal(Vec::<(String, String, String)>::new);
+    let mut filter_open = use_signal(|| false);
+    // Column sorting: (field, ascending). "state" sorts by publication status.
+    let mut sort_field = use_signal(String::new);
+    let mut sort_asc = use_signal(|| true);
     let mut creating = use_signal(|| false);
     let mut editing_doc = use_signal(|| None::<String>);
     let mut editing_map = use_signal(serde_json::Map::new);
@@ -139,20 +175,86 @@ pub fn ContentManager() -> Element {
         .map(|s| s.main_field())
         .unwrap_or_default();
 
-    // Client-side search filter on the main field.
+    // Client-side search + condition filters, then column sorting.
     let query = search().trim().to_lowercase();
-    let filtered: Vec<serde_json::Value> = if query.is_empty() {
-        entries()
+    let active_filters = filters();
+    let sort_f = sort_field();
+    let sort_ascending = sort_asc();
+    let mut filtered: Vec<serde_json::Value> = entries()
+        .into_iter()
+        .filter(|e| {
+            if !query.is_empty() {
+                let main = e
+                    .get(&main_field)
+                    .map(|v| v.to_string().to_lowercase())
+                    .unwrap_or_default();
+                if !main.contains(&query) {
+                    return false;
+                }
+            }
+            for (f, op, v) in active_filters.iter() {
+                if f == "state" {
+                    let state = e
+                        .get("publicationState")
+                        .and_then(|x| x.as_str())
+                        .unwrap_or("draft");
+                    let ok = match op.as_str() {
+                        "neq" => state != v,
+                        "contains" => state.to_lowercase().contains(&v.to_lowercase()),
+                        _ => state == v,
+                    };
+                    if !ok {
+                        return false;
+                    }
+                } else if !filter_matches(e.get(f).unwrap_or(&serde_json::Value::Null), op, v) {
+                    return false;
+                }
+            }
+            true
+        })
+        .collect();
+
+    // Column sort (default: most recently updated first).
+    if sort_f.is_empty() {
+        filtered.sort_by_key(|e| std::cmp::Reverse(sort_key(e, "updatedAt")));
     } else {
-        entries()
-            .into_iter()
-            .filter(|e| {
-                e.get(&main_field)
-                    .map(|v| v.to_string().to_lowercase().contains(&query))
-                    .unwrap_or(false)
-            })
-            .collect()
-    };
+        filtered.sort_by(|a, b| {
+            let ord = sort_key(a, &sort_f).cmp(&sort_key(b, &sort_f));
+            if sort_ascending {
+                ord
+            } else {
+                ord.reverse()
+            }
+        });
+    }
+
+    // Table headers with sort indicator; `entry_field` empty means non-sortable.
+    let headers: Vec<(String, String)> = [
+        ("id".to_string(), "ID".to_string()),
+        ("main".to_string(), main_field.clone()),
+        ("state".to_string(), "State".to_string()),
+        ("updatedAt".to_string(), "Updated At".to_string()),
+        ("actions".to_string(), String::new()),
+    ]
+    .iter()
+    .map(|(f, l)| {
+        let entry_field = if f == "main" {
+            main_field.clone()
+        } else {
+            f.clone()
+        };
+        let arrow = if !entry_field.is_empty() && sort_field() == entry_field {
+            if sort_asc() {
+                " ↑"
+            } else {
+                " ↓"
+            }
+        } else {
+            ""
+        };
+        (format!("{l}{arrow}"), entry_field)
+    })
+    .collect();
 
     // Which view we are showing: editing an entry (collection) or a single type.
     let is_single = selected
@@ -373,7 +475,26 @@ pub fn ContentManager() -> Element {
                                     oninput: move |v| search.set(v),
                                 }
                             }
+                            Button { label: "Filters".to_string(), variant: "secondary".to_string(), on_click: move |_| filter_open.set(true) }
                             Button { label: "Configure the view".to_string(), variant: "secondary".to_string(), on_click: move |_| configuring.set(true) }
+                        }
+
+                        if !filters().is_empty() {
+                            div { style: "display:flex; flex-wrap:wrap; gap:8px; padding:8px 32px;",
+                                for (idx, (f, op, v)) in filters().into_iter().enumerate() {
+                                    div { style: "display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:{color::PRIMARY_100}; color:{color::PRIMARY_700}; font-size:{typography::PI_SIZE};",
+                                        span { "{f} {op} \"{v}\"" }
+                                        button { style: "background:none; border:none; color:{color::PRIMARY_700}; cursor:pointer; font-size:14px;",
+                                            onclick: move |_| {
+                                                let mut fs = filters();
+                                                if idx < fs.len() { fs.remove(idx); }
+                                                filters.set(fs);
+                                                page.set(1);
+                                            }, "×"
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         if !selected_ids().is_empty() {
@@ -429,14 +550,23 @@ pub fn ContentManager() -> Element {
                                                     },
                                                 }
                                             }
-                                            for (_, label) in [
-                                                ("id".to_string(), "ID".to_string()),
-                                                ("main".to_string(), main_field.clone()),
-                                                ("state".to_string(), "State".to_string()),
-                                                ("updatedAt".to_string(), "Updated At".to_string()),
-                                                ("actions".to_string(), String::new()),
-                                            ] {
-                                                th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600};", "{label}" }
+                                            for (label_display, entry_field) in headers.into_iter() {
+                                                if entry_field.is_empty() {
+                                                    th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600};", "{label_display}" }
+                                                } else {
+                                                    th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600}; cursor:pointer;",
+                                                        onclick: move |_| {
+                                                            if sort_field() == entry_field {
+                                                                sort_asc.set(!sort_asc());
+                                                            } else {
+                                                                sort_field.set(entry_field.clone());
+                                                                sort_asc.set(true);
+                                                            }
+                                                            page.set(1);
+                                                        },
+                                                        "{label_display}"
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -516,12 +646,66 @@ pub fn ContentManager() -> Element {
             }
         }
 
+        if filter_open() {
+            if let Some(schema) = &selected {
+                FilterModal {
+                    fields: schema.attributes.keys().cloned().collect(),
+                    on_add: move |cond: (String, String, String)| {
+                        let mut fs = filters();
+                        fs.push(cond);
+                        filters.set(fs);
+                        page.set(1);
+                        filter_open.set(false);
+                    },
+                    on_close: move |_| filter_open.set(false),
+                }
+            }
+        }
+
         if let Some(del_id) = pending_delete() {
             DeleteConfirmDialog {
                 del_id,
                 uid: selected_uid().unwrap_or_default(),
                 on_close: move |_| pending_delete.set(None),
                 on_deleted: move |_| pending_delete.set(None),
+            }
+        }
+    }
+}
+
+/// Modal to add a condition-based filter (field, operator, value).
+#[component]
+fn FilterModal(
+    fields: Vec<String>,
+    on_add: EventHandler<(String, String, String)>,
+    on_close: EventHandler<()>,
+) -> Element {
+    let mut field = use_signal(String::new);
+    let mut op = use_signal(|| "eq".to_string());
+    let mut value = use_signal(String::new);
+
+    let field_options: Vec<(String, String)> =
+        std::iter::once(("".to_string(), "Select field".to_string()))
+            .chain(fields.iter().map(|f| (f.clone(), f.clone())))
+            .collect();
+    let op_options: Vec<(String, String)> = vec![
+        ("eq".to_string(), "is".to_string()),
+        ("neq".to_string(), "is not".to_string()),
+        ("contains".to_string(), "contains".to_string()),
+    ];
+
+    rsx! {
+        Modal { title: "Add filter".to_string(), width: 480, on_close: move |_| on_close.call(()),
+            Dropdown { label: "Field".to_string(), options: field_options, value: "{field}", onchange: move |v| field.set(v) }
+            Dropdown { label: "Operator".to_string(), options: op_options, value: "{op}", onchange: move |v| op.set(v) }
+            TextField { value: "{value}", label: "Value".to_string(), placeholder: "Filter value".to_string(), oninput: move |v| value.set(v) }
+            div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
+                Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }
+                Button { label: "Apply".to_string(), variant: "primary".to_string(), on_click: move |_| {
+                    if !field().is_empty() {
+                        on_add.call((field(), op(), value()));
+                    }
+                } }
             }
         }
     }
@@ -714,6 +898,7 @@ fn EntryEditView(
     let global = use_global();
     let mut saving = use_signal(|| false);
     let mut status = use_signal(|| None::<String>);
+    let mut delete_confirm = use_signal(|| false);
 
     let is_new = document_id == NEW_ENTRY;
     let draft_and_publish = schema.draft_and_publish();
@@ -788,6 +973,9 @@ fn EntryEditView(
     let g4 = global.clone();
     let unpub_uid = uid.clone();
     let unpub_doc = doc.clone();
+    let g_del = global.clone();
+    let del_uid = uid.clone();
+    let del_doc = doc.clone();
 
     rsx! {
         div { style: "flex:1; min-width:0;",
@@ -797,6 +985,10 @@ fn EntryEditView(
                 div { style: "flex:1;" }
                 if let Some(status) = status() {
                     span { style: "font-size:{typography::BODY_SIZE}; color:{color::SUCCESS_600};", "{status}" }
+                }
+                if !is_new {
+                    Button { label: "Delete".to_string(), variant: "danger-light".to_string(), loading: saving(),
+                        on_click: move |_| delete_confirm.set(true) }
                 }
                 Button { label: "Save".to_string(), variant: "primary".to_string(), loading: saving(),
                     on_click: move |_| {
@@ -952,6 +1144,26 @@ fn EntryEditView(
                 }
             }
         }
+    if delete_confirm() {
+        ConfirmDialog {
+            title: "Delete entry".to_string(),
+            message: "Are you sure you want to delete this entry? This cannot be undone.".to_string(),
+            confirm_label: "Delete".to_string(),
+            on_cancel: move |_| delete_confirm.set(false),
+            on_confirm: move |_| {
+                let g = g_del.clone();
+                let uid = del_uid.clone();
+                let doc = del_doc.clone();
+                delete_confirm.set(false);
+                saving.set(true);
+                spawn(async move {
+                    let _ = g.client.cm_delete(&uid, &doc).await;
+                    saving.set(false);
+                    on_saved.call(());
+                });
+            },
+        }
+    }
     }
 }
 
@@ -1006,5 +1218,33 @@ fn CreateEntryModal(
                 Button { label: "Save".to_string(), variant: "primary".to_string(), on_click: move |_| on_create.call(serde_json::Value::Object(form())) }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filter_matches_operators() {
+        let v = serde_json::json!("Hello World");
+        assert!(filter_matches(&v, "eq", "Hello World"));
+        assert!(!filter_matches(&v, "eq", "hello world"));
+        assert!(filter_matches(&v, "neq", "Other"));
+        assert!(filter_matches(&v, "contains", "hello"));
+        assert!(!filter_matches(&v, "contains", "xyz"));
+        // Number values stringify and compare.
+        let num = serde_json::json!(42);
+        assert!(filter_matches(&num, "eq", "42"));
+    }
+
+    #[test]
+    fn sort_key_handles_state_and_fields() {
+        let draft = serde_json::json!({"publicationState": "draft", "title": "A"});
+        let published = serde_json::json!({"publicationState": "published", "title": "B"});
+        assert_eq!(sort_key(&draft, "state"), "0");
+        assert_eq!(sort_key(&published, "state"), "1");
+        assert_eq!(sort_key(&draft, "title"), "A");
+        assert_eq!(sort_key(&draft, "missing"), "");
     }
 }
