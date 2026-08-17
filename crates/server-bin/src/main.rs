@@ -62,10 +62,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0.0.0.0:1337".into())
         .parse()?;
 
-    tracing::info!("ferriscms server listening on {addr}");
+    // Optional HTTPS: when TLS_CERT_FILE and TLS_KEY_FILE point at a cert/key
+    // (e.g. from Let's Encrypt), serve TLS on BIND_ADDR. Otherwise serve plain
+    // HTTP.
+    let cert_file = std::env::var("TLS_CERT_FILE").ok();
+    let key_file = std::env::var("TLS_KEY_FILE").ok();
+    if let (Some(cert), Some(key)) = (cert_file, key_file) {
+        tracing::info!("ferriscms server serving HTTPS (TLS) on {addr}");
+        serve_tls(addr, app, &cert, &key).await?;
+    } else {
+        tracing::info!("ferriscms server listening on {addr}");
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app).await?;
+    }
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    Ok(())
+}
 
+/// Serve the app router over TLS using an X.509 cert chain + private key in PEM
+/// (rustls-pemfile) with the rustls ring crypto provider.
+async fn serve_tls(
+    addr: SocketAddr,
+    app: axum::Router,
+    cert_path: &str,
+    key_path: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // rustls 0.23 requires a crypto provider; ring is enabled as a feature.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    let config = axum_server::tls_rustls::RustlsConfig::from_pem_file(cert_path, key_path).await?;
+
+    axum_server::bind_rustls(addr, config)
+        .serve(app.into_make_service())
+        .await?;
     Ok(())
 }
