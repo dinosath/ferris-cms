@@ -17,4 +17,15 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # On the web the client is same-origin; we read `window.location.origin` so the
 # HTTP transport builds absolute URLs (reqwest rejects relative URLs).
-web-sys = { version = "0.3", features = ["Window", "Location"] }
+# We also send requests via the browser's native `fetch` so the Authorization
+# header is reliably attached on the wire.
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Location",
+    "Request",
+    "RequestInit",
+    "Response",
+    "Headers",
+] }

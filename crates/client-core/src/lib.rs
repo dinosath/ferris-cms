@@ -107,12 +107,20 @@ impl ApiTransport for HttpTransport {
 
     async fn get_json(&self, path: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.get(&url);
-        if let Some(tok) = self.token.read().as_ref() {
-            req = req.header("Authorization", format!("Bearer {tok}"));
+        let token = self.token.read().clone();
+        #[cfg(target_arch = "wasm32")]
+        {
+            return wasm_fetch_json("GET", &url, token.as_deref(), None).await;
         }
-        let resp = req.send().await?;
-        parse_response(resp).await
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut req = self.client.get(&url);
+            if let Some(tok) = &token {
+                req = req.header("Authorization", format!("Bearer {tok}"));
+            }
+            let resp = req.send().await?;
+            parse_response(resp).await
+        }
     }
 
     async fn post_json(
@@ -121,12 +129,20 @@ impl ApiTransport for HttpTransport {
         body: &serde_json::Value,
     ) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.post(&url).json(body);
-        if let Some(tok) = self.token.read().as_ref() {
-            req = req.header("Authorization", format!("Bearer {tok}"));
+        let token = self.token.read().clone();
+        #[cfg(target_arch = "wasm32")]
+        {
+            return wasm_fetch_json("POST", &url, token.as_deref(), Some(body)).await;
         }
-        let resp = req.send().await?;
-        parse_response(resp).await
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut req = self.client.post(&url).json(body);
+            if let Some(tok) = &token {
+                req = req.header("Authorization", format!("Bearer {tok}"));
+            }
+            let resp = req.send().await?;
+            parse_response(resp).await
+        }
     }
 
     async fn put_json(
@@ -135,22 +151,38 @@ impl ApiTransport for HttpTransport {
         body: &serde_json::Value,
     ) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.put(&url).json(body);
-        if let Some(tok) = self.token.read().as_ref() {
-            req = req.header("Authorization", format!("Bearer {tok}"));
+        let token = self.token.read().clone();
+        #[cfg(target_arch = "wasm32")]
+        {
+            return wasm_fetch_json("PUT", &url, token.as_deref(), Some(body)).await;
         }
-        let resp = req.send().await?;
-        parse_response(resp).await
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut req = self.client.put(&url).json(body);
+            if let Some(tok) = &token {
+                req = req.header("Authorization", format!("Bearer {tok}"));
+            }
+            let resp = req.send().await?;
+            parse_response(resp).await
+        }
     }
 
     async fn delete_json(&self, path: &str) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}{}", self.base_url, path);
-        let mut req = self.client.delete(&url);
-        if let Some(tok) = self.token.read().as_ref() {
-            req = req.header("Authorization", format!("Bearer {tok}"));
+        let token = self.token.read().clone();
+        #[cfg(target_arch = "wasm32")]
+        {
+            return wasm_fetch_json("DELETE", &url, token.as_deref(), None).await;
         }
-        let resp = req.send().await?;
-        parse_response(resp).await
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut req = self.client.delete(&url);
+            if let Some(tok) = &token {
+                req = req.header("Authorization", format!("Bearer {tok}"));
+            }
+            let resp = req.send().await?;
+            parse_response(resp).await
+        }
     }
 
     fn set_token(&self, token: Option<String>) {
@@ -158,7 +190,7 @@ impl ApiTransport for HttpTransport {
     }
 }
 
-/// Turn a `reqwest::Response` into a `serde_json::Value`, but check the HTTP
+/// Turn an HTTP status + body text into a `serde_json::Value`, but check the
 /// status first. On a non-2xx response the server returns a Strapi error
 /// envelope `{ data: null, error: {...} }`; surfacing the real `error.message`
 /// (plus validation details) is far more useful than letting downstream typed
@@ -169,7 +201,21 @@ async fn parse_response(resp: reqwest::Response) -> Result<serde_json::Value, Cl
         return Ok(resp.json().await?);
     }
     let text = resp.text().await.unwrap_or_default();
-    if let Ok(err) = serde_json::from_str::<api_types::ErrorResponse>(&text) {
+    parse_status_text(status.as_u16(), &text)
+}
+
+/// Shared status/text → value logic used by both the native (reqwest) and the
+/// wasm (native `fetch`) transports.
+fn parse_status_text(status: u16, text: &str) -> Result<serde_json::Value, ClientError> {
+    if (200..300).contains(&status) {
+        if let Ok(v) = serde_json::from_str(text) {
+            return Ok(v);
+        }
+        return Err(ClientError::Service(format!(
+            "HTTP {status}: invalid JSON response"
+        )));
+    }
+    if let Ok(err) = serde_json::from_str::<api_types::ErrorResponse>(text) {
         let mut msg = err.error.message;
         if let Some(details) = err.error.details {
             let joined: Vec<String> = details.errors.iter().map(|e| e.message.clone()).collect();
@@ -180,10 +226,61 @@ async fn parse_response(resp: reqwest::Response) -> Result<serde_json::Value, Cl
         return Err(ClientError::Service(msg));
     }
     Err(ClientError::Service(format!(
-        "HTTP {}: {}",
-        status.as_u16(),
+        "HTTP {status}: {}",
         text.chars().take(300).collect::<String>()
     )))
+}
+
+/// Browser `fetch`-based request for the wasm target. reqwest's wasm backend
+/// does not reliably attach the Authorization header on the wire, so we drive
+/// the browser's native `fetch` directly, which does.
+#[cfg(target_arch = "wasm32")]
+async fn wasm_fetch_json(
+    method: &str,
+    url: &str,
+    token: Option<&str>,
+    body: Option<&serde_json::Value>,
+) -> Result<serde_json::Value, ClientError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::JsValue;
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::{Request, RequestInit};
+
+    let mut init = RequestInit::new();
+    init.method(method);
+
+    let headers = web_sys::Headers::new().map_err(|_| ClientError::NotConnected)?;
+    headers
+        .set("Content-Type", "application/json")
+        .map_err(|_| ClientError::NotConnected)?;
+    if let Some(tok) = token {
+        headers
+            .set("Authorization", &format!("Bearer {tok}"))
+            .map_err(|_| ClientError::NotConnected)?;
+    }
+    init.headers(&headers);
+
+    if let Some(b) = body {
+        let body_str = serde_json::to_string(b).map_err(|e| ClientError::Service(e.to_string()))?;
+        init.body(Some(&JsValue::from_str(&body_str)));
+    }
+
+    let request =
+        Request::new_with_str_and_init(url, &init).map_err(|_| ClientError::NotConnected)?;
+    let window = web_sys::window().ok_or(ClientError::NotConnected)?;
+    let promise = window.fetch_with_request(&request);
+    let resp = JsFuture::from(promise)
+        .await
+        .map_err(|_| ClientError::NotConnected)?;
+    let resp: web_sys::Response = resp.dyn_into().map_err(|_| ClientError::NotConnected)?;
+    let status = resp.status();
+    let text_promise = resp.text().map_err(|_| ClientError::NotConnected)?;
+    let text = JsFuture::from(text_promise)
+        .await
+        .map_err(|_| ClientError::NotConnected)?
+        .as_string()
+        .ok_or(ClientError::NotConnected)?;
+    parse_status_text(status, &text)
 }
 
 // ---------------------------------------------------------------------------
