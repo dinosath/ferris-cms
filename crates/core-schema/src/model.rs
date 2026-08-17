@@ -75,6 +75,39 @@ pub struct I18nOptions {
     pub localized: bool,
 }
 
+/// Operator for a conditional-visibility rule.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FieldConditionOperator {
+    #[default]
+    Is,
+    IsNot,
+}
+
+impl FieldConditionOperator {
+    /// Whether the field is shown given `actual` equals the configured value.
+    pub fn matches(&self, actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
+        match self {
+            Self::Is => actual == expected,
+            Self::IsNot => actual != expected,
+        }
+    }
+}
+
+/// A conditional-visibility rule: show this field only when the trigger
+/// `field`'s value matches `operator` compared to `value`. Mirrors Strapi's
+/// conditional fields (schema-level JSON that can be version-controlled).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldCondition {
+    /// Name of the trigger attribute whose value drives visibility.
+    pub field: String,
+    pub operator: FieldConditionOperator,
+    /// Expected value to compare against (bool for checkboxes, string for
+    /// enums/selects, etc).
+    pub value: serde_json::Value,
+}
+
 /// One attribute (field). All type-specific payloads are optional members so
 /// the JSON stays flat exactly like Strapi's `schema.json`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -144,6 +177,10 @@ pub struct Attribute {
     pub multiple: Option<bool>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub allowed_types: Vec<String>,
+
+    // ---- conditional visibility (Strapi conditional fields) ----
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible_when: Option<FieldCondition>,
 }
 
 impl Attribute {
@@ -151,6 +188,22 @@ impl Attribute {
         Self {
             attr_type,
             ..Default::default()
+        }
+    }
+
+    /// Whether this field should be shown given the current form values, based
+    /// on its conditional-visibility rule (if any). Fields without a rule are
+    /// always visible.
+    pub fn is_visible(&self, form: &serde_json::Map<String, serde_json::Value>) -> bool {
+        match &self.visible_when {
+            None => true,
+            Some(cond) => {
+                let actual = form
+                    .get(&cond.field)
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null);
+                cond.operator.matches(&actual, &cond.value)
+            }
         }
     }
 
@@ -362,5 +415,66 @@ mod tests {
     #[test]
     fn main_field_heuristic() {
         assert_eq!(article_schema().main_field(), "title");
+    }
+
+    #[test]
+    fn conditional_visibility() {
+        // No rule -> always visible.
+        let plain = Attribute::new(core_domain::FieldType::String);
+        assert!(plain.is_visible(&serde_json::Map::new()));
+
+        // Show when a boolean trigger is true.
+        let promo = Attribute {
+            visible_when: Some(FieldCondition {
+                field: "marketing".into(),
+                operator: FieldConditionOperator::Is,
+                value: serde_json::json!(true),
+            }),
+            ..Attribute::new(core_domain::FieldType::String)
+        };
+        let mut form_true = serde_json::Map::new();
+        form_true.insert("marketing".into(), serde_json::json!(true));
+        assert!(promo.is_visible(&form_true), "shown when trigger is true");
+        let mut form_false = serde_json::Map::new();
+        form_false.insert("marketing".into(), serde_json::json!(false));
+        assert!(
+            !promo.is_visible(&form_false),
+            "hidden when trigger is false"
+        );
+
+        // "is not" hides when the trigger equals the value.
+        let hide = Attribute {
+            visible_when: Some(FieldCondition {
+                field: "state".into(),
+                operator: FieldConditionOperator::IsNot,
+                value: serde_json::json!("draft"),
+            }),
+            ..Attribute::new(core_domain::FieldType::String)
+        };
+        let mut draft = serde_json::Map::new();
+        draft.insert("state".into(), serde_json::json!("draft"));
+        assert!(!hide.is_visible(&draft), "hidden when state is draft");
+
+        // Missing trigger defaults to null -> isNot(null) shows the field.
+        assert!(hide.is_visible(&serde_json::Map::new()));
+    }
+
+    #[test]
+    fn conditional_visibility_serializes_as_camel_case() {
+        let attr = Attribute {
+            visible_when: Some(FieldCondition {
+                field: "enabled".into(),
+                operator: FieldConditionOperator::Is,
+                value: serde_json::json!(true),
+            }),
+            ..Attribute::new(core_domain::FieldType::String)
+        };
+        let value = serde_json::to_value(&attr).unwrap();
+        assert_eq!(value["visibleWhen"]["field"], "enabled");
+        assert_eq!(value["visibleWhen"]["operator"], "is");
+        assert_eq!(value["visibleWhen"]["value"], true);
+        // Round-trips back.
+        let back: Attribute = serde_json::from_value(value).unwrap();
+        assert_eq!(back.visible_when.unwrap().field, "enabled");
     }
 }
