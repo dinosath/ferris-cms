@@ -201,24 +201,38 @@ async fn embedded_ui(uri: Uri) -> Response {
 
     if let Some(content) = UiAssets::get(&path) {
         let mime = mime_guess::from_path(&path).first_or_octet_stream();
-        return (
+        let mut resp = (
             StatusCode::OK,
             [(header::CONTENT_TYPE, mime.as_ref())],
             content.data.into_owned(),
         )
             .into_response();
+        // The SPA entry must always be revalidated so browsers pick up the
+        // current (hash-named) bundle after a redeploy instead of a stale one.
+        if path == UI_INDEX {
+            resp.headers_mut().insert(
+                header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-cache"),
+            );
+        }
+        return resp;
     }
 
     // SPA fallback: serve index.html for extension-less paths.
     if !path.contains('.') {
         if let Some(index) = UiAssets::get(UI_INDEX) {
             let mime = mime_guess::from_path(UI_INDEX).first_or_octet_stream();
-            return (
+            let mut resp = (
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, mime.as_ref())],
                 index.data.into_owned(),
             )
                 .into_response();
+            resp.headers_mut().insert(
+                header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-cache"),
+            );
+            return resp;
         }
     }
 
