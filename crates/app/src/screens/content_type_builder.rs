@@ -567,6 +567,23 @@ fn api_ids_from_display(display: &str) -> (String, String) {
     (singular, plural)
 }
 
+/// Coerce a user-typed conditional value into a JSON value: booleans and
+/// numbers become typed; anything else stays a string.
+fn parse_cond_value(s: &str) -> serde_json::Value {
+    let t = s.trim();
+    if t.eq_ignore_ascii_case("true") {
+        serde_json::json!(true)
+    } else if t.eq_ignore_ascii_case("false") {
+        serde_json::json!(false)
+    } else if let Ok(n) = t.parse::<i64>() {
+        serde_json::json!(n)
+    } else if let Ok(f) = t.parse::<f64>() {
+        serde_json::json!(f)
+    } else {
+        serde_json::json!(t)
+    }
+}
+
 /// Resolve the concrete FieldType for a picked type given the sub-format
 /// chosen for Number / Date fields.
 fn resolve_type(field_type: FieldType, num_format: &str, date_type: &str) -> FieldType {
@@ -617,6 +634,11 @@ fn FieldConfigModal(
     let mut media_allowed = use_signal(|| "images".to_string());
     // UID config.
     let mut uid_target = use_signal(String::new);
+    // Conditional visibility (Strapi conditional fields).
+    let mut cond_enabled = use_signal(|| false);
+    let mut cond_field = use_signal(String::new);
+    let mut cond_operator = use_signal(|| "is".to_string());
+    let mut cond_value = use_signal(String::new);
 
     let title = format!("Add a new {} field", field_type.as_str());
     let is_number = matches!(
@@ -644,6 +666,14 @@ fn FieldConfigModal(
         std::iter::once(("".to_string(), "None".to_string()))
             .chain(sibling_fields.iter().map(|f| (f.clone(), f.clone())))
             .collect();
+    let trigger_options: Vec<(String, String)> =
+        std::iter::once(("".to_string(), "None".to_string()))
+            .chain(sibling_fields.iter().map(|f| (f.clone(), f.clone())))
+            .collect();
+    let operator_options: Vec<(String, String)> = vec![
+        ("is".to_string(), "is".to_string()),
+        ("isNot".to_string(), "is not".to_string()),
+    ];
 
     let relation_options: Vec<(String, String)> = vec![
         ("oneWay".to_string(), "One way".to_string()),
@@ -703,6 +733,17 @@ fn FieldConfigModal(
             } else {
                 Some(uid_target())
             };
+        }
+        if cond_enabled() && !cond_field().is_empty() {
+            attr.visible_when = Some(core_schema::FieldCondition {
+                field: cond_field(),
+                operator: if cond_operator() == "isNot" {
+                    core_schema::FieldConditionOperator::IsNot
+                } else {
+                    core_schema::FieldConditionOperator::Is
+                },
+                value: parse_cond_value(&cond_value()),
+            });
         }
         on_save.call((name(), attr));
     };
@@ -814,6 +855,36 @@ fn FieldConfigModal(
                 Toggle { checked: unique(), label: "Unique field".to_string(), onchange: move |v| unique.set(v) }
                 Toggle { checked: private(), label: "Private field (not exposed in API)".to_string(), onchange: move |v| private.set(v) }
             }
+            div { style: "border-top:1px solid {color::NEUTRAL_150}; padding-top:16px; margin-top:8px;",
+                div { style: "display:flex; align-items:center; justify-content:space-between;",
+                    span { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_800};", "Conditional visibility" }
+                    Toggle { checked: cond_enabled(), label: String::new(), onchange: move |v| cond_enabled.set(v) }
+                }
+                span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; display:block; margin-top:4px;",
+                    "Show this field only when another field matches a value."
+                }
+                if cond_enabled() {
+                    Dropdown {
+                        label: "Trigger field".to_string(),
+                        options: trigger_options,
+                        value: "{cond_field}",
+                        onchange: move |v| cond_field.set(v),
+                    }
+                    Dropdown {
+                        label: "Condition".to_string(),
+                        options: operator_options,
+                        value: "{cond_operator}",
+                        onchange: move |v| cond_operator.set(v),
+                    }
+                    TextField {
+                        value: "{cond_value}",
+                        label: "Value".to_string(),
+                        placeholder: "true / false / a value".to_string(),
+                        helper: "For checkboxes use true or false; for selects use the option value.".to_string(),
+                        oninput: move |v| cond_value.set(v),
+                    }
+                }
+            }
             div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
                 Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |e| on_close.call(e) }
                 Button { label: "Finish".to_string(), variant: "primary".to_string(), on_click: finish }
@@ -879,5 +950,15 @@ mod tests {
         );
         // Empty display name yields an empty singular and a bare "s" plural.
         assert_eq!(api_ids_from_display(""), ("".to_string(), "s".to_string()));
+    }
+
+    #[test]
+    fn parse_cond_value_coerces_types() {
+        assert_eq!(parse_cond_value("true"), serde_json::json!(true));
+        assert_eq!(parse_cond_value("FALSE"), serde_json::json!(false));
+        assert_eq!(parse_cond_value("42"), serde_json::json!(42));
+        assert_eq!(parse_cond_value("3.5"), serde_json::json!(3.5));
+        assert_eq!(parse_cond_value("draft"), serde_json::json!("draft"));
+        assert_eq!(parse_cond_value(""), serde_json::json!(""));
     }
 }

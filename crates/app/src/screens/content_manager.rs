@@ -736,12 +736,12 @@ fn EntryEditView(
     );
     let status_style = format!("padding:12px; border-radius:4px; background:{}; color:{}; font-size:{}; margin-bottom:16px;", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
 
-    let scalar: Vec<(String, FieldType, Vec<String>)> = schema
+    let scalar: Vec<(String, FieldType, Vec<String>, core_schema::Attribute)> = schema
         .attributes
         .iter()
         .filter(|(_, a)| a.attr_type.is_scalar_column())
         .filter(|(_, a)| a.attr_type != FieldType::Password)
-        .map(|(name, a)| (name.clone(), a.attr_type, a.enum_values.clone()))
+        .map(|(name, a)| (name.clone(), a.attr_type, a.enum_values.clone(), a.clone()))
         .collect();
 
     // Non-scalar fields: component (single/repeatable) and dynamic zones.
@@ -876,8 +876,9 @@ fn EntryEditView(
                         div { style: "{status_style}", "{status}" }
                     }
                     Card { padding: 24,
-                        for (name, ft, enum_values) in scalar.into_iter() {
-                            match ft {
+                        for (name, ft, enum_values, attr) in scalar.into_iter() {
+                            if attr.is_visible(&form()) {
+                                match ft {
                                 FieldType::Boolean => rsx! {
                                     div { key: "{name}", style: "margin-bottom:16px;",
                                         Toggle {
@@ -902,6 +903,7 @@ fn EntryEditView(
                                         oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
                                     }
                                 },
+                            }
                             }
                         }
                         for (label, name, comp_uid, _repeatable) in component_fields.into_iter() {
