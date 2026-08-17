@@ -21,9 +21,35 @@ pub fn Login() -> Element {
     let mut email = use_signal(String::new);
     let mut password = use_signal(String::new);
     let mut outcome = use_signal(|| LoginOutcome::Idle);
+    // Set on "Login" click; a `use_effect` below performs the async call. This
+    // avoids `spawn` directly inside an event handler, which does not run its
+    // async body in the wasm build.
+    let mut attempt = use_signal(|| None::<(String, String)>);
+
+    // Perform login when a submit is requested. Running `spawn` from an effect
+    // (rather than an event handler) is what works on the web target.
+    let g_login_effect = global.clone();
+    use_effect(move || {
+        if let Some((em, pw)) = attempt() {
+            let mut g = g_login_effect.clone();
+            let email = em.clone();
+            let password = pw.clone();
+            attempt.set(None);
+            outcome.set(LoginOutcome::Loading);
+            spawn(async move {
+                let resp = g.client.auth_login(&LoginRequest { email, password }).await;
+                match resp {
+                    Ok(r) => {
+                        g.set_token(Some(r.data.token.clone()));
+                        g.route.set(Route::Home);
+                    }
+                    Err(e) => outcome.set(LoginOutcome::Error(e.to_string())),
+                }
+            });
+        }
+    });
 
     let busy = outcome() == LoginOutcome::Loading;
-    let g_login = global.clone();
     let mut g_register = global.clone();
 
     let card_width = 456;
@@ -83,22 +109,7 @@ pub fn Login() -> Element {
                         full_width: true,
                         loading: busy,
                         on_click: move |_| {
-                            let mut g = g_login.clone();
-                            let email = email();
-                            let password = password();
-                            outcome.set(LoginOutcome::Loading);
-                            spawn(async move {
-                                let resp = g.client
-                                    .auth_login(&LoginRequest { email, password })
-                                    .await;
-                                match resp {
-                                    Ok(r) => {
-                                        g.set_token(Some(r.data.token.clone()));
-                                        g.route.set(Route::Home);
-                                    }
-                                    Err(e) => outcome.set(LoginOutcome::Error(e.to_string())),
-                                }
-                            });
+                            attempt.set(Some((email(), password())));
                         },
                     }
                     span { style: "{footer_style}",

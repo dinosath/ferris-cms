@@ -23,6 +23,38 @@ pub fn Register() -> Element {
     let mut password = use_signal(String::new);
     let mut confirm = use_signal(String::new);
     let mut outcome = use_signal(|| RegisterOutcome::Idle);
+    // Set on "Let's start" click; a `use_effect` performs the async call (see
+    // login.rs) because `spawn` inside an event handler does not run on wasm.
+    let mut attempt = use_signal(|| false);
+
+    let g_register_effect = global.clone();
+    use_effect(move || {
+        if attempt() {
+            let mut g = g_register_effect.clone();
+            let firstname = firstname();
+            let lastname = lastname();
+            let email = email();
+            let password = password();
+            attempt.set(false);
+            outcome.set(RegisterOutcome::Loading);
+            spawn(async move {
+                let req = RegisterAdminRequest {
+                    email,
+                    password,
+                    firstname: Some(firstname),
+                    lastname: Some(lastname),
+                    registration_token: None,
+                };
+                match g.client.auth_register(&req).await {
+                    Ok(r) => {
+                        g.set_token(Some(r.data.token.clone()));
+                        g.route.set(Route::Home);
+                    }
+                    Err(e) => outcome.set(RegisterOutcome::Error(e.to_string())),
+                }
+            });
+        }
+    });
 
     let busy = outcome() == RegisterOutcome::Loading;
     let password_mismatch = !password().is_empty() && password() != confirm();
@@ -74,28 +106,10 @@ pub fn Register() -> Element {
                         full_width: true,
                         loading: busy,
                         on_click: move |_| {
-                            if password() != confirm() { return; }
-                            let mut g = global.clone();
-                            let firstname = firstname();
-                            let lastname = lastname();
-                            let email = email();
-                            let password = password();
-                            outcome.set(RegisterOutcome::Loading);
-                            spawn(async move {
-                                let req = RegisterAdminRequest {
-                                    email, password,
-                                    firstname: Some(firstname),
-                                    lastname: Some(lastname),
-                                    registration_token: None,
-                                };
-                                match g.client.auth_register(&req).await {
-                                    Ok(r) => {
-                                        g.set_token(Some(r.data.token.clone()));
-                                        g.route.set(Route::Home);
-                                    }
-                                    Err(e) => outcome.set(RegisterOutcome::Error(e.to_string())),
-                                }
-                            });
+                            if password() != confirm() {
+                                return;
+                            }
+                            attempt.set(true);
                         },
                     }
                 }
