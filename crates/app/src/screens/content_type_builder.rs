@@ -552,33 +552,18 @@ fn FieldPickerModal(
     }
 }
 
-/// Derive a kebab-case api id from a human display name ("Blog Post" -> "blog-post").
-/// The API id regex only allows lowercase letters, digits and dashes, so spaces
-/// and other punctuation must become dashes (Strapi behaviour).
+/// Convert a human display name to a kebab-case API id (via `cruet`).
 fn kebab_id(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut prev_dash = false;
-    for ch in s.trim().chars() {
-        let c = ch.to_ascii_lowercase();
-        if c.is_ascii_alphanumeric() {
-            out.push(c);
-            prev_dash = false;
-        } else if !out.is_empty() && !prev_dash {
-            out.push('-');
-            prev_dash = true;
-        }
-    }
-    while out.ends_with('-') {
-        out.pop();
-    }
-    out
+    use cruet::Inflector;
+    s.to_kebab_case()
 }
 
 /// Derive the singular and plural API IDs from a display name (e.g. "Blog Post"
 /// -> ("blog-post", "blog-posts")).
 fn api_ids_from_display(display: &str) -> (String, String) {
-    let singular = kebab_id(display);
-    let plural = format!("{singular}s");
+    use cruet::Inflector;
+    let singular = display.to_kebab_case();
+    let plural = singular.to_plural();
     (singular, plural)
 }
 
