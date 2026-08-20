@@ -104,6 +104,14 @@ pub async fn cm_create(
     .await?;
 
     let row = dml::insert_one(&ctx.db, &schema, data, user_id).await?;
+    // Fire the `content.created` trigger for active workflows (async, best-effort).
+    let _ = crate::workflow::triggers::dispatch_cms_event(
+        ctx,
+        "content.created",
+        schema.uid.as_str(),
+        row.clone(),
+    )
+    .await;
     Ok(EntryResponse {
         data: row,
         meta: None,
@@ -129,6 +137,13 @@ pub async fn cm_update(
     .await?;
 
     let row = dml::update_one(&ctx.db, &schema, document_id, data, user_id).await?;
+    let _ = crate::workflow::triggers::dispatch_cms_event(
+        ctx,
+        "content.updated",
+        schema.uid.as_str(),
+        row.clone(),
+    )
+    .await;
     Ok(EntryResponse {
         data: row,
         meta: None,
@@ -148,6 +163,13 @@ pub async fn cm_delete(ctx: &AppContext, uid: &str, document_id: &str) -> Result
     .await?;
 
     dml::delete_one(&ctx.db, &schema, document_id).await?;
+    let _ = crate::workflow::triggers::dispatch_cms_event(
+        ctx,
+        "content.deleted",
+        schema.uid.as_str(),
+        serde_json::json!({ "documentId": document_id }),
+    )
+    .await;
     Ok(())
 }
 
@@ -205,6 +227,14 @@ pub async fn cm_publish(
 
     txn.commit().await?;
 
+    let _ = crate::workflow::triggers::dispatch_cms_event(
+        ctx,
+        "content.published",
+        schema.uid.as_str(),
+        published.clone(),
+    )
+    .await;
+
     Ok(EntryResponse {
         data: published,
         meta: None,
@@ -251,6 +281,14 @@ pub async fn cm_unpublish(
     dml::delete_one(&txn, &schema, document_id).await?;
 
     txn.commit().await?;
+
+    let _ = crate::workflow::triggers::dispatch_cms_event(
+        ctx,
+        "content.published",
+        schema.uid.as_str(),
+        draft.clone(),
+    )
+    .await;
 
     Ok(EntryResponse {
         data: draft,

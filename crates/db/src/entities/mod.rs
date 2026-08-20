@@ -358,3 +358,115 @@ pub mod sync_oplog {
 
     impl ActiveModelBehavior for ActiveModel {}
 }
+
+// ---------------------------------------------------------------------------
+// Workflow automation (n8n-style). Stored as stable, structured JSON so the
+// workflow definition (nodes + connections + settings) is versionable,
+// importable/exportable and API-accessible — the frontend canvas is never the
+// source of truth.
+// ---------------------------------------------------------------------------
+
+/// `workflow` — one persisted workflow definition.
+pub mod workflow {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "workflow")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub name: String,
+        pub description: Option<String>,
+        pub version: i64,
+        pub active: bool,
+        /// The full `workflow::model::Workflow` JSON (nodes, connections,
+        /// settings, variables, tags, timestamps).
+        pub definition_json: Json,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+        pub created_by: Option<i64>,
+        pub updated_by: Option<i64>,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `workflow_credential` — a saved credential for integration nodes.
+/// The sensitive data is stored encrypted (see the credential service); this
+/// table only holds the encrypted blob + metadata, never plaintext.
+pub mod workflow_credential {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "workflow_credential")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub name: String,
+        pub credential_type: String,
+        /// Encrypted credential payload.
+        pub data_encrypted: String,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `workflow_execution` — a run of a workflow, with its overall status.
+pub mod workflow_execution {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "workflow_execution")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub workflow_id: i64,
+        pub status: String,
+        /// manual | trigger | schedule | webhook
+        pub mode: String,
+        pub trigger: String,
+        pub started_at: DateTimeUtc,
+        pub finished_at: Option<DateTimeUtc>,
+        pub duration_ms: Option<i64>,
+        pub error: Option<String>,
+        /// Optional trigger data snapshot for inspection.
+        pub data_json: Option<Json>,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `workflow_node_run` — one node's execution record within an execution.
+pub mod workflow_node_run {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "workflow_node_run")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub execution_id: i64,
+        pub node_id: String,
+        pub node_name: String,
+        pub node_type: String,
+        /// notExecuted | running | success | failed | skipped | waiting
+        pub status: String,
+        pub started_at: Option<DateTimeUtc>,
+        pub finished_at: Option<DateTimeUtc>,
+        pub duration_ms: Option<i64>,
+        pub input_json: Option<Json>,
+        pub output_json: Option<Json>,
+        pub error: Option<String>,
+        pub attempts: i64,
+        /// Deterministic topological execution order index.
+        pub order: i64,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

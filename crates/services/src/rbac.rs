@@ -72,6 +72,11 @@ pub async fn init_rbac(db: &DatabaseConnection) -> Result<(), DbErr> {
         "schema_change_log",
         "sync_state",
         "sync_oplog",
+        // workflow automation tables
+        "workflow",
+        "workflow_credential",
+        "workflow_execution",
+        "workflow_node_run",
     ];
 
     ctx.add_tables(db, system_tables).await?;

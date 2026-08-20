@@ -49,6 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load existing schemas into cache.
     load_schema_cache(&db, &state.ctx.schema_cache).await?;
 
+    // Seed demo workflows on first boot (idempotent).
+    match services::seed_demo_workflows(&state.ctx).await {
+        Ok(n) if n > 0 => tracing::info!("seeded {n} demo workflows"),
+        _ => {}
+    }
+
     // Initialize SeaORM 2.0 RBAC engine with standard roles/permissions.
     tracing::info!("initializing RBAC engine");
     match state.ctx.init_rbac().await {

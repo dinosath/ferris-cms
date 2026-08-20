@@ -562,6 +562,191 @@ impl Client {
         self.transport.get_json("/admin/api-tokens").await
     }
 
+    // -- Workflow automation --
+
+    /// List workflows (optionally filtered).
+    pub async fn workflow_list(
+        &self,
+        name: Option<&str>,
+        active: Option<bool>,
+    ) -> Result<serde_json::Value, ClientError> {
+        let mut qs = Vec::new();
+        if let Some(n) = name {
+            if !n.is_empty() {
+                qs.push(format!("name={}", n));
+            }
+        }
+        if let Some(a) = active {
+            qs.push(format!("active={a}"));
+        }
+        let path = if qs.is_empty() {
+            "/admin/workflows".to_string()
+        } else {
+            format!("/admin/workflows?{}", qs.join("&"))
+        };
+        self.transport.get_json(&path).await
+    }
+
+    /// Get one workflow definition.
+    pub async fn workflow_get(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .get_json(&format!("/admin/workflows/{id}"))
+            .await
+    }
+
+    /// Create a workflow.
+    pub async fn workflow_create(&self, name: &str) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/workflows", &serde_json::json!({ "name": name }))
+            .await
+    }
+
+    /// Save a workflow definition (full Workflow JSON).
+    pub async fn workflow_save(
+        &self,
+        id: i64,
+        definition: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .put_json(&format!("/admin/workflows/{id}"), definition)
+            .await
+    }
+
+    /// Delete a workflow.
+    pub async fn workflow_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .delete_json(&format!("/admin/workflows/{id}"))
+            .await
+    }
+
+    /// Activate/deactivate a workflow.
+    pub async fn workflow_set_active(
+        &self,
+        id: i64,
+        active: bool,
+    ) -> Result<serde_json::Value, ClientError> {
+        let path = if active {
+            format!("/admin/workflows/{id}/activate")
+        } else {
+            format!("/admin/workflows/{id}/deactivate")
+        };
+        self.transport.post_json(&path, &serde_json::json!({})).await
+    }
+
+    /// Duplicate a workflow.
+    pub async fn workflow_duplicate(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(&format!("/admin/workflows/{id}/duplicate"), &serde_json::json!({}))
+            .await
+    }
+
+    /// Validate a workflow.
+    pub async fn workflow_validate(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(&format!("/admin/workflows/{id}/validate"), &serde_json::json!({}))
+            .await
+    }
+
+    /// Execute a workflow manually with input data.
+    pub async fn workflow_execute(
+        &self,
+        id: i64,
+        data: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(
+                &format!("/admin/workflows/{id}/execute"),
+                &serde_json::json!({ "data": data }),
+            )
+            .await
+    }
+
+    /// Export a workflow as JSON.
+    pub async fn workflow_export(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .get_json(&format!("/admin/workflows/{id}/export"))
+            .await
+    }
+
+    /// Import a workflow from JSON.
+    pub async fn workflow_import(&self, value: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
+        self.transport.post_json("/admin/workflows/import", value).await
+    }
+
+    /// List executions.
+    pub async fn execution_list(
+        &self,
+        workflow_id: Option<i64>,
+        status: Option<&str>,
+    ) -> Result<serde_json::Value, ClientError> {
+        let mut qs = Vec::new();
+        if let Some(w) = workflow_id {
+            qs.push(format!("workflow_id={w}"));
+        }
+        if let Some(s) = status {
+            qs.push(format!("status={s}"));
+        }
+        let path = if qs.is_empty() {
+            "/admin/executions".to_string()
+        } else {
+            format!("/admin/executions?{}", qs.join("&"))
+        };
+        self.transport.get_json(&path).await
+    }
+
+    /// Get one execution + its node runs.
+    pub async fn execution_get(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json(&format!("/admin/executions/{id}")).await
+    }
+
+    /// Cancel an execution.
+    pub async fn execution_cancel(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(&format!("/admin/executions/{id}/cancel"), &serde_json::json!({}))
+            .await
+    }
+
+    /// Retry a failed execution.
+    pub async fn execution_retry(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(&format!("/admin/executions/{id}/retry"), &serde_json::json!({}))
+            .await
+    }
+
+    // -- Credentials --
+
+    pub async fn credential_list(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/workflow-credentials").await
+    }
+    pub async fn credential_types(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/workflow-credentials/types").await
+    }
+    pub async fn credential_create(
+        &self,
+        name: &str,
+        credential_type: &str,
+        data: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json(
+                "/admin/workflow-credentials",
+                &serde_json::json!({ "name": name, "credentialType": credential_type, "data": data }),
+            )
+            .await
+    }
+    pub async fn credential_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/workflow-credentials/{id}")).await
+    }
+
+    // -- Node library / content types --
+
+    pub async fn workflow_node_library(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/workflow-node-library").await
+    }
+    pub async fn workflow_content_types(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/workflow-content-types").await
+    }
+
     // -- i18n locales --
 
     /// List locales.

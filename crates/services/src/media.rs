@@ -133,7 +133,13 @@ pub async fn media_upload(
     };
     let row = model.insert(&ctx.db).await?;
 
-    Ok(MediaFile::from(row))
+    let file = MediaFile::from(row);
+    let _ = crate::workflow::triggers::dispatch_media_event(
+        ctx,
+        serde_json::json!({ "id": file.id, "name": file.name, "mime": file.mime, "url": file.url, "size": file.size }),
+    )
+    .await;
+    Ok(file)
 }
 
 /// Compact lowercase hex of a byte slice (no external dep needed).
@@ -189,4 +195,35 @@ mod tests {
     fn hex_lowercases() {
         assert_eq!(hex(&[0xAB, 0x0f]), "ab0f");
     }
+}
+
+#[cfg(test)]
+mod send_tests {
+    use sea_orm_migration::MigratorTrait;
+    use tokio::io::AsyncWriteExt;
+
+    fn require_send<T: Send>(_: &T) {}
+    fn require_sync<T: Sync>(_: &T) {}
+
+    #[tokio::test]
+    async fn media_probe() {
+        let db = db::connect_sqlite_memory().await.unwrap();
+        db::migration::Migrator::up(&db, None).await.unwrap();
+        let ctx = crate::AppContext::new(db, crate::AppConfig::default());
+        tokio::spawn(async move {
+            let _ = crate::media::media_upload(&ctx, "a", "text/plain", b"x").await;
+        });
+    }
+
+    #[tokio::test]
+    async fn app_context_is_send_sync() {
+        let db = db::connect_sqlite_memory().await.unwrap();
+        db::migration::Migrator::up(&db, None).await.unwrap();
+        let ctx = crate::AppContext::new(db, crate::AppConfig::default());
+        require_send(&ctx);
+        require_sync(&ctx);
+        require_send(&ctx.schema_cache);
+        require_sync(&ctx.schema_cache);
+    }
+
 }

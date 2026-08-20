@@ -5,7 +5,10 @@ use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 
 use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
-use crate::screens::{content_manager, content_type_builder, home, media, settings};
+use crate::screens::{
+    content_manager, content_type_builder, executions, home, media, settings, workflow_editor,
+    workflows,
+};
 
 #[component]
 pub fn Shell() -> Element {
@@ -24,6 +27,10 @@ pub fn Shell() -> Element {
                         Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
                         Route::ContentManager => rsx! { content_manager::ContentManager {} },
                         Route::Media => rsx! { media::MediaLibrary {} },
+                        Route::Workflows => rsx! { workflows::Workflows {} },
+                        Route::WorkflowEditor(id) => rsx! { workflow_editor::WorkflowEditor { workflow_id: id } },
+                        Route::WorkflowExecutions => rsx! { executions::Executions {} },
+                        Route::Execution(id) => rsx! { executions::ExecutionDetail { execution_id: id } },
                         Route::Settings => rsx! { settings::Settings {} },
                         _ => rsx! { home::Home {} },
                     }
@@ -56,6 +63,10 @@ fn TopBar() -> Element {
         Route::ContentManager => "Content Manager",
         Route::ContentTypeBuilder => "Content-Type Builder",
         Route::Media => "Media Library",
+        Route::Workflows => "Workflows",
+        Route::WorkflowEditor(_) => "Workflow Editor",
+        Route::WorkflowExecutions => "Workflow Executions",
+        Route::Execution(_) => "Execution",
         Route::Settings => "Settings",
         _ => "Home",
     };
@@ -82,6 +93,8 @@ fn Sidebar() -> Element {
     let mut g_cm = global.clone();
     let mut g_ctb = global.clone();
     let mut g_media = global.clone();
+    let mut g_wf = global.clone();
+    let mut g_exec = global.clone();
     let mut g_settings = global.clone();
     let mut g_logout = global.clone();
 
@@ -133,6 +146,12 @@ fn Sidebar() -> Element {
                 NavItem { label: "Content Manager".to_string(), icon: "stack".to_string(), active: active(Route::ContentManager), onclick: move |_| g_cm.route.set(Route::ContentManager) }
                 NavItem { label: "Content-Type Builder".to_string(), icon: "grid".to_string(), active: active(Route::ContentTypeBuilder), onclick: move |_| g_ctb.route.set(Route::ContentTypeBuilder) }
                 NavItem { label: "Media Library".to_string(), icon: "image".to_string(), active: active(Route::Media), onclick: move |_| g_media.route.set(Route::Media) }
+            }
+            div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
+            span { style: "{section_label}", "AUTOMATION" }
+            div { style: "padding:0 12px 12px; display:flex; flex-direction:column; gap:4px;",
+                NavItem { label: "Workflows".to_string(), icon: "layers".to_string(), active: active(Route::Workflows) || matches!(route(), Route::WorkflowEditor(_)), onclick: move |_| g_wf.route.set(Route::Workflows) }
+                NavItem { label: "Executions".to_string(), icon: "list".to_string(), active: active(Route::WorkflowExecutions) || matches!(route(), Route::Execution(_)), onclick: move |_| g_exec.route.set(Route::WorkflowExecutions) }
             }
             div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
             span { style: "{section_label}", "GENERAL" }

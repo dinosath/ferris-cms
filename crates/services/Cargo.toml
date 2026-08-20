@@ -10,10 +10,13 @@ core-schema = { workspace = true }
 api-types = { workspace = true }
 db = { workspace = true }
 dynamic-store = { workspace = true }
+workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+tokio = { workspace = true }
+indexmap = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
@@ -26,6 +29,9 @@ argon2 = { workspace = true }
 sha2 = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
+reqwest = { version = "0.12", features = ["json"] }
+base64 = "0.22"
+chacha20poly1305 = "0.10"
 
 [dev-dependencies]
 tokio = { workspace = true }

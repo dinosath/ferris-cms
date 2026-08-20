@@ -18,7 +18,11 @@ static IS_POSTGRES: AtomicBool = AtomicBool::new(false);
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![Box::new(M20260731Init), Box::new(M20260731Rbac)]
+        vec![
+            Box::new(M20260731Init),
+            Box::new(M20260731Rbac),
+            Box::new(M20260820Workflow),
+        ]
     }
 }
 
@@ -426,6 +430,131 @@ impl MigrationTrait for M20260731Rbac {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in sea_orm::rbac::schema::all_tables() {
+            manager
+                .drop_table(
+                    Table::drop()
+                        .table(Alias::new(table))
+                        .if_exists()
+                        .to_owned(),
+                )
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+/// Workflow automation tables (n8n-style workflow engine).
+struct M20260820Workflow;
+
+impl MigrationName for M20260820Workflow {
+    fn name(&self) -> &str {
+        "m20260820_000003_init_workflow_tables"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260820Workflow {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        IS_POSTGRES.store(
+            matches!(
+                manager.get_database_backend(),
+                sea_orm::DatabaseBackend::Postgres
+            ),
+            Ordering::Relaxed,
+        );
+
+        // ---- workflow ----
+        let mut t = Table::create()
+            .table(Alias::new("workflow"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(str_col("name"));
+        t.col(str_opt("description"));
+        t.col(int_col("version"));
+        t.col(bool_col("active"));
+        t.col(json_col("definition_json"));
+        timestamps(&mut t);
+        t.col(int_opt("created_by"));
+        t.col(int_opt("updated_by"));
+        manager.create_table(t).await?;
+        create_index(manager, "workflow", &["active"]).await?;
+
+        // ---- workflow_credential ----
+        let mut t = Table::create()
+            .table(Alias::new("workflow_credential"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(str_col("name"));
+        t.col(str_col("credential_type"));
+        t.col(str_col("data_encrypted"));
+        timestamps(&mut t);
+        manager.create_table(t).await?;
+
+        // ---- workflow_execution ----
+        let mut t = Table::create()
+            .table(Alias::new("workflow_execution"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(int_col("workflow_id"));
+        t.col(str_col("status"));
+        t.col(str_col("mode"));
+        t.col(str_col("trigger"));
+        t.col(ts_col("started_at"));
+        t.col(ts_opt("finished_at"));
+        t.col(int_opt("duration_ms"));
+        t.col(str_opt("error"));
+        {
+            let mut c = ColumnDef::new(Alias::new("data_json"));
+            c.json();
+            t.col(&mut c);
+        }
+        manager.create_table(t).await?;
+        create_index(manager, "workflow_execution", &["workflow_id"]).await?;
+        create_index(manager, "workflow_execution", &["status"]).await?;
+
+        // ---- workflow_node_run ----
+        let mut t = Table::create()
+            .table(Alias::new("workflow_node_run"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(int_col("execution_id"));
+        t.col(str_col("node_id"));
+        t.col(str_col("node_name"));
+        t.col(str_col("node_type"));
+        t.col(str_col("status"));
+        t.col(ts_opt("started_at"));
+        t.col(ts_opt("finished_at"));
+        t.col(int_opt("duration_ms"));
+        {
+            let mut c = ColumnDef::new(Alias::new("input_json"));
+            c.json();
+            t.col(&mut c);
+        }
+        {
+            let mut c = ColumnDef::new(Alias::new("output_json"));
+            c.json();
+            t.col(&mut c);
+        }
+        t.col(str_opt("error"));
+        t.col(int_col("attempts"));
+        t.col(int_col("order"));
+        manager.create_table(t).await?;
+        create_index(manager, "workflow_node_run", &["execution_id"]).await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        for table in [
+            "workflow_node_run",
+            "workflow_execution",
+            "workflow_credential",
+            "workflow",
+        ] {
             manager
                 .drop_table(
                     Table::drop()

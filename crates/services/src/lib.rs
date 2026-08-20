@@ -20,6 +20,7 @@ mod i18n;
 mod media;
 mod rbac;
 mod schema_cache;
+pub mod workflow;
 
 pub use api_tokens::*;
 pub use auth::*;
@@ -29,6 +30,7 @@ pub use i18n::*;
 pub use media::*;
 pub use rbac::*;
 pub use schema_cache::*;
+pub use workflow::*;
 
 use sea_orm::DatabaseConnection;
 
