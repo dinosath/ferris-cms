@@ -493,3 +493,123 @@ async fn webhook_trigger_executes_workflow() {
     }
     assert_eq!(status, "success", "webhook execution succeeded");
 }
+
+#[tokio::test]
+async fn cms_content_created_trigger_executes_workflow() {
+    let (router, _state) = setup().await;
+    let reg = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/register-admin",
+            serde_json::json!({"email":"admin@test.dev","password":"StrongPass123!"}),
+            None,
+        ))
+        .await
+        .unwrap();
+    let token = body_json(reg).await["data"]["token"].as_str().unwrap().to_string();
+
+    // Create an article content type so content triggers have a target.
+    let ct = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({ "schemas": [{
+                "uid": "api::article.article", "kind": "collectionType",
+                "info": {"singularName":"article","pluralName":"articles","displayName":"Article"},
+                "options": {"draftAndPublish": true},
+                "attributes": {
+                    "title": {"type":"string", "required": true},
+                    "featured": {"type":"boolean"}
+                }
+            }] }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(ct.status(), StatusCode::OK, "create article content type");
+
+    // Build + activate a workflow triggered by content creation on article.
+    let create = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/workflows",
+            serde_json::json!({ "name": "On Article Created" }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let wf_id = body_json(create).await["data"]["id"].as_i64().unwrap();
+
+    let wf = serde_json::json!({
+        "id": wf_id, "name": "On Article Created", "version": 1, "active": false,
+        "nodes": [
+            { "id": "cc", "nodeType": "contentCreated", "name": "Content Created", "position": {"x":0,"y":0}, "parameters": { "contentType": "api::article.article" } },
+            { "id": "s", "nodeType": "set", "name": "Record title", "position": {"x":200,"y":0}, "parameters": { "field": "seenTitle", "value": "{{ $json.title }}" } },
+            { "id": "n", "nodeType": "noop", "name": "No-op", "position": {"x":400,"y":0}, "parameters": {} }
+        ],
+        "connections": [ { "id": "c1", "from": "cc", "fromOutput": "main", "to": "s", "toInput": "main" }, { "id": "c2", "from": "s", "fromOutput": "main", "to": "n", "toInput": "main" } ],
+        "settings": {}, "variables": {}, "tags": [],
+        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
+    });
+    router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("/admin/workflows/{wf_id}"),
+            wf,
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let activate = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &format!("/admin/workflows/{wf_id}/activate"),
+            serde_json::json!({}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(activate.status(), StatusCode::OK, "activate content workflow");
+
+    // Create an article entry -> should fire content.created -> run the workflow.
+    let entry = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/content-manager/collection-types/api::article.article",
+            serde_json::json!({ "data": { "title": "Hello Trigger", "featured": true } }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(entry.status(), StatusCode::OK, "create article");
+
+    // Poll for an execution of the workflow.
+    let mut found_success = false;
+    for _ in 0..100 {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let list = router
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/admin/executions?workflow_id={wf_id}"),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        let data = body_json(list).await;
+        let execs = data["data"].as_array().cloned().unwrap_or_default();
+        if let Some(first) = execs.first() {
+            if first["status"] == "success" {
+                found_success = true;
+                break;
+            }
+        }
+    }
+    assert!(found_success, "content-created trigger ran the workflow to success");
+}

@@ -160,6 +160,10 @@ async fn error_stops_execution() {
     );
     let st = run_statuses(&ctx, exec_id).await;
     assert_eq!(st.iter().find(|(n, _)| n == "Bad HTTP").map(|(_, s)| s.clone()).unwrap_or_default(), "failed");
+    // The node was retried up to max_attempts (3) before failing.
+    let (_, runs) = services::execution_get(&ctx, exec_id).await.unwrap();
+    let bad = runs.iter().find(|r| r.node_name == "Bad HTTP").unwrap();
+    assert_eq!(bad.attempts, 3, "node retried up to max_attempts");
 }
 
 #[tokio::test]
