@@ -180,13 +180,84 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
     }
 
     let selected_node = selected_id.as_ref().and_then(|id| nodes.iter().find(|n| n["id"].as_str() == Some(id.as_str())).cloned());
-    let g_exec = global.clone();
-    let g_act = global.clone();
-    let g_deact = global.clone();
-    let client_save = client.clone();
-    let client_exec = client.clone();
-    let client_act = client.clone();
-    let client_deact = client.clone();
+    // Async-action requests; `spawn` must run from `use_effect` (not handlers).
+    let mut save_req = use_signal(|| 0u32);
+    let mut execute_req = use_signal(|| 0u32);
+    let mut act_req: Signal<Option<bool>> = use_signal(|| None);
+
+    use_effect({
+        let client = client.clone();
+        move || {
+            if save_req() > 0 {
+                let n = save_req();
+                save_req.set(0);
+                let client = client.clone();
+                let mut saving2 = saving;
+                let mut dirty2 = dirty;
+                let def = wf().clone().unwrap_or(serde_json::json!({}));
+                let id = workflow_id;
+                spawn(async move {
+                    let _ = n;
+                    saving2.set(true);
+                    let _ = client.workflow_save(id, &def).await;
+                    saving2.set(false);
+                    dirty2.set(false);
+                });
+            }
+        }
+    });
+
+    use_effect({
+        let client = client.clone();
+        let mut g = global.clone();
+        move || {
+            if execute_req() > 0 {
+                let n = execute_req();
+                execute_req.set(0);
+                let client = client.clone();
+                let mut g = g.clone();
+                let mut executing2 = executing;
+                let mut exec = execution;
+                let id = workflow_id;
+                spawn(async move {
+                    let _ = n;
+                    executing2.set(true);
+                    match client.workflow_execute(id, &serde_json::json!({})).await {
+                        Ok(v) => {
+                            if let Some(eid) = v["data"]["executionId"].as_i64() {
+                                if let Ok(d) = client.execution_get(eid).await {
+                                    exec.set(Some(d.clone()));
+                                }
+                            }
+                            g.toast("Execution started", "success");
+                        }
+                        Err(e) => g.toast(format!("Execution failed: {e}"), "danger"),
+                    }
+                    executing2.set(false);
+                });
+            }
+        }
+    });
+
+    use_effect({
+        let client = client.clone();
+        let mut g = global.clone();
+        move || {
+            if let Some(active) = act_req() {
+                act_req.set(None);
+                let client = client.clone();
+                let mut g = g.clone();
+                let mut wf2 = wf;
+                let id = workflow_id;
+                spawn(async move {
+                    if let Ok(v) = client.workflow_set_active(id, active).await {
+                        wf2.set(Some(v["data"].clone()));
+                        g.toast(if active { "Workflow activated" } else { "Workflow deactivated" }, "success");
+                    }
+                });
+            }
+        }
+    });
 
     rsx! {
         div { style: "display:flex; flex-direction:column; height:calc(100vh - 56px); overflow:hidden;",
@@ -213,64 +284,10 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
                         dirty.set(true);
                     }
                 },
-                on_save: move |_| {
-                    let client = client_save.clone();
-                    let mut saving2 = saving;
-                    let def = wf().clone().unwrap_or(serde_json::json!({}));
-                    let id = workflow_id;
-                    spawn(async move {
-                        saving2.set(true);
-                        let _ = client.workflow_save(id, &def).await;
-                        saving2.set(false);
-                        dirty.set(false);
-                    });
-                },
-                on_execute: move |_| {
-                    let client = client_exec.clone();
-                    let mut executing2 = executing;
-                    let mut exec = execution;
-                    let mut g = g_exec.clone();
-                    let id = workflow_id;
-                    spawn(async move {
-                        executing2.set(true);
-                        match client.workflow_execute(id, &serde_json::json!({})).await {
-                            Ok(v) => {
-                                if let Some(eid) = v["data"]["executionId"].as_i64() {
-                                    if let Ok(d) = client.execution_get(eid).await {
-                                        exec.set(Some(d.clone()));
-                                    }
-                                }
-                                g.toast("Execution started", "success");
-                            }
-                            Err(e) => g.toast(format!("Execution failed: {e}"), "danger"),
-                        }
-                        executing2.set(false);
-                    });
-                },
-                on_activate: move |_| {
-                    let client = client_act.clone();
-                    let mut g = g_act.clone();
-                    let mut wf2 = wf;
-                    let id = workflow_id;
-                    spawn(async move {
-                        if let Ok(v) = client.workflow_set_active(id, true).await {
-                            wf2.set(Some(v["data"].clone()));
-                            g.toast("Workflow activated", "success");
-                        }
-                    });
-                },
-                on_deactivate: move |_| {
-                    let client = client_deact.clone();
-                    let mut g = g_deact.clone();
-                    let mut wf2 = wf;
-                    let id = workflow_id;
-                    spawn(async move {
-                        if let Ok(v) = client.workflow_set_active(id, false).await {
-                            wf2.set(Some(v["data"].clone()));
-                            g.toast("Workflow deactivated", "success");
-                        }
-                    });
-                },
+                on_save: move |_| save_req.set(save_req() + 1),
+                on_execute: move |_| execute_req.set(execute_req() + 1),
+                on_activate: move |_| act_req.set(Some(true)),
+                on_deactivate: move |_| act_req.set(Some(false)),
             }
 
             div { style: "display:flex; flex:1; min-height:0;",
@@ -286,38 +303,36 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
                         let mut sel = selected;
                         let mut dirty2 = dirty;
                         let lib = library();
-                        spawn(async move {
-                            let def = lib.iter().find(|d| d["nodeType"] == node_type).cloned();
-                            let node_id = uuid_v4();
-                            let posx = 40.0;
-                            let posy = 60.0 + (wf2().as_ref().and_then(|w| w["nodes"].as_array()).map(|a| a.len() as f64 * 12.0).unwrap_or(0.0));
-                            let mut node = serde_json::json!({
-                                "id": node_id,
-                                "nodeType": node_type,
-                                "name": def.as_ref().and_then(|d| d["displayName"].as_str()).unwrap_or("Node").to_string(),
-                                "position": { "x": posx, "y": posy },
-                                "parameters": {},
-                                "disabled": false
-                            });
-                            if let Some(d) = def {
-                                if let Some(defaults) = d["fields"].as_array() {
-                                    let mut params = serde_json::Map::new();
-                                    for f in defaults {
-                                        if let (Some(n), Some(defv)) = (f["name"].as_str(), f.get("default")) {
-                                            params.insert(n.to_string(), defv.clone());
-                                        }
-                                    }
-                                    node["parameters"] = serde_json::Value::Object(params);
-                                }
-                            }
-                            let mut w = wf2().clone().unwrap_or(serde_json::json!({}));
-                            let mut arr = w["nodes"].as_array().cloned().unwrap_or_default();
-                            arr.push(node);
-                            w["nodes"] = serde_json::Value::Array(arr);
-                            wf2.set(Some(w));
-                            sel.set(Some(node_id));
-                            dirty2.set(true);
+                        let def = lib.iter().find(|d| d["nodeType"] == node_type).cloned();
+                        let node_id = uuid_v4();
+                        let posx = 40.0;
+                        let posy = 60.0 + (wf2().as_ref().and_then(|w| w["nodes"].as_array()).map(|a| a.len() as f64 * 12.0).unwrap_or(0.0));
+                        let mut node = serde_json::json!({
+                            "id": node_id,
+                            "nodeType": node_type,
+                            "name": def.as_ref().and_then(|d| d["displayName"].as_str()).unwrap_or("Node").to_string(),
+                            "position": { "x": posx, "y": posy },
+                            "parameters": {},
+                            "disabled": false
                         });
+                        if let Some(d) = def {
+                            if let Some(defaults) = d["fields"].as_array() {
+                                let mut params = serde_json::Map::new();
+                                for f in defaults {
+                                    if let (Some(n), Some(defv)) = (f["name"].as_str(), f.get("default")) {
+                                        params.insert(n.to_string(), defv.clone());
+                                    }
+                                }
+                                node["parameters"] = serde_json::Value::Object(params);
+                            }
+                        }
+                        let mut w = wf2().clone().unwrap_or(serde_json::json!({}));
+                        let mut arr = w["nodes"].as_array().cloned().unwrap_or_default();
+                        arr.push(node);
+                        w["nodes"] = serde_json::Value::Array(arr);
+                        wf2.set(Some(w));
+                        sel.set(Some(node_id));
+                        dirty2.set(true);
                     },
                 }
 

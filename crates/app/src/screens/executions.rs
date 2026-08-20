@@ -26,17 +26,28 @@ pub fn Executions() -> Element {
     let mut loading = use_signal(|| true);
     let mut status_filter = use_signal(|| String::from("all"));
     let route = global.route;
+    // Increment to request a reload. `spawn` must run from a `use_effect`,
+    // never directly inside an event handler (wasm).
+    let mut load_req = use_signal(|| 1u32);
 
     use_effect({
         let client = client.clone();
         move || {
-            let client = client.clone();
-            spawn(async move {
-                if let Ok(v) = client.execution_list(None, None).await {
-                    items.set(v["data"].as_array().cloned().unwrap_or_default());
-                }
-                loading.set(false);
-            });
+            if load_req() > 0 {
+                let n = load_req();
+                load_req.set(0);
+                let client = client.clone();
+                let mut its = items;
+                let mut loading2 = loading;
+                spawn(async move {
+                    let _ = n;
+                    loading2.set(true);
+                    if let Ok(v) = client.execution_list(None, None).await {
+                        its.set(v["data"].as_array().cloned().unwrap_or_default());
+                    }
+                    loading2.set(false);
+                });
+            }
         }
     });
 
@@ -70,18 +81,7 @@ pub fn Executions() -> Element {
                     span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "Workflow Executions" }
                     span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Inspect every run of your workflows." }
                 }
-                Button { label: "Refresh".to_string(), variant: "secondary".to_string(), on_click: move |_| {
-                    let client = client.clone();
-                    let mut its = items;
-                    let mut loading2 = loading;
-                    spawn(async move {
-                        loading2.set(true);
-                        if let Ok(v) = client.execution_list(None, None).await {
-                            its.set(v["data"].as_array().cloned().unwrap_or_default());
-                        }
-                        loading2.set(false);
-                    });
-                } }
+                Button { label: "Refresh".to_string(), variant: "secondary".to_string(), on_click: move |_| load_req.set(load_req() + 1) }
             }
 
             div { style: "display:flex; gap:4px; margin-bottom:16px;",
@@ -128,6 +128,7 @@ pub fn ExecutionDetail(execution_id: i64) -> Element {
     let mut data: Signal<Option<serde_json::Value>> = use_signal(|| None);
     let mut loading = use_signal(|| true);
     let mut route = global.route;
+    let mut retry_req = use_signal(|| false);
 
     use_effect({
         let client = client.clone();
@@ -140,6 +141,29 @@ pub fn ExecutionDetail(execution_id: i64) -> Element {
                 }
                 loading.set(false);
             });
+        }
+    });
+
+    // Retry the execution (spawn must come from an effect, not an event handler).
+    use_effect({
+        let client = client.clone();
+        move || {
+            if retry_req() {
+                retry_req.set(false);
+                let client = client.clone();
+                let mut data2 = data;
+                let mut loading2 = loading;
+                let id = execution_id;
+                spawn(async move {
+                    loading2.set(true);
+                    if let Ok(_) = client.execution_retry(id).await {
+                        if let Ok(v) = client.execution_get(id).await {
+                            data2.set(Some(v));
+                        }
+                    }
+                    loading2.set(false);
+                });
+            }
         }
     });
 
@@ -213,19 +237,7 @@ pub fn ExecutionDetail(execution_id: i64) -> Element {
                     div { style: "background:{color::DANGER_100}; border:1px solid {color::DANGER_600}; color:{color::DANGER_700}; padding:12px 16px; border-radius:4px; margin-bottom:24px; font-size:14px;", "Error: {exec_error}" }
                 }
                 div { style: "display:flex; justify-content:flex-end; gap:8px; margin-bottom:16px;",
-                    Button { label: "Retry".to_string(), size: "sm".to_string(), on_click: move |_| {
-                        let client = client.clone();
-                        let mut loading2 = loading;
-                        let mut data2 = data;
-                        spawn(async move {
-                            if let Ok(_) = client.execution_retry(execution_id).await {
-                                if let Ok(v) = client.execution_get(execution_id).await {
-                                    data2.set(Some(v));
-                                }
-                            }
-                            loading2.set(false);
-                        });
-                    } }
+                    Button { label: "Retry".to_string(), size: "sm".to_string(), on_click: move |_| retry_req.set(true) }
                 }
                 Card {
                     header: "Node runs".to_string(),
