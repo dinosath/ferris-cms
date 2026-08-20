@@ -80,12 +80,39 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
         let zoom_at_drag = zoom();
         let mut sel2 = selected;
         let mut drag2 = drag;
+        let mut cs = connect_src;
+        let mut wf_conn = wf;
+        let mut dirty_conn = dirty;
+        let mut undo_conn = undo_stack;
         let nid_click = node_id.clone();
         let nid_down = node_id.clone();
         node_elements.push(rsx! {
             div {
                 style: "position:absolute; left:{x}px; top:{y}px; width:{NODE_W}px; user-select:none; cursor:grab; opacity:{opacity};",
-                onclick: move |_| sel2.set(Some(nid_click.clone())),
+                onclick: move |_| {
+                    if let Some((src_id, port)) = cs() {
+                        if src_id != nid_click {
+                            // Complete a pending connection: link src output to this node.
+                            undo_conn.write().push(wf_conn().clone().unwrap_or(serde_json::json!({})));
+                            let mut w = wf_conn().clone().unwrap_or(serde_json::json!({}));
+                            let conn = serde_json::json!({
+                                "id": uuid_v4(),
+                                "from": src_id,
+                                "fromOutput": port,
+                                "to": nid_click,
+                                "toInput": "main"
+                            });
+                            let mut conns = w["connections"].as_array().cloned().unwrap_or_default();
+                            conns.push(conn);
+                            w["connections"] = serde_json::Value::Array(conns);
+                            wf_conn.set(Some(w));
+                            dirty_conn.set(true);
+                        }
+                        cs.set(None);
+                    } else {
+                        sel2.set(Some(nid_click.clone()));
+                    }
+                },
                 onpointerdown: move |e| {
                     drag2.set(Some((nid_down.clone(), e.client_coordinates().x as f64 - x * zoom_at_drag, e.client_coordinates().y as f64 - y * zoom_at_drag)));
                 },
