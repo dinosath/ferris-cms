@@ -19,6 +19,10 @@ pub enum Route {
     ContentTypeBuilder,
     ContentManager,
     Media,
+    Workflows,
+    WorkflowEditor(i64),
+    WorkflowExecutions,
+    Execution(i64),
     Settings,
 }
 

@@ -27,6 +27,71 @@ pub const ROLE_AUTHOR: &str = "strapi-author";
 pub async fn seed(db: &DatabaseConnection) -> Result<(), DbErr> {
     seed_roles(db).await?;
     seed_locales(db).await?;
+    seed_workflow_permissions(db).await?;
+    Ok(())
+}
+
+/// Workflow automation permission actions (app-level RBAC matrix).
+pub mod workflow_actions {
+    pub const ALL: &[&str] = &[
+        "plugin::workflow.workflow.read",
+        "plugin::workflow.workflow.create",
+        "plugin::workflow.workflow.update",
+        "plugin::workflow.workflow.delete",
+        "plugin::workflow.workflow.execute",
+        "plugin::workflow.workflow.activate",
+        "plugin::workflow.execution.read",
+        "plugin::workflow.credential.read",
+        "plugin::workflow.credential.manage",
+    ];
+    pub const SUBJECT_WORKFLOW: &str = "plugin::workflow.workflow";
+}
+
+/// Grant the workflow permission actions to the Editor role (Super Admins
+/// bypass the matrix entirely). Idempotent — replaces prior grants for the
+/// subject to keep the matrix in sync with the seeded action set.
+async fn seed_workflow_permissions(db: &DatabaseConnection) -> Result<(), DbErr> {
+    use crate::entities::{admin_permission, admin_role};
+    use sea_orm::QueryFilter;
+
+    let roles = admin_role::Entity::find()
+        .filter(
+            admin_role::COLUMN
+                .code
+                .is_in(vec![ROLE_EDITOR.to_string(), ROLE_SUPER_ADMIN.to_string()]),
+        )
+        .all(db)
+        .await?;
+    if roles.is_empty() {
+        return Ok(());
+    }
+
+    // Clear prior workflow grants so seeding stays in sync.
+    admin_permission::Entity::delete_many()
+        .filter(
+            admin_permission::COLUMN
+                .subject
+                .eq(Some(workflow_actions::SUBJECT_WORKFLOW.to_string())),
+        )
+        .exec(db)
+        .await?;
+
+    let now = chrono::Utc::now();
+    for role in &roles {
+        for action in workflow_actions::ALL {
+            let model = admin_permission::ActiveModel {
+                role_id: Set(role.id),
+                action: Set(action.to_string()),
+                subject: Set(Some(workflow_actions::SUBJECT_WORKFLOW.to_string())),
+                properties_json: Set(serde_json::json!({})),
+                conditions_json: Set(serde_json::json!([])),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            };
+            ignore_not_inserted(admin_permission::Entity::insert(model).exec(db).await)?;
+        }
+    }
     Ok(())
 }
 
