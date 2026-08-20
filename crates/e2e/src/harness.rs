@@ -158,13 +158,15 @@ async fn provision_turso_db(path: &str) -> Result<()> {
 /// Launch `obscura serve` on an ephemeral port; return the child and its CDP
 /// websocket URL.
 fn spawn_obscura() -> Result<(Child, String)> {
+    let obscura = locate_obscura()?;
+
     // Reserve a free port, then hand it to Obscura.
     let port = {
         let probe = StdTcpListener::bind("127.0.0.1:0").context("probe free port")?;
         probe.local_addr().context("read probe port")?.port()
     };
 
-    let mut cmd = Command::new("obscura");
+    let mut cmd = Command::new(&obscura);
     cmd.arg("serve").arg("--port").arg(port.to_string());
     // Obscura blocks loopback/private IPs by default (SSRF protection); the
     // in-process ferriscms server runs on 127.0.0.1, so allow private network.
@@ -172,9 +174,51 @@ fn spawn_obscura() -> Result<(Child, String)> {
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     let child = cmd
         .spawn()
-        .context("spawn `obscura serve` (is the `obscura` binary on PATH?)")?;
+        .with_context(|| format!("failed to run `obscura serve` ({obscura:?})"))?;
 
     Ok((child, format!("ws://127.0.0.1:{port}")))
+}
+
+/// Locate the `obscura` binary. Resolution order:
+///   1. `OBSCURA_BIN` (explicit path)
+///   2. `<repo>/bin/obscura` (the `scripts/install-obscura.sh` default)
+///   3. `obscura` on `PATH`
+fn locate_obscura() -> Result<std::path::PathBuf> {
+    use std::env;
+
+    if let Some(p) = env::var_os("OBSCURA_BIN") {
+        let path = std::path::PathBuf::from(p);
+        if path.is_file() {
+            return Ok(path);
+        }
+        return Err(anyhow!("OBSCURA_BIN set but not a file: {path:?}"));
+    }
+
+    // Repo-local `bin/` (used by scripts/install-obscura.sh).
+    let repo_bin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2) // crates/e2e -> crates -> repo root (where ./bin lives)
+        .map(|root| root.join("bin").join("obscura"));
+    if let Some(p) = repo_bin {
+        if p.is_file() {
+            return Ok(p);
+        }
+    }
+
+    // PATH.
+    if let Ok(paths) = env::var("PATH") {
+        for dir in env::split_paths(&paths) {
+            let candidate = dir.join("obscura");
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "Obscura headless browser not found. Install it with \
+         `scripts/install-obscura.sh`, or point OBSCURA_BIN at the binary."
+    ))
 }
 
 /// Poll until something is listening on the CDP websocket's TCP port.
