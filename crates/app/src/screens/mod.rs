@@ -2,6 +2,7 @@
 
 pub mod content_manager;
 pub mod content_type_builder;
+pub mod credentials;
 pub mod executions;
 pub mod home;
 pub mod login;
