@@ -6,6 +6,19 @@ use ui::design::tokens::{color, typography};
 use crate::app::{use_global, Route};
 use crate::components::{Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Spinner, TextField};
 
+/// A user-triggered async action. The handler only sets the signal; a
+/// `use_effect` performs the actual async work (spawn does not run when called
+/// directly from an event handler on the wasm target).
+#[derive(Clone)]
+enum WfAction {
+    Create(String),
+    SetActive(i64, bool),
+    Duplicate(i64),
+    Delete(i64),
+    Export(i64, String),
+    Import(serde_json::Value),
+}
+
 /// The Workflows overview: list, search, filters, activate/deactivate,
 /// duplicate/delete, create, and open the visual editor.
 #[component]
@@ -18,6 +31,14 @@ pub fn Workflows() -> Element {
     let mut active_filter = use_signal(|| String::from("all"));
     let mut to_delete: Signal<Option<i64>> = use_signal(|| None);
     let mut route = global.route;
+    let mut action: Signal<Option<WfAction>> = use_signal(|| None);
+    let mut create_name = use_signal(|| String::new());
+    let mut creating = use_signal(|| false);
+    let mut show_create = use_signal(|| false);
+    let mut show_import = use_signal(|| false);
+    let mut import_text = use_signal(|| String::new());
+    let mut importing = use_signal(|| false);
+    let mut export_data: Signal<Option<(String, String)>> = use_signal(|| None);
 
     // Initial load.
     use_effect({
@@ -33,13 +54,114 @@ pub fn Workflows() -> Element {
         }
     });
 
-    let mut create_name = use_signal(|| String::new());
-    let mut creating = use_signal(|| false);
-    let mut show_create = use_signal(|| false);
-    let mut show_import = use_signal(|| false);
-    let mut import_text = use_signal(|| String::new());
-    let mut importing = use_signal(|| false);
-    let mut export_data: Signal<Option<(String, String)>> = use_signal(|| None);
+    // Dispatcher for all async workflow actions.
+    use_effect({
+        let client = client.clone();
+        let mut g = global.clone();
+        move || {
+            let a = action.take();
+            match a {
+                Some(WfAction::Create(name)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut creating2 = creating;
+                    let mut its = items;
+                    let mut show = show_create;
+                    let mut route2 = route;
+                    spawn(async move {
+                        creating2.set(true);
+                        match client.workflow_create(&name).await {
+                            Ok(v) => {
+                                if let Some(id) = v["data"]["id"].as_i64() {
+                                    if let Ok(list) = client.workflow_list(None, None).await {
+                                        its.set(list["data"].as_array().cloned().unwrap_or_default());
+                                    }
+                                    route2.set(Route::WorkflowEditor(id));
+                                }
+                                g.toast("Workflow created", "success");
+                            }
+                            Err(e) => g.toast(format!("Create failed: {e}"), "danger"),
+                        }
+                        creating2.set(false);
+                        show.set(false);
+                    });
+                }
+                Some(WfAction::SetActive(id, active)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut its = items;
+                    spawn(async move {
+                        if let Ok(_) = client.workflow_set_active(id, active).await {
+                            if let Ok(v) = client.workflow_list(None, None).await {
+                                its.set(v["data"].as_array().cloned().unwrap_or_default());
+                            }
+                            g.toast(if active { "Workflow activated" } else { "Workflow deactivated" }, "success");
+                        }
+                    });
+                }
+                Some(WfAction::Duplicate(id)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut its = items;
+                    spawn(async move {
+                        if let Ok(_) = client.workflow_duplicate(id).await {
+                            if let Ok(v) = client.workflow_list(None, None).await {
+                                its.set(v["data"].as_array().cloned().unwrap_or_default());
+                            }
+                            g.toast("Workflow duplicated", "success");
+                        }
+                    });
+                }
+                Some(WfAction::Delete(id)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut its = items;
+                    let mut del = to_delete;
+                    spawn(async move {
+                        if let Ok(_) = client.workflow_delete(id).await {
+                            if let Ok(v) = client.workflow_list(None, None).await {
+                                its.set(v["data"].as_array().cloned().unwrap_or_default());
+                            }
+                            g.toast("Workflow deleted", "success");
+                        }
+                        del.set(None);
+                    });
+                }
+                Some(WfAction::Export(id, name)) => {
+                    let client = client.clone();
+                    let mut exp = export_data;
+                    let en = name.clone();
+                    spawn(async move {
+                        if let Ok(v) = client.workflow_export(id).await {
+                            exp.set(Some((en.clone(), serde_json::to_string_pretty(&v).unwrap_or_default())));
+                        }
+                    });
+                }
+                Some(WfAction::Import(v)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut its = items;
+                    let mut importing2 = importing;
+                    let mut show = show_import;
+                    spawn(async move {
+                        importing2.set(true);
+                        match client.workflow_import(&v).await {
+                            Ok(_) => {
+                                if let Ok(list) = client.workflow_list(None, None).await {
+                                    its.set(list["data"].as_array().cloned().unwrap_or_default());
+                                }
+                                g.toast("Workflow imported", "success");
+                            }
+                            Err(e) => g.toast(format!("Import failed: {e}"), "danger"),
+                        }
+                        importing2.set(false);
+                        show.set(false);
+                    });
+                }
+                None => {}
+            }
+        }
+    });
 
     // Precompute the workflow table rows.
     let mut workflow_rows: Vec<Element> = Vec::new();
@@ -62,22 +184,15 @@ pub fn Workflows() -> Element {
         let runs = item["executionCount"].as_i64().unwrap_or(0);
         let last = item["lastExecution"]["status"].as_str().unwrap_or("-").to_string();
         let mut open_editor = route;
-        // Separate captures per button so the `move` closures do not alias.
-        let client_act = client.clone();
-        let mut items_act = items;
-        let g_act = global.clone();
-        let client_dup = client.clone();
-        let mut items_dup = items;
-        let g_dup = global.clone();
-        let client_exp = client.clone();
-        let exp_name = name.clone();
-        let mut exp_data = export_data;
-        let mut to_del = to_delete;
+        let mut act = action;
+        let mut del = to_delete;
+        let exp_n = name.clone();
+        let nid = id;
         workflow_rows.push(rsx! {
             tr { style: "border-bottom:1px solid {color::NEUTRAL_150};",
                 td { style: "padding:12px 16px;",
                     button { style: "background:none; border:none; color:{color::PRIMARY_600}; font-weight:600; cursor:pointer; font-size:14px; text-align:left;",
-                        onclick: move |_| open_editor.set(Route::WorkflowEditor(id)),
+                        onclick: move |_| open_editor.set(Route::WorkflowEditor(nid)),
                         "{name}"
                     }
                 }
@@ -90,53 +205,15 @@ pub fn Workflows() -> Element {
                 td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{last}" }
                 td { style: "padding:12px 16px;",
                     div { style: "display:flex; gap:4px;",
-                        IconButton { name: "toggle".to_string(), aria_label: if active { "Deactivate".to_string() } else { "Activate".to_string() }, on_click: move |_| {
-                            let client = client_act.clone();
-                            let mut its = items_act;
-                            let mut g = g_act.clone();
-                            spawn(async move {
-                                if let Ok(_) = client.workflow_set_active(id, !active).await {
-                                    if let Ok(v) = client.workflow_list(None, None).await {
-                                        its.set(v["data"].as_array().cloned().unwrap_or_default());
-                                    }
-                                    g.toast(if active { "Workflow deactivated" } else { "Workflow activated" }, "success");
-                                }
-                            });
-                        }}
-                        IconButton { name: "refresh".to_string(), aria_label: "Duplicate".to_string(), on_click: move |_| {
-                            let client = client_dup.clone();
-                            let mut its = items_dup;
-                            let mut g = g_dup.clone();
-                            spawn(async move {
-                                if let Ok(_) = client.workflow_duplicate(id).await {
-                                    if let Ok(v) = client.workflow_list(None, None).await {
-                                        its.set(v["data"].as_array().cloned().unwrap_or_default());
-                                    }
-                                    g.toast("Workflow duplicated", "success");
-                                }
-                            });
-                        }}
-                        IconButton { name: "braces".to_string(), aria_label: "Export".to_string(), on_click: move |_| {
-                            let client = client_exp.clone();
-                            let mut exp = exp_data;
-                            let en = exp_name.clone();
-                            spawn(async move {
-                                if let Ok(v) = client.workflow_export(id).await {
-                                    exp.set(Some((en.clone(), serde_json::to_string_pretty(&v).unwrap_or_default())));
-                                }
-                            });
-                        }}
-                        IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(), on_click: move |_| to_del.set(Some(id)) }
+                        IconButton { name: "toggle".to_string(), aria_label: if active { "Deactivate".to_string() } else { "Activate".to_string() }, on_click: move |_| act.set(Some(WfAction::SetActive(nid, !active))) }
+                        IconButton { name: "refresh".to_string(), aria_label: "Duplicate".to_string(), on_click: move |_| act.set(Some(WfAction::Duplicate(nid))) }
+                        IconButton { name: "braces".to_string(), aria_label: "Export".to_string(), on_click: move |_| act.set(Some(WfAction::Export(nid, exp_n.clone()))) }
+                        IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(), on_click: move |_| del.set(Some(nid)) }
                     }
                 }
             }
         });
     }
-
-    let g_modal = global.clone();
-    let g_delete = global.clone();
-    let client_modal = client.clone();
-    let client_delete = client.clone();
 
     rsx! {
         div { style: "padding:32px; max-width:1200px;",
@@ -219,32 +296,7 @@ pub fn Workflows() -> Element {
                             label: "Create".to_string(),
                             loading: creating(),
                             disabled: create_name().trim().is_empty(),
-                            on_click: move |_| {
-                                let name = create_name();
-                                let client = client_modal.clone();
-                                let mut g = g_modal.clone();
-                                let mut creating2 = creating;
-                                let mut show = show_create;
-                                let mut its = items;
-                                let mut r = route;
-                                spawn(async move {
-                                    creating2.set(true);
-                                    match client.workflow_create(&name).await {
-                                        Ok(v) => {
-                                            if let Some(id) = v["data"]["id"].as_i64() {
-                                                if let Ok(list) = client.workflow_list(None, None).await {
-                                                    its.set(list["data"].as_array().cloned().unwrap_or_default());
-                                                }
-                                                r.set(Route::WorkflowEditor(id));
-                                            }
-                                            g.toast("Workflow created", "success");
-                                        }
-                                        Err(e) => g.toast(format!("Create failed: {e}"), "danger"),
-                                    }
-                                    creating2.set(false);
-                                    show.set(false);
-                                });
-                            }
+                            on_click: move |_| action.set(Some(WfAction::Create(create_name()))),
                         }
                     }
                 }
@@ -258,20 +310,7 @@ pub fn Workflows() -> Element {
                 message: "This will permanently delete the workflow and its execution history.".to_string(),
                 confirm_label: "Delete".to_string(),
                 on_cancel: move |_| to_delete.set(None),
-                on_confirm: move |_| {
-                    let client = client_delete.clone();
-                    let mut g = g_delete.clone();
-                    let mut its = items;
-                    spawn(async move {
-                        if let Ok(_) = client.workflow_delete(id).await {
-                            if let Ok(v) = client.workflow_list(None, None).await {
-                                its.set(v["data"].as_array().cloned().unwrap_or_default());
-                            }
-                            g.toast("Workflow deleted", "success");
-                        }
-                        to_delete.set(None);
-                    });
-                },
+                on_confirm: move |_| action.set(Some(WfAction::Delete(id))),
             }
         }
 
@@ -292,26 +331,8 @@ pub fn Workflows() -> Element {
                         Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_import.set(false) }
                         Button { label: "Import".to_string(), loading: importing(), disabled: import_text().trim().is_empty(),
                             on_click: move |_| {
-                                let client = client.clone();
-                                let mut g = global.clone();
-                                let mut importing2 = importing;
-                                let mut its = items;
-                                let mut show = show_import;
                                 let parsed = serde_json::from_str::<serde_json::Value>(&import_text()).unwrap_or(serde_json::Value::Null);
-                                spawn(async move {
-                                    importing2.set(true);
-                                    match client.workflow_import(&parsed).await {
-                                        Ok(_) => {
-                                            if let Ok(v) = client.workflow_list(None, None).await {
-                                                its.set(v["data"].as_array().cloned().unwrap_or_default());
-                                            }
-                                            g.toast("Workflow imported", "success");
-                                        }
-                                        Err(e) => g.toast(format!("Import failed: {e}"), "danger"),
-                                    }
-                                    importing2.set(false);
-                                    show.set(false);
-                                });
+                                action.set(Some(WfAction::Import(parsed)));
                             }
                         }
                     }

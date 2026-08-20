@@ -24,6 +24,9 @@ pub fn Credentials() -> Element {
     let mut credential_type = use_signal(|| String::new());
     let mut data_json = use_signal(|| String::from("{\n  \"headerName\": \"Authorization\",\n  \"headerValue\": \"Bearer ...\"\n}"));
     let mut to_delete: Signal<Option<i64>> = use_signal(|| None);
+    // Async-action requests; `spawn` must run from `use_effect` (not handlers).
+    let mut create_req: Signal<Option<(String, String, serde_json::Value)>> = use_signal(|| None);
+    let mut delete_req: Signal<Option<i64>> = use_signal(|| None);
 
     use_effect({
         let client = client.clone();
@@ -52,10 +55,58 @@ pub fn Credentials() -> Element {
         }
     });
 
-    let g_modal = global.clone();
-    let g_delete = global.clone();
-    let client_modal = client.clone();
-    let client_delete = client.clone();
+    // Perform create when requested.
+    use_effect({
+        let client = client.clone();
+        let mut g = global.clone();
+        move || {
+            if let Some((cname, ctype, data)) = create_req() {
+                create_req.set(None);
+                let client = client.clone();
+                let mut g = g.clone();
+                let mut creating2 = creating;
+                let mut its = items;
+                let mut show = show_create;
+                spawn(async move {
+                    creating2.set(true);
+                    match client.credential_create(&cname, &ctype, &data).await {
+                        Ok(_) => {
+                            if let Ok(v) = client.credential_list().await {
+                                its.set(v["data"].as_array().cloned().unwrap_or_default());
+                            }
+                            g.toast("Credential saved", "success");
+                        }
+                        Err(e) => g.toast(format!("Save failed: {e}"), "danger"),
+                    }
+                    creating2.set(false);
+                    show.set(false);
+                });
+            }
+        }
+    });
+
+    // Perform delete when requested.
+    use_effect({
+        let client = client.clone();
+        let mut g = global.clone();
+        move || {
+            if let Some(id) = delete_req() {
+                delete_req.set(None);
+                let client = client.clone();
+                let mut g = g.clone();
+                let mut its = items;
+                spawn(async move {
+                    if client.credential_delete(id).await.is_ok() {
+                        if let Ok(v) = client.credential_list().await {
+                            its.set(v["data"].as_array().cloned().unwrap_or_default());
+                        }
+                        g.toast("Credential deleted", "success");
+                    }
+                    to_delete.set(None);
+                });
+            }
+        }
+    });
 
     let mut rows: Vec<Element> = Vec::new();
     for item in items().iter() {
@@ -147,28 +198,8 @@ pub fn Credentials() -> Element {
                             loading: creating(),
                             disabled: name().trim().is_empty() || credential_type().is_empty(),
                             on_click: move |_| {
-                                let cname = name();
-                                let ctype = credential_type();
                                 let data = serde_json::from_str::<serde_json::Value>(&data_json()).unwrap_or(serde_json::json!({}));
-                                let client = client_modal.clone();
-                                let mut g = g_modal.clone();
-                                let mut creating2 = creating;
-                                let mut its = items;
-                                let mut show = show_create;
-                                spawn(async move {
-                                    creating2.set(true);
-                                    match client.credential_create(&cname, &ctype, &data).await {
-                                        Ok(_) => {
-                                            if let Ok(v) = client.credential_list().await {
-                                                its.set(v["data"].as_array().cloned().unwrap_or_default());
-                                            }
-                                            g.toast("Credential saved", "success");
-                                        }
-                                        Err(e) => g.toast(format!("Save failed: {e}"), "danger"),
-                                    }
-                                    creating2.set(false);
-                                    show.set(false);
-                                });
+                                create_req.set(Some((name(), credential_type(), data)));
                             }
                         }
                     }
@@ -182,20 +213,7 @@ pub fn Credentials() -> Element {
                 message: "Delete this credential? Workflow nodes using it will no longer be able to authenticate.".to_string(),
                 confirm_label: "Delete".to_string(),
                 on_cancel: move |_| to_delete.set(None),
-                on_confirm: move |_| {
-                    let client = client_delete.clone();
-                    let mut g = g_delete.clone();
-                    let mut its = items;
-                    spawn(async move {
-                        if client.credential_delete(id).await.is_ok() {
-                            if let Ok(v) = client.credential_list().await {
-                                its.set(v["data"].as_array().cloned().unwrap_or_default());
-                            }
-                            g.toast("Credential deleted", "success");
-                        }
-                        to_delete.set(None);
-                    });
-                },
+                on_confirm: move |_| delete_req.set(Some(id)),
             }
         }
     }
