@@ -37,3 +37,6 @@ dist/
 # Local server log and embedded-UI build artifacts (not committed)
 server.log
 crates/api-rest/ui/
+
+# Local Obscura headless browser installed by scripts/install-obscura.sh
+bin/

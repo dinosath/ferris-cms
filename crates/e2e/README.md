@@ -20,16 +20,28 @@ No Postgres container, no Chrome container.
 ## Requirements
 
 - **Rust toolchain** (a stable recent version).
-- **`obscura` binary** on `PATH` (install from
-  [Obscura releases](https://github.com/h4ckf0r0day/obscura/releases)). It is
-  spawned per test with `--allow-private-network`, because the in-process
-  server listens on `127.0.0.1` (Obscura blocks loopback by default).
+- **`obscura` binary** — the Obscura headless browser. Install it in one step
+  with the bundled script (detects your OS/arch and downloads the matching
+  release):
+  ```bash
+  scripts/install-obscura.sh
+  ```
+  This installs `obscura` (and `obscura-worker`) into `<repo>/bin`. The harness
+  discovers the binary automatically in this order:
+  1. `$OBSCURA_BIN` (explicit path)
+  2. `<repo>/bin` (the install script's default)
+  3. `PATH`
+
+  Overrides: `OBSCURA_VERSION` (e.g. `v0.1.2`), `OBSCURA_VARIANT`
+  (``, `-no-render`, `-stealth`, `-no-render-stealth`; default `-no-render`),
+  `OBSCURA_BIN_DIR` (default `<repo>/bin`). On a headless server use the
+  default `-no-render` variant so Obscura runs without a display.
 - **Node.js 18+** for the playwright-rs driver. `playwright-rs` is a pure Rust
   API but drives Microsoft's Playwright *server*, which is a Node program. The
   crate bundles the driver; Node must be on `PATH`.
 - **Built Dioxus WASM UI.** Point `FERRISCMS_UI_DIR` at a built WASM bundle
-  (e.g. `target/dx/ferriscms/release/web/public`) before running the UI tests,
-  or use a server build with the UI embedded. Build it with
+  (e.g. `crates/app/target/dx/ferriscms/release/web`) before running the UI
+  tests, or use a server build with the UI embedded. Build it with
   `cd crates/app && dx build --web --release` (requires `dx`, `wasm-bindgen`,
   `wasm-opt`, and `esbuild` on `PATH`).
 
@@ -39,10 +51,18 @@ required.
 
 ## Running
 
-The tests boot everything themselves; just run the suite:
+The tests boot everything themselves (server, database, browser); just run the
+suite. Install Obscura first if you have not already:
 
 ```bash
-cargo test -p e2e
+scripts/install-obscura.sh          # once, into ./bin
+FERRISCMS_UI_DIR=crates/app/target/dx/ferriscms/release/web cargo test -p e2e
+```
+
+Or install Obscura elsewhere and point the tests at it:
+
+```bash
+OBSCURA_BIN=/path/to/obscura cargo test -p e2e
 ```
 
 Each `#[tokio::test]` boots its own stack and tears it down on completion.
