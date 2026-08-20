@@ -23,6 +23,7 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
 
     let mut wf: Signal<Option<serde_json::Value>> = use_signal(|| None);
     let mut library: Signal<Vec<serde_json::Value>> = use_signal(|| vec![]);
+    let mut content_types: Signal<Vec<(String, String)>> = use_signal(|| vec![]);
     let mut selected: Signal<Option<String>> = use_signal(|| None);
     let mut loading = use_signal(|| true);
     let mut saving = use_signal(|| false);
@@ -49,6 +50,14 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
                 }
                 if let Ok(l) = client.workflow_node_library().await {
                     library.set(l["data"].as_array().cloned().unwrap_or_default());
+                }
+                if let Ok(ct) = client.workflow_content_types().await {
+                    let opts = ct["data"].as_array().map(|a| a.iter().filter_map(|x| {
+                        let uid = x["uid"].as_str().unwrap_or("").to_string();
+                        let name = x["displayName"].as_str().unwrap_or("").to_string();
+                        if uid.is_empty() { None } else { Some((uid, name)) }
+                    }).collect()).unwrap_or_default();
+                    content_types.set(opts);
                 }
                 loading.set(false);
             });
@@ -353,6 +362,7 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
 
                 PropertiesPanel {
                     node: selected_node,
+                    content_types: content_types(),
                     selected: selected_id,
                     on_close: move |_| selected.set(None),
                     on_delete: move |_| {
@@ -585,6 +595,7 @@ fn NodeLibrary(
 #[component]
 fn PropertiesPanel(
     node: Option<serde_json::Value>,
+    content_types: Vec<(String, String)>,
     selected: Option<String>,
     on_close: EventHandler<MouseEvent>,
     on_delete: EventHandler<MouseEvent>,
@@ -605,9 +616,28 @@ fn PropertiesPanel(
                 let k = key.clone();
                 let v = value.as_str().unwrap_or("").to_string();
                 let mut on_upd = on_update;
-                param_fields.push(rsx! {
-                    TextField { value: v, label: format_node_label(&k), oninput: move |nv| on_upd.call((k.clone(), nv)) }
-                });
+                if k == "contentType" {
+                    // Content-type select: expose the CMS content types dynamically.
+                    let ct_opts = content_types.clone();
+                    let mut upd2 = on_update;
+                    param_fields.push(rsx! {
+                        div { style: "display:flex; flex-direction:column; gap:6px;",
+                            label { style: "font-size:12px; font-weight:600; color:{color::NEUTRAL_700};", "Content Type" }
+                            select { style: "width:100%; height:40px; padding:0 14px; border:1px solid {color::NEUTRAL_200}; border-radius:4px; font-size:14px; color:{color::NEUTRAL_800}; background:#fff;",
+                                value: v,
+                                onchange: move |e| upd2.call((k.clone(), e.value())),
+                                option { value: "", "Select a content type" }
+                                for (uid, disp) in ct_opts.into_iter() {
+                                    option { value: "{uid}", "{disp} ({uid})" }
+                                }
+                            }
+                        }
+                    });
+                } else {
+                    param_fields.push(rsx! {
+                        TextField { value: v, label: format_node_label(&k), oninput: move |nv| on_upd.call((k.clone(), nv)) }
+                    });
+                }
             }
         }
     }

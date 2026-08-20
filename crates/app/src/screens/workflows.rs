@@ -36,6 +36,10 @@ pub fn Workflows() -> Element {
     let mut create_name = use_signal(|| String::new());
     let mut creating = use_signal(|| false);
     let mut show_create = use_signal(|| false);
+    let mut show_import = use_signal(|| false);
+    let mut import_text = use_signal(|| String::new());
+    let mut importing = use_signal(|| false);
+    let mut export_data: Signal<Option<(String, String)>> = use_signal(|| None);
 
     // Precompute the workflow table rows.
     let mut workflow_rows: Vec<Element> = Vec::new();
@@ -65,6 +69,9 @@ pub fn Workflows() -> Element {
         let client_dup = client.clone();
         let mut items_dup = items;
         let g_dup = global.clone();
+        let client_exp = client.clone();
+        let exp_name = name.clone();
+        let mut exp_data = export_data;
         let mut to_del = to_delete;
         workflow_rows.push(rsx! {
             tr { style: "border-bottom:1px solid {color::NEUTRAL_150};",
@@ -109,6 +116,16 @@ pub fn Workflows() -> Element {
                                 }
                             });
                         }}
+                        IconButton { name: "braces".to_string(), aria_label: "Export".to_string(), on_click: move |_| {
+                            let client = client_exp.clone();
+                            let mut exp = exp_data;
+                            let en = exp_name.clone();
+                            spawn(async move {
+                                if let Ok(v) = client.workflow_export(id).await {
+                                    exp.set(Some((en.clone(), serde_json::to_string_pretty(&v).unwrap_or_default())));
+                                }
+                            });
+                        }}
                         IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(), on_click: move |_| to_del.set(Some(id)) }
                     }
                 }
@@ -129,6 +146,7 @@ pub fn Workflows() -> Element {
                     span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Build and run visual workflow automations." }
                 }
                 div { style: "display:flex; gap:8px;",
+                    Button { label: "Import".to_string(), variant: "secondary".to_string(), on_click: move |_| show_import.set(true) }
                     Button { label: "Create Workflow".to_string(), on_click: move |_| show_create.set(true) }
                 }
             }
@@ -254,6 +272,64 @@ pub fn Workflows() -> Element {
                         to_delete.set(None);
                     });
                 },
+            }
+        }
+
+        // Import workflow modal
+        if show_import() {
+            crate::components::Modal {
+                title: "Import Workflow".to_string(),
+                on_close: move |_| show_import.set(false),
+                div { style: "display:flex; flex-direction:column; gap:16px;",
+                    crate::components::TextArea {
+                        value: import_text(),
+                        label: "Workflow JSON".to_string(),
+                        rows: 10,
+                        hint: "Paste a workflow JSON document exported from Ferris.".to_string(),
+                        oninput: move |v| import_text.set(v),
+                    }
+                    div { style: "display:flex; justify-content:flex-end; gap:12px;",
+                        Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_import.set(false) }
+                        Button { label: "Import".to_string(), loading: importing(), disabled: import_text().trim().is_empty(),
+                            on_click: move |_| {
+                                let client = client.clone();
+                                let mut g = global.clone();
+                                let mut importing2 = importing;
+                                let mut its = items;
+                                let mut show = show_import;
+                                let parsed = serde_json::from_str::<serde_json::Value>(&import_text()).unwrap_or(serde_json::Value::Null);
+                                spawn(async move {
+                                    importing2.set(true);
+                                    match client.workflow_import(&parsed).await {
+                                        Ok(_) => {
+                                            if let Ok(v) = client.workflow_list(None, None).await {
+                                                its.set(v["data"].as_array().cloned().unwrap_or_default());
+                                            }
+                                            g.toast("Workflow imported", "success");
+                                        }
+                                        Err(e) => g.toast(format!("Import failed: {e}"), "danger"),
+                                    }
+                                    importing2.set(false);
+                                    show.set(false);
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Export workflow modal
+        if let Some((exp_name, exp_json)) = export_data().as_ref() {
+            crate::components::Modal {
+                title: format!("Export: {exp_name}"),
+                on_close: move |_| export_data.set(None),
+                div { style: "display:flex; flex-direction:column; gap:16px;",
+                    pre { style: "background:{color::NEUTRAL_100}; padding:12px; border-radius:6px; font-size:12px; max-height:60vh; overflow:auto; color:{color::NEUTRAL_800}; white-space:pre-wrap;", "{exp_json}" }
+                    div { style: "display:flex; justify-content:flex-end;",
+                        Button { label: "Close".to_string(), variant: "secondary".to_string(), on_click: move |_| export_data.set(None) }
+                    }
+                }
             }
         }
     }
