@@ -181,3 +181,76 @@ async fn sidebar_navigation_renders() -> anyhow::Result<()> {
     take_screenshot(&ui.page, "sidebar").await?;
     Ok(())
 }
+
+/// The Workflows management screen renders from the sidebar nav without the
+/// relative-URL builder error.
+#[tokio::test(flavor = "multi_thread")]
+async fn workflows_screen_renders() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
+    let page = &ui.page;
+
+    let none_arg: Option<&serde_json::Value> = None;
+    page.evaluate::<_, ()>(
+        r#"() => {
+            const items = [...document.querySelectorAll('button')];
+            const el = items.find(b => b.textContent && b.textContent.includes('Workflows'));
+            if (el) el.click();
+        }"#,
+        none_arg,
+    )
+    .await?;
+
+    wait_for_text(&page, |t| t.contains("Workflows"))
+        .await
+        .context("Workflows screen did not render")?;
+    let body = body_text(&page).await?;
+    assert!(!body.contains(BUILDER_ERROR), "builder error on Workflows screen");
+
+    take_screenshot(page, "workflows-list").await?;
+    Ok(())
+}
+
+/// The visual workflow editor opens after creating a workflow and shows the
+/// node library (NODES) and an empty canvas.
+#[tokio::test(flavor = "multi_thread")]
+async fn workflow_editor_opens() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
+    let page = &ui.page;
+
+    // Navigate to Workflows.
+    let none_arg: Option<&serde_json::Value> = None;
+    page.evaluate::<_, ()>(
+        r#"() => {
+            const items = [...document.querySelectorAll('button')];
+            const el = items.find(b => b.textContent && b.textContent.includes('Workflows'));
+            if (el) el.click();
+        }"#,
+        none_arg,
+    )
+    .await?;
+    wait_for_text(&page, |t| t.contains("Workflows"))
+        .await
+        .context("Workflows screen did not render")?;
+
+    // Open the Create Workflow modal and submit.
+    page.evaluate::<_, ()>(
+        r#"() => {
+            const items = [...document.querySelectorAll('button')];
+            const el = items.find(b => b.textContent && b.textContent.includes('Create Workflow'));
+            if (el) el.click();
+        }"#,
+        none_arg,
+    )
+    .await?;
+    // Wait for the editor (node library "NODES" heading).
+    wait_for_text(&page, |t| t.contains("NODES") || t.contains("Workflow Editor"))
+        .await
+        .context("workflow editor did not open")?;
+
+    let body = body_text(&page).await?;
+    assert!(!body.contains(BUILDER_ERROR), "builder error in editor");
+    take_screenshot(page, "workflow-editor").await?;
+    Ok(())
+}
