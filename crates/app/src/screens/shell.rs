@@ -6,7 +6,7 @@ use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
 use crate::screens::{
-    content_manager, content_type_builder, executions, home, media, settings, workflow_editor,
+    content_manager, content_type_builder, credentials, executions, home, media, settings, workflow_editor,
     workflows,
 };
 
@@ -31,6 +31,7 @@ pub fn Shell() -> Element {
                         Route::WorkflowEditor(id) => rsx! { workflow_editor::WorkflowEditor { workflow_id: id } },
                         Route::WorkflowExecutions => rsx! { executions::Executions {} },
                         Route::Execution(id) => rsx! { executions::ExecutionDetail { execution_id: id } },
+                        Route::Credentials => rsx! { credentials::Credentials {} },
                         Route::Settings => rsx! { settings::Settings {} },
                         _ => rsx! { home::Home {} },
                     }
@@ -67,6 +68,7 @@ fn TopBar() -> Element {
         Route::WorkflowEditor(_) => "Workflow Editor",
         Route::WorkflowExecutions => "Workflow Executions",
         Route::Execution(_) => "Execution",
+        Route::Credentials => "API / Integrations",
         Route::Settings => "Settings",
         _ => "Home",
     };
@@ -95,6 +97,7 @@ fn Sidebar() -> Element {
     let mut g_media = global.clone();
     let mut g_wf = global.clone();
     let mut g_exec = global.clone();
+    let mut g_cred = global.clone();
     let mut g_settings = global.clone();
     let mut g_logout = global.clone();
 
@@ -152,6 +155,7 @@ fn Sidebar() -> Element {
             div { style: "padding:0 12px 12px; display:flex; flex-direction:column; gap:4px;",
                 NavItem { label: "Workflows".to_string(), icon: "layers".to_string(), active: active(Route::Workflows) || matches!(route(), Route::WorkflowEditor(_)), onclick: move |_| g_wf.route.set(Route::Workflows) }
                 NavItem { label: "Executions".to_string(), icon: "list".to_string(), active: active(Route::WorkflowExecutions) || matches!(route(), Route::Execution(_)), onclick: move |_| g_exec.route.set(Route::WorkflowExecutions) }
+                NavItem { label: "API / Integrations".to_string(), icon: "key".to_string(), active: active(Route::Credentials), onclick: move |_| g_cred.route.set(Route::Credentials) }
             }
             div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
             span { style: "{section_label}", "GENERAL" }

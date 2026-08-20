@@ -23,6 +23,7 @@ pub enum Route {
     WorkflowEditor(i64),
     WorkflowExecutions,
     Execution(i64),
+    Credentials,
     Settings,
 }
 
