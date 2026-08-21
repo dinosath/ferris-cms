@@ -234,4 +234,23 @@ mod tests {
     fn invalid_json_errors() {
         assert!(parse_content("a.json", "{not json").is_err());
     }
+
+    #[test]
+    fn parses_single_object_json_as_one_record() {
+        let ds = parse_content("a.json", r#"{"name":"A","price":1}"#).unwrap();
+        assert_eq!(ds.len(), 1);
+        assert_eq!(ds[0].records.len(), 1);
+        assert_eq!(ds[0].records[0]["name"], "A");
+    }
+
+    #[test]
+    fn empty_csv_yields_no_records() {
+        let ds = parse_content(
+            "a.csv",
+            "name,sku
+",
+        )
+        .unwrap();
+        assert_eq!(ds[0].records.len(), 0);
+    }
 }

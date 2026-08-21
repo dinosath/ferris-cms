@@ -526,3 +526,48 @@ async fn export_respects_filters() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Invalid uids yield a clean API error (not a crash / empty success).
+#[tokio::test(flavor = "multi_thread")]
+async fn invalid_uid_returns_error() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    // Export a content type that does not exist -> 4xx.
+    let export = client
+        .post(format!("{base}/admin/import-export/export"))
+        .bearer_auth(&token)
+        .json(&json!({"uids": ["api::nonexistent.nonexistent"], "format": "json"}))
+        .send()
+        .await?;
+    assert!(
+        export.status().is_client_error(),
+        "export of unknown uid should be a client error, got {}",
+        export.status()
+    );
+
+    // Import into a content type that does not exist -> 4xx.
+    let import = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "x.csv",
+            "dataset": "data",
+            "content": "name,sku\nA,S1\n",
+            "uid": "api::nonexistent.nonexistent",
+            "mapping": [],
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en"
+        }]}))
+        .send()
+        .await?;
+    assert!(
+        import.status().is_client_error(),
+        "import into unknown uid should be a client error, got {}",
+        import.status()
+    );
+
+    Ok(())
+}

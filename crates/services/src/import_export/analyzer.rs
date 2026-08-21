@@ -248,4 +248,32 @@ mod tests {
         let cands = detect_content_types(&schemas, &inferred);
         assert_eq!(cands[0].uid, "api::product.product");
     }
+
+    #[test]
+    fn never_silently_selects_low_confidence() {
+        let schemas = vec![schema("api::product.product", &["name", "sku"])];
+        let inferred = infer_schema(&[serde_json::json!({"zzz": 1, "qqq": 2})]);
+        let cands = detect_content_types(&schemas, &inferred);
+        assert!(cands[0].confidence < 0.4, "confidence should be low");
+        assert!(
+            best_suggestion(&cands, 0.4).is_none(),
+            "must not auto-select a low-confidence type"
+        );
+    }
+
+    #[test]
+    fn infers_nullable_and_empty() {
+        let records = vec![
+            serde_json::json!({"name": "A", "note": null}),
+            serde_json::json!({"name": "B"}),
+        ];
+        let schema = infer_schema(&records);
+        let note = schema.iter().find(|f| f.name == "note").unwrap();
+        assert!(note.nullable, "missing/null values should mark nullable");
+    }
+
+    #[test]
+    fn empty_records_yield_no_fields() {
+        assert!(infer_schema(&[]).is_empty());
+    }
 }
