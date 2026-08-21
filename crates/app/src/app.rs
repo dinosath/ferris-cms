@@ -17,7 +17,16 @@ pub enum Route {
     Register,
     Home,
     ContentTypeBuilder,
+    /// Content-Type Builder editor for one content type (by schema uid).
+    ContentTypeBuilderEditor(String),
     ContentManager,
+    /// Content Manager entry list for one collection type (by schema uid).
+    ContentManagerEntries(String),
+    /// Content Manager entry editor for one document.
+    ContentManagerEntry {
+        uid: String,
+        document_id: String,
+    },
     Media,
     Workflows,
     WorkflowEditor(i64),
@@ -35,6 +44,9 @@ pub struct Global {
     pub route: Signal<Route>,
     /// (message, kind) toast queue.
     pub toasts: Signal<Vec<(String, String)>>,
+    /// (uid, display name) registry of content types, populated by screens so
+    /// the global breadcrumb bar can render entity labels for nested routes.
+    pub ct_names: Signal<Vec<(String, String)>>,
 }
 
 /// localStorage key holding the JWT so a refresh keeps the session alive.
@@ -95,6 +107,7 @@ impl Global {
             token: Signal::new(token),
             route: Signal::new(Route::Home),
             toasts: Signal::new(Vec::new()),
+            ct_names: Signal::new(Vec::new()),
         }
     }
 

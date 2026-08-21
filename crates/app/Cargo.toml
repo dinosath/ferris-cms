@@ -19,6 +19,7 @@ core-domain = { workspace = true }
 dioxus = { version = "0.7" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
 parking_lot = "0.12"
 console_error_panic_hook = "0.1"

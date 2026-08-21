@@ -11,10 +11,10 @@ use core_schema::{
 use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
-use crate::app::use_global;
+use crate::app::{use_global, Route};
 use crate::components::{
-    Badge, Button, Card, Dropdown, EmptyState, Icon, IconButton, Modal, NavItem, TextArea,
-    TextField, Toggle,
+    Badge, Button, Card, ConfirmDialog, Dropdown, EmptyState, Icon, IconButton, Modal, Spinner,
+    TextArea, TextField, Toggle,
 };
 
 #[derive(Clone, PartialEq)]
@@ -98,26 +98,38 @@ const PICKABLE_FIELDS: &[(FieldType, &str, &str)] = &[
     (FieldType::Uid, "UID", "Unique identifier"),
 ];
 
-const SECTION_LABEL: &str = "padding:4px 16px; font-size:{font}; color:{col};";
-const LABEL_FONT: &str = "12px";
-const NEUTRAL_600: &str = "#666687";
+/// A user-triggered async action for the Content-Type Builder listing.
+#[derive(Clone)]
+enum CtbAction {
+    Create(Schema),
+    Duplicate(String),
+    Delete(String),
+}
 
+/// Content-Type Builder landing page — a table-first listing of every content
+/// type (collection / single / component). Browsing happens here, matching the
+/// Workflows listing pattern, instead of through a persistent sidebar.
 #[component]
 pub fn ContentTypeBuilder() -> Element {
     let global = use_global();
-    let mut working = use_signal(Vec::<Schema>::new);
+    let client = global.client.clone();
+    let mut working: Signal<Vec<Schema>> = use_signal(|| vec![]);
     let mut loaded = use_signal(|| false);
-    let mut selected_uid = use_signal(|| None::<String>);
-    let mut modal = use_signal(|| ModalKind::None);
-    let mut is_dirty = use_signal(|| false);
-    let mut saving = use_signal(|| false);
+    let mut loading = use_signal(|| true);
+    let mut search = use_signal(String::new);
+    let mut filter = use_signal(|| "all".to_string());
+    let mut show_create = use_signal(|| false);
+    let mut to_delete: Signal<Option<String>> = use_signal(|| None);
+    let mut action: Signal<Option<CtbAction>> = use_signal(|| None);
+    let mut route = global.route;
     let mut status = use_signal(|| None::<String>);
 
+    // Load the schema list once and register content-type names for breadcrumbs.
     let g_load = global.clone();
     use_effect(move || {
         if !loaded() {
             loaded.set(true);
-            let g = g_load.clone();
+            let mut g = g_load.clone();
             spawn(async move {
                 match g.client.ctb_list().await {
                     Ok(v) => {
@@ -130,6 +142,322 @@ pub fn ContentTypeBuilder() -> Element {
                                     .collect()
                             })
                             .unwrap_or_default();
+                        let names: Vec<(String, String)> = schemas
+                            .iter()
+                            .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                            .collect();
+                        g.ct_names.set(names);
+                        working.set(schemas);
+                    }
+                    Err(e) => status.set(Some(format!("Failed to load: {e}"))),
+                }
+                loading.set(false);
+            });
+        }
+    });
+
+    // Dispatcher for create / duplicate / delete (spawn must run from an effect).
+    let g_disp = global.clone();
+    use_effect({
+        let client = client.clone();
+        let mut g = g_disp.clone();
+        move || {
+            let a = action.take();
+            match a {
+                Some(CtbAction::Create(schema)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut w = working;
+                    let mut show = show_create;
+                    let mut route2 = route;
+                    let new_uid = schema.uid.as_str().to_string();
+                    spawn(async move {
+                        w.write().push(schema);
+                        match client.ctb_apply(w()).await {
+                            Ok(_) => {
+                                let names: Vec<(String, String)> = w()
+                                    .iter()
+                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .collect();
+                                g.ct_names.set(names);
+                                g.toast("Content type created", "success");
+                                route2.set(Route::ContentTypeBuilderEditor(new_uid));
+                            }
+                            Err(e) => g.toast(format!("Create failed: {e}"), "danger"),
+                        }
+                        show.set(false);
+                    });
+                }
+                Some(CtbAction::Duplicate(uid)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut w = working;
+                    spawn(async move {
+                        let copy = w().iter().find(|s| s.uid.as_str() == uid).map(duplicate_schema);
+                        if let Some(ns) = copy {
+                            w.write().push(ns);
+                        }
+                        match client.ctb_apply(w()).await {
+                            Ok(_) => {
+                                let names: Vec<(String, String)> = w()
+                                    .iter()
+                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .collect();
+                                g.ct_names.set(names);
+                                g.toast("Content type duplicated", "success");
+                            }
+                            Err(e) => g.toast(format!("Duplicate failed: {e}"), "danger"),
+                        }
+                    });
+                }
+                Some(CtbAction::Delete(uid)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut w = working;
+                    let mut del = to_delete;
+                    spawn(async move {
+                        w.write().retain(|s| s.uid.as_str() != uid);
+                        match client.ctb_apply(w()).await {
+                            Ok(_) => {
+                                let names: Vec<(String, String)> = w()
+                                    .iter()
+                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .collect();
+                                g.ct_names.set(names);
+                                g.toast("Content type deleted", "success");
+                            }
+                            Err(e) => g.toast(format!("Delete failed: {e}"), "danger"),
+                        }
+                        del.set(None);
+                    });
+                }
+                None => {}
+            }
+        }
+    });
+
+    // Precompute table rows under the active tab + search.
+    let schemas = working();
+    let filter_kind = filter();
+    let query = search().trim().to_lowercase();
+    let mut rows: Vec<Element> = Vec::new();
+    for s in schemas.iter() {
+        let matches_filter = match filter_kind.as_str() {
+            "collection" => s.kind == ContentTypeKind::CollectionType,
+            "single" => s.kind == ContentTypeKind::SingleType,
+            "component" => s.kind == ContentTypeKind::Component,
+            _ => true,
+        };
+        if !matches_filter {
+            continue;
+        }
+        let name = s.info.display_name.clone();
+        if !query.is_empty() && !name.to_lowercase().contains(&query) {
+            continue;
+        }
+        let uid = s.uid.as_str().to_string();
+        let kind = s.kind;
+        let field_count = s.attributes.len();
+        let mut open_tr = route;
+        let mut open_name = route;
+        let mut open_edit = route;
+        let mut act = action;
+        let mut del = to_delete;
+        let name_uid_tr = uid.clone();
+        let name_uid_name = uid.clone();
+        let edit_uid = uid.clone();
+        let dup_uid = uid.clone();
+        let del_uid = uid.clone();
+        rows.push(rsx! {
+            tr { style: "border-bottom:1px solid {color::NEUTRAL_150}; cursor:pointer;",
+                onclick: move |_| open_tr.set(Route::ContentTypeBuilderEditor(name_uid_tr.clone())),
+                td { style: "padding:12px 16px;",
+                    button { style: "background:none; border:none; color:{color::PRIMARY_600}; font-weight:600; cursor:pointer; font-size:14px; text-align:left;",
+                        onclick: move |_| open_name.set(Route::ContentTypeBuilderEditor(name_uid_name.clone())),
+                        "{name}"
+                    }
+                }
+                td { style: "padding:12px 16px;",
+                    {type_badge(kind)}
+                }
+                td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{uid}" }
+                td { style: "padding:12px 16px; font-size:14px; color:{color::NEUTRAL_700};", "{field_count}" }
+                td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_500};", "—" }
+                td { style: "padding:12px 16px;",
+                    div { style: "display:flex; gap:4px;",
+                        IconButton { name: "pencil".to_string(), aria_label: "Edit".to_string(),
+                            on_click: move |e: MouseEvent| { e.stop_propagation(); open_edit.set(Route::ContentTypeBuilderEditor(edit_uid.clone())); } }
+                        IconButton { name: "refresh".to_string(), aria_label: "Duplicate".to_string(),
+                            on_click: move |e: MouseEvent| { e.stop_propagation(); act.set(Some(CtbAction::Duplicate(dup_uid.clone()))); } }
+                        IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(),
+                            on_click: move |e: MouseEvent| { e.stop_propagation(); del.set(Some(del_uid.clone())); } }
+                    }
+                }
+            }
+        });
+    }
+
+    let count = schemas.len();
+    rsx! {
+        div { style: "padding:32px; max-width:1200px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;",
+                div { style: "display:flex; flex-direction:column; gap:4px;",
+                    span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "Content-Type Builder" }
+                    span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Define and manage the structure of your content." }
+                }
+                Button { label: "Create content type".to_string(), on_click: move |_| show_create.set(true) }
+            }
+
+            // Toolbar: search + type tabs
+            div { style: "display:flex; gap:12px; margin-bottom:16px; align-items:center; flex-wrap:wrap;",
+                div { style: "flex:1; max-width:360px;",
+                    TextField {
+                        value: search(),
+                        placeholder: "Search content types".to_string(),
+                        oninput: move |v| search.set(v),
+                    }
+                }
+                div { style: "display:flex; gap:4px; flex-wrap:wrap;",
+                    TypeChip { label: "All".to_string(), active: filter() == "all", on_click: move |_| filter.set("all".into()) }
+                    TypeChip { label: "Collection Types".to_string(), active: filter() == "collection", on_click: move |_| filter.set("collection".into()) }
+                    TypeChip { label: "Single Types".to_string(), active: filter() == "single", on_click: move |_| filter.set("single".into()) }
+                    TypeChip { label: "Components".to_string(), active: filter() == "component", on_click: move |_| filter.set("component".into()) }
+                }
+            }
+
+            if let Some(status) = status() {
+                div { style: "padding:12px; margin-bottom:16px; border-radius:4px; background:{color::WARNING_100}; color:{color::WARNING_700}; font-size:{typography::BODY_SIZE};", "{status}" }
+            }
+
+            if loading() {
+                div { style: "display:flex; justify-content:center; padding:48px;", Spinner { size: 28 } }
+            } else if count == 0 {
+                EmptyState {
+                    title: "No content types yet".to_string(),
+                    subtitle: "Create your first collection or single type to start building your content structure.".to_string(),
+                    icon: "grid".to_string(),
+                    Button { label: "Create content type".to_string(), on_click: move |_| show_create.set(true) }
+                }
+            } else if rows.is_empty() {
+                EmptyState {
+                    title: "No results".to_string(),
+                    subtitle: "No content types match your search or filter.".to_string(),
+                    icon: "search".to_string(),
+                }
+            } else {
+                Card {
+                    header: format!("{count} content types"),
+                    div { style: "overflow-x:auto;",
+                        table { style: "width:100%; border-collapse:collapse;",
+                            thead {
+                                tr {
+                                    TableTh { label: "Name".to_string() }
+                                    TableTh { label: "Type".to_string() }
+                                    TableTh { label: "API ID / UID".to_string() }
+                                    TableTh { label: "Fields".to_string() }
+                                    TableTh { label: "Updated".to_string() }
+                                    TableTh { label: "Actions".to_string() }
+                                }
+                            }
+                            tbody { {rows.into_iter()} }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Create content type modal
+        if show_create() {
+            CreateTypeModal {
+                on_close: move |_| show_create.set(false),
+                on_create: move |schema| action.set(Some(CtbAction::Create(schema))),
+            }
+        }
+
+        // Delete confirm dialog
+        if let Some(uid) = to_delete() {
+            ConfirmDialog {
+                title: "Delete content type".to_string(),
+                message: "This will permanently delete the content type and its data. This cannot be undone.".to_string(),
+                confirm_label: "Delete".to_string(),
+                on_cancel: move |_| to_delete.set(None),
+                on_confirm: move |_| action.set(Some(CtbAction::Delete(uid.clone()))),
+            }
+        }
+    }
+}
+
+/// Render a badge for a content type's kind.
+fn type_badge(kind: ContentTypeKind) -> Element {
+    match kind {
+        ContentTypeKind::CollectionType => rsx! {
+            Badge { text: "Collection".to_string(), kind: "published".to_string() }
+        },
+        ContentTypeKind::SingleType => rsx! {
+            Badge { text: "Single".to_string(), kind: "neutral".to_string() }
+        },
+        ContentTypeKind::Component => rsx! {
+            Badge { text: "Component".to_string(), kind: "modified".to_string() }
+        },
+    }
+}
+
+/// Build a deep copy of a schema under a new uid ("<name>-copy").
+fn duplicate_schema(orig: &Schema) -> Schema {
+    let mut s = orig.clone();
+    let base = orig.info.singular_name.clone();
+    let new_singular = if base.is_empty() {
+        "copy".to_string()
+    } else {
+        format!("{base}-copy")
+    };
+    let plural = {
+        use cruet::Inflector;
+        new_singular.to_plural()
+    };
+    s.info.singular_name = new_singular.clone();
+    s.info.plural_name = plural;
+    s.info.display_name = format!("{} copy", orig.info.display_name);
+    s.uid = api_uid(&new_singular);
+    s.collection_name = None;
+    s
+}
+
+/// The Content-Type Builder editor for a single content type. Browsing/selecting
+/// happens on the listing page; this screen edits fields for one type only.
+#[component]
+pub fn ContentTypeBuilderEditor(uid: String) -> Element {
+    let global = use_global();
+    let mut working: Signal<Vec<Schema>> = use_signal(|| vec![]);
+    let mut loaded = use_signal(|| false);
+    let mut modal = use_signal(|| ModalKind::None);
+    let mut is_dirty = use_signal(|| false);
+    let mut saving = use_signal(|| false);
+    let mut status = use_signal(|| None::<String>);
+    let mut route = global.route;
+
+    let g_load = global.clone();
+    use_effect(move || {
+        if !loaded() {
+            loaded.set(true);
+            let mut g = g_load.clone();
+            spawn(async move {
+                match g.client.ctb_list().await {
+                    Ok(v) => {
+                        let schemas: Vec<Schema> = v
+                            .get("data")
+                            .and_then(|d| d.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|x| serde_json::from_value(x.clone()).ok())
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let names: Vec<(String, String)> = schemas
+                            .iter()
+                            .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                            .collect();
+                        g.ct_names.set(names);
                         working.set(schemas);
                     }
                     Err(e) => status.set(Some(format!("Failed to load: {e}"))),
@@ -139,6 +467,10 @@ pub fn ContentTypeBuilder() -> Element {
     });
 
     let schemas = working();
+    let selected = schemas
+        .iter()
+        .find(|s| s.uid.as_str() == uid)
+        .cloned();
     let target_types: Vec<String> = schemas
         .iter()
         .filter(|s| s.kind == ContentTypeKind::CollectionType)
@@ -149,73 +481,31 @@ pub fn ContentTypeBuilder() -> Element {
         .filter(|s| s.kind == ContentTypeKind::Component)
         .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
         .collect();
-    let sibling_fields: Vec<String> = schemas
-        .iter()
-        .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
+    let sibling_fields: Vec<String> = selected
+        .as_ref()
         .map(|s| s.attributes.keys().cloned().collect())
         .unwrap_or_default();
-    let selected = schemas
-        .iter()
-        .find(|s| Some(s.uid.as_str().to_string()) == selected_uid())
-        .cloned();
-
-    let collection_items: Vec<(String, String)> = schemas
-        .iter()
-        .filter(|s| s.kind == ContentTypeKind::CollectionType)
-        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
-        .collect();
-    let single_items: Vec<(String, String)> = schemas
-        .iter()
-        .filter(|s| s.kind == ContentTypeKind::SingleType)
-        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
-        .collect();
-    let component_items: Vec<(String, String)> = schemas
-        .iter()
-        .filter(|s| s.kind == ContentTypeKind::Component)
-        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
-        .collect();
-
-    let selected_display = selected.as_ref().map(|s| s.info.display_name.clone());
-    let selected_uid_str = selected.as_ref().map(|s| s.uid.as_str().to_string());
     let selected_attrs: Vec<(String, String, FieldType, bool)> = selected
         .as_ref()
         .map(|s| {
             s.attributes
                 .iter()
-                .map(|(n, a)| {
-                    (
-                        s.uid.as_str().to_string(),
-                        n.clone(),
-                        a.attr_type,
-                        a.required,
-                    )
-                })
+                .map(|(n, a)| (s.uid.as_str().to_string(), n.clone(), a.attr_type, a.required))
                 .collect()
         })
         .unwrap_or_default();
-    let uid_for_picker = selected_uid_str.clone().unwrap_or_default();
+    let selected_display = selected.as_ref().map(|s| s.info.display_name.clone());
+    let selected_uid_str = selected.as_ref().map(|s| s.uid.as_str().to_string()).unwrap_or_default();
+    let uid_for_picker = uid.clone();
 
-    let sidebar_style = format!(
-        "width:240px; min-width:240px; background:{}; border-right:1px solid {}; display:flex; flex-direction:column;",
-        color::NEUTRAL_0, color::NEUTRAL_150
-    );
-    let header_style = format!(
-        "padding:16px; font-size:{}; font-weight:600; color:{};",
+    let page_title_style = format!(
+        "font-size:{}; font-weight:600; color:{};",
         typography::DELTA_SIZE,
         color::NEUTRAL_900
-    );
-    let editor_top_style = format!(
-        "display:flex; align-items:center; justify-content:space-between; padding:0 32px; height:64px; border-bottom:1px solid {}; background:{};",
-        color::NEUTRAL_150, color::NEUTRAL_100
     );
     let editor_title_style = format!(
         "font-size:{}; font-weight:600; color:{};",
         typography::BETA_SIZE,
-        color::NEUTRAL_900
-    );
-    let page_title_style = format!(
-        "font-size:{}; font-weight:600; color:{};",
-        typography::DELTA_SIZE,
         color::NEUTRAL_900
     );
     let field_name_style = format!(
@@ -232,129 +522,97 @@ pub fn ContentTypeBuilder() -> Element {
         "width:100%; padding:16px; border:1px dashed {}; border-radius:6px; background:transparent; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;",
         color::PRIMARY_400
     );
-    let g_save = global.clone();
-    let toast_signal = global.clone();
-    // Owned copy for the bottom dashed add-field button (the header button's
-    // `move` closure already moves `uid_for_picker`).
     let picker_uid = uid_for_picker.clone();
 
+    let g_save = global.clone();
+    let toast_signal = global.clone();
+
     rsx! {
-        div { style: "display:flex; min-height:100vh;",
-            div { style: "{sidebar_style}",
-                div { style: "{header_style}", "Content-Type Builder" }
-                span { style: SECTION_LABEL.replace("{font}", LABEL_FONT).replace("{col}", NEUTRAL_600), "COLLECTION TYPES" }
-                for (uid, display) in collection_items.into_iter() {
-                    NavItem {
-                        label: display,
-                        icon: "stack".to_string(),
-                        active: selected_uid() == Some(uid.clone()),
-                        onclick: move |_| selected_uid.set(Some(uid.clone())),
+        div { style: "padding:32px; max-width:1200px;",
+            div { style: "display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:12px;",
+                div { style: "display:flex; align-items:center; gap:12px;",
+                    Button { label: "← Back to Content Types".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::ContentTypeBuilder) }
+                    div { style: "display:flex; flex-direction:column; gap:2px;",
+                        span { style: "{editor_title_style}",
+                            if let Some(name) = &selected_display { "{name}" } else { "Content-Type Builder" }
+                        }
+                        span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "{selected_uid_str}" }
                     }
                 }
-                button { style: "background:none; border:none; color:{color::PRIMARY_600}; cursor:pointer; text-align:left; padding:8px 16px; font-size:{typography::BODY_SIZE};",
-                    onclick: move |_| modal.set(ModalKind::CreateType),
-                    "+ Create new collection type"
-                }
-                span { style: SECTION_LABEL.replace("{font}", LABEL_FONT).replace("{col}", NEUTRAL_600), "SINGLE TYPES" }
-                for (uid, display) in single_items.into_iter() {
-                    NavItem {
-                        label: display,
-                        icon: "grid".to_string(),
-                        active: selected_uid() == Some(uid.clone()),
-                        onclick: move |_| selected_uid.set(Some(uid.clone())),
+                div { style: "display:flex; align-items:center; gap:12px;",
+                    if let Some(status) = status() {
+                        span { style: "font-size:{typography::PI_SIZE}; color:{color::SUCCESS_600};", "{status}" }
                     }
-                }
-                button { style: "background:none; border:none; color:{color::PRIMARY_600}; cursor:pointer; text-align:left; padding:8px 16px; font-size:{typography::BODY_SIZE};",
-                    onclick: move |_| modal.set(ModalKind::CreateType),
-                    "+ Create new single type"
-                }
-                span { style: SECTION_LABEL.replace("{font}", LABEL_FONT).replace("{col}", NEUTRAL_600), "COMPONENTS" }
-                for (uid, display) in component_items.into_iter() {
-                    NavItem { label: display, icon: "puzzle".to_string(), active: false, onclick: move |_| selected_uid.set(Some(uid.clone())) }
+                    Button {
+                        label: "Save".to_string(), variant: "success".to_string(), disabled: !is_dirty(), loading: saving(),
+                        on_click: move |_| {
+                            let g = g_save.clone();
+                            let toast = toast_signal.clone();
+                            let schemas = working();
+                            saving.set(true);
+                            spawn(async move {
+                                let mut toast = toast;
+                                match g.client.ctb_apply(schemas).await {
+                                    Ok(_) => { is_dirty.set(false); status.set(Some("Saved".to_string())); toast.toast("Schema saved".to_string(), "success"); }
+                                    Err(e) => { status.set(Some(format!("Error: {e}"))); toast.toast(format!("Save failed: {e}"), "danger"); }
+                                }
+                                saving.set(false);
+                            });
+                        },
+                    }
                 }
             }
 
-            div { style: "flex:1; min-width:0;",
-                div { style: "{editor_top_style}",
-                    span { style: "{editor_title_style}",
-                        if let Some(name) = &selected_display { "{name}" } else { "Select a content type" }
-                    }
-                    div { style: "display:flex; align-items:center; gap:12px;",
-                        if let Some(status) = status() {
-                            span { style: "font-size:{typography::PI_SIZE}; color:{color::SUCCESS_600};", "{status}" }
-                        }
-                        Button {
-                            label: "Save".to_string(), variant: "success".to_string(), disabled: !is_dirty(), loading: saving(),
-                            on_click: move |_| {
-                                let g = g_save.clone();
-                                let toast = toast_signal.clone();
-                                let schemas = working();
-                                saving.set(true);
-                                spawn(async move {
-                                    let mut toast = toast;
-                                    match g.client.ctb_apply(schemas).await {
-                                        Ok(_) => { is_dirty.set(false); status.set(Some("Saved".to_string())); toast.toast("Schema saved".to_string(), "success"); }
-                                        Err(e) => { status.set(Some(format!("Error: {e}"))); toast.toast(format!("Save failed: {e}"), "danger"); }
-                                    }
-                                    saving.set(false);
-                                });
-                            },
+            if let Some(display) = &selected_display {
+                div { style: "display:flex; flex-direction:column; gap:16px;",
+                    div { style: "display:flex; align-items:center; justify-content:space-between;",
+                        span { style: "{page_title_style}", "{display}" }
+                        Button { label: "+ Add another field".to_string(), variant: "secondary".to_string(),
+                            on_click: move |_| modal.set(ModalKind::FieldPicker { ct_uid: uid_for_picker.clone() })
                         }
                     }
-                }
-
-                div { style: "padding:32px;",
-                    if let Some(display) = &selected_display {
-                        div { style: "display:flex; flex-direction:column; gap:16px;",
-                            div { style: "display:flex; align-items:center; justify-content:space-between;",
-                                span { style: "{page_title_style}", "{display}" }
-                                Button { label: "+ Add another field".to_string(), variant: "secondary".to_string(),
-                                    on_click: move |_| modal.set(ModalKind::FieldPicker { ct_uid: uid_for_picker.clone() })
-                                }
-                            }
-                            Card { padding: 24,
-                                if selected_attrs.is_empty() {
-                                    EmptyState {
-                                        title: "No fields yet".to_string(),
-                                        subtitle: "This content type has no fields yet. Add your first field.".to_string(),
-                                        icon: "grid".to_string(),
-                                    }
-                                } else {
-                                    div { style: "display:flex; flex-direction:column;",
-                                        for (row_uid, name, ft, req) in selected_attrs.into_iter() {
-                                            div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
-                                                Icon { name: icon_for(ft), size: 18 }
-                                                div { style: "display:flex; flex-direction:column; flex:1;",
-                                                    span { style: "{field_name_style}", "{name}" }
-                                                    span { style: "{field_type_style}", "{ft.as_str()}" }
-                                                }
-                                                if req {
-                                                    Badge { text: "required".to_string(), kind: "new".to_string() }
-                                                }
-                                                IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
-                                                    on_click: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }) }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            button {
-                                style: "{add_field_style}",
-                                onclick: move |_| modal.set(ModalKind::FieldPicker { ct_uid: picker_uid.clone() }),
-                                Icon { name: "plus".to_string(), size: 16, color: color::PRIMARY_600.to_string() }
-                                span { style: "font-size:{typography::BODY_SIZE}; font-weight:600; color:{color::PRIMARY_600};", "+ Add another field" }
-                            }
-                        }
-                    } else {
-                        div { style: "padding:48px;",
+                    Card { padding: 24,
+                        if selected_attrs.is_empty() {
                             EmptyState {
-                                title: "Select a content type".to_string(),
-                                subtitle: "Select a content type or create a new one to begin.".to_string(),
+                                title: "No fields yet".to_string(),
+                                subtitle: "This content type has no fields yet. Add your first field.".to_string(),
                                 icon: "grid".to_string(),
                             }
+                        } else {
+                            div { style: "display:flex; flex-direction:column;",
+                                for (row_uid, name, ft, req) in selected_attrs.into_iter() {
+                                    div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
+                                        Icon { name: icon_for(ft), size: 18 }
+                                        div { style: "display:flex; flex-direction:column; flex:1;",
+                                            span { style: "{field_name_style}", "{name}" }
+                                            span { style: "{field_type_style}", "{ft.as_str()}" }
+                                        }
+                                        if req {
+                                            Badge { text: "required".to_string(), kind: "new".to_string() }
+                                        }
+                                        IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
+                                            on_click: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }) }
+                                    }
+                                }
+                            }
                         }
                     }
+                    button {
+                        style: "{add_field_style}",
+                        onclick: move |_| modal.set(ModalKind::FieldPicker { ct_uid: picker_uid.clone() }),
+                        Icon { name: "plus".to_string(), size: 16, color: color::PRIMARY_600.to_string() }
+                        span { style: "font-size:{typography::BODY_SIZE}; font-weight:600; color:{color::PRIMARY_600};", "+ Add another field" }
+                    }
                 }
+            } else if loaded() {
+                EmptyState {
+                    title: "Content type not found".to_string(),
+                    subtitle: "This content type may have been deleted.".to_string(),
+                    icon: "grid".to_string(),
+                    Button { label: "← Back to Content Types".to_string(), variant: "secondary".to_string(), on_click: move |_| route.set(Route::ContentTypeBuilder) }
+                }
+            } else {
+                div { style: "display:flex; justify-content:center; padding:48px;", Spinner { size: 28 } }
             }
         }
 
@@ -390,6 +648,31 @@ pub fn ContentTypeBuilder() -> Element {
                 },
             }
         }
+    }
+}
+
+#[component]
+fn TableTh(label: String) -> Element {
+    rsx! {
+        th { style: "text-align:left; padding:12px 16px; font-size:12px; font-weight:600; color:{color::NEUTRAL_600}; background:{color::NEUTRAL_100}; border-bottom:1px solid {color::NEUTRAL_150};", "{label}" }
+    }
+}
+
+#[component]
+fn TypeChip(label: String, active: bool, on_click: EventHandler<MouseEvent>) -> Element {
+    let style = if active {
+        format!(
+            "padding:8px 14px; border-radius:4px; border:1px solid {p}; background:{p}; color:#fff; font-size:13px; font-weight:600; cursor:pointer;",
+            p = color::PRIMARY_600
+        )
+    } else {
+        format!(
+            "padding:8px 14px; border-radius:4px; border:1px solid {c}; background:#fff; color:{t}; font-size:13px; font-weight:600; cursor:pointer;",
+            c = color::NEUTRAL_200, t = color::NEUTRAL_700
+        )
+    };
+    rsx! {
+        button { style: "{style}", onclick: move |e| on_click.call(e), "{label}" }
     }
 }
 
