@@ -661,6 +661,7 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
     let mut schemas = use_signal(Vec::<Schema>::new);
     let mut selected = use_signal(move || initial_uid.clone().map(|u| vec![u]).unwrap_or_default());
     let mut format = use_signal(|| DataFormat::Json);
+    let mut fields = use_signal(Vec::<String>::new);
     let mut busy = use_signal(|| false);
     let mut output = use_signal(|| None::<(String, String)>);
     let mut status = use_signal(|| None::<String>);
@@ -708,7 +709,7 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
                 let req = ExportRequest {
                     uids: sel,
                     format: format(),
-                    fields: vec![],
+                    fields: fields(),
                     filters: None,
                     limit: None,
                     locale: None,
@@ -797,6 +798,52 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
                         }
                         tbody { {type_rows.into_iter()} }
                     }
+                }
+            }
+
+            {
+                let sel_uid = selected().first().cloned().unwrap_or_default();
+                let schema = schemas().iter().find(|s| s.uid.as_str() == sel_uid).cloned();
+                if let Some(s) = schema {
+                    let all_scalar: Vec<String> = s
+                        .attributes
+                        .iter()
+                        .filter(|(_, a)| a.attr_type.is_scalar_column())
+                        .map(|(n, _)| n.clone())
+                        .collect();
+                    let mut field_boxes: Vec<Element> = Vec::new();
+                    for n in all_scalar.iter() {
+                        let n = n.clone();
+                        let checked = fields().is_empty() || fields().contains(&n);
+                        let mut fs2 = fields;
+                        let all = all_scalar.clone();
+                        field_boxes.push(rsx! {
+                            label { style: "display:inline-flex; align-items:center; gap:6px; font-size:13px; color:{color::NEUTRAL_700}; cursor:pointer;",
+                                input { r#type: "checkbox", checked: checked, onchange: move |e| {
+                                    let mut list = fs2();
+                                    if e.checked() {
+                                        if !list.contains(&n) { list.push(n.clone()); }
+                                    } else if list.is_empty() {
+                                        list = all.clone();
+                                        list.retain(|x| x != &n);
+                                    } else {
+                                        list.retain(|x| x != &n);
+                                    }
+                                    fs2.set(list);
+                                } }
+                                span { "{n}" }
+                            }
+                        });
+                    }
+                    rsx! {
+                        Card { padding: 20,
+                            div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:4px;", "Fields" }
+                            span { style: "font-size:12px; color:{color::NEUTRAL_500}; display:block; margin-bottom:10px;", "Select fields to include (all are selected by default)." }
+                            div { style: "display:flex; flex-wrap:wrap; gap:12px;", {field_boxes.into_iter()} }
+                        }
+                    }
+                } else {
+                    rsx! {}
                 }
             }
 

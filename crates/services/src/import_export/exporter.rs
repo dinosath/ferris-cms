@@ -16,7 +16,7 @@ pub async fn load_entries(
     status: Option<String>,
 ) -> Result<(String, Vec<JsonValue>), crate::ServiceError> {
     let schema = crate::content::load_schema(ctx, uid)?;
-    let mut params = QueryParams {
+    let params = QueryParams {
         pagination: Some(api_types::PaginationParams::Page {
             page: 1,
             page_size: limit.unwrap_or(1_000_000),
@@ -32,12 +32,34 @@ pub async fn load_entries(
         }),
         ..Default::default()
     };
-    // Apply simple field projection via `fields`.
-    if !fields.is_empty() {
-        params.fields = Some(fields.iter().cloned().collect());
-    }
     let list = crate::content::cm_list(ctx, uid, &params).await?;
-    Ok((schema.info.display_name.clone(), list.data))
+    // Project to the requested fields (keep the standard system fields so the
+    // portable format round-trips losslessly).
+    let rows = if fields.is_empty() {
+        list.data
+    } else {
+        list.data
+            .into_iter()
+            .map(|mut e| {
+                if let Some(obj) = e.as_object_mut() {
+                    obj.retain(|k, _| {
+                        fields.iter().any(|f| f == k)
+                            || matches!(
+                                k.as_str(),
+                                "documentId"
+                                    | "id"
+                                    | "locale"
+                                    | "publicationState"
+                                    | "createdAt"
+                                    | "updatedAt"
+                            )
+                    });
+                }
+                e
+            })
+            .collect()
+    };
+    Ok((schema.info.display_name.clone(), rows))
 }
 
 /// Build the portable FerrisCMS export document.
