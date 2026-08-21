@@ -11,13 +11,12 @@ pub mod parser;
 pub mod transformer;
 pub mod validator;
 
-use std::sync::Mutex;
-
 use api_types::{
     AnalyzeFileResponse, AnalyzeRequest, AnalyzeResponse, ContentTypeSuggestion, DataFormat,
-    FilePayload, MappingPreset, MappingPresetUpsert,
+    FilePayload, MappingDto, MappingPreset, MappingPresetUpsert,
 };
-use once_cell::sync::Lazy;
+use db::entities::import_export_mapping_preset::{ActiveModel, Column, Entity};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
 use crate::AppContext;
 use crate::ServiceError;
@@ -119,38 +118,72 @@ pub fn format_ext(format: DataFormat) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Mapping presets (in-process store; not yet persisted across restarts)
+// Mapping presets (persisted in the database)
 // ---------------------------------------------------------------------------
 
-static PRESETS: Lazy<Mutex<Vec<MappingPreset>>> = Lazy::new(|| Mutex::new(Vec::new()));
-
-pub fn list_presets() -> Vec<MappingPreset> {
-    PRESETS.lock().unwrap().clone()
-}
-
-pub fn upsert_preset(req: &MappingPresetUpsert) -> MappingPreset {
-    let mut store = PRESETS.lock().unwrap();
-    if let Some(existing) = store.iter_mut().find(|p| {
-        p.name == req.name && p.source_uid == req.source_uid && p.target_uid == req.target_uid
-    }) {
-        existing.mapping = req.mapping.clone();
-        return existing.clone();
+/// List all saved mapping presets, oldest first.
+pub async fn list_presets(ctx: &AppContext) -> Result<Vec<MappingPreset>, ServiceError> {
+    let rows = Entity::find().order_by_asc(Column::Id).all(&ctx.db).await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for r in rows {
+        let mapping: Vec<MappingDto> = serde_json::from_value(r.mapping_json).unwrap_or_default();
+        out.push(MappingPreset {
+            id: Some(r.id),
+            name: r.name,
+            source_uid: r.source_uid,
+            target_uid: r.target_uid,
+            mapping,
+        });
     }
-    let id = (store.len() as i64) + 1;
-    let preset = MappingPreset {
-        id: Some(id),
-        name: req.name.clone(),
-        source_uid: req.source_uid.clone(),
-        target_uid: req.target_uid.clone(),
-        mapping: req.mapping.clone(),
-    };
-    store.push(preset.clone());
-    preset
+    Ok(out)
 }
 
-pub fn delete_preset(id: i64) -> bool {
-    let mut store = PRESETS.lock().unwrap();
-    let before = store.len();
-    store.retain(|p| p.id != Some(id));
-    store.len() != before
+/// Create or update a mapping preset keyed by (name, source_uid, target_uid).
+pub async fn upsert_preset(
+    ctx: &AppContext,
+    req: &MappingPresetUpsert,
+) -> Result<MappingPreset, ServiceError> {
+    let now = chrono::Utc::now();
+    let mapping_json = serde_json::to_value(&req.mapping)
+        .map_err(|e| ServiceError::internal(format!("preset mapping serialization: {e}")))?;
+
+    let existing = Entity::find()
+        .filter(Column::Name.eq(&req.name))
+        .filter(Column::SourceUid.eq(&req.source_uid))
+        .filter(Column::TargetUid.eq(&req.target_uid))
+        .one(&ctx.db)
+        .await?;
+
+    let saved = if let Some(m) = existing {
+        let mut am: ActiveModel = m.into();
+        am.mapping_json = Set(mapping_json);
+        am.updated_at = Set(now);
+        am.update(&ctx.db).await?
+    } else {
+        ActiveModel {
+            name: Set(req.name.clone()),
+            source_uid: Set(req.source_uid.clone()),
+            target_uid: Set(req.target_uid.clone()),
+            mapping_json: Set(mapping_json),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(&ctx.db)
+        .await?
+    };
+
+    Ok(MappingPreset {
+        id: Some(saved.id),
+        name: saved.name,
+        source_uid: saved.source_uid,
+        target_uid: saved.target_uid,
+        mapping: serde_json::from_value(saved.mapping_json).unwrap_or_default(),
+    })
+}
+
+/// Delete a mapping preset by id. Returns whether a row was removed.
+pub async fn delete_preset(ctx: &AppContext, id: i64) -> Result<bool, ServiceError> {
+    let res = Entity::delete_by_id(id).exec(&ctx.db).await?;
+    Ok(res.rows_affected > 0)
 }

@@ -191,11 +191,23 @@ async fn analyze_import_json() -> anyhow::Result<()> {
         .json()
         .await?;
     let datasets = &analyze["data"]["datasets"];
-    anyhow::ensure!(datasets.as_array().map(|a| a.len()) == Some(1), "expected 1 dataset");
+    anyhow::ensure!(
+        datasets.as_array().map(|a| a.len()) == Some(1),
+        "expected 1 dataset"
+    );
     assert_eq!(datasets[0]["recordCount"], 2, "expected 2 records");
     // The preferred content type is selected and the mapping is pre-filled.
-    assert_eq!(datasets[0]["detectedContentType"]["uid"], PRODUCT_UID, "preferUid not honored");
-    assert!(datasets[0]["suggestedMapping"].as_array().map(|a| !a.is_empty()).unwrap_or(false), "mapping not suggested");
+    assert_eq!(
+        datasets[0]["detectedContentType"]["uid"], PRODUCT_UID,
+        "preferUid not honored"
+    );
+    assert!(
+        datasets[0]["suggestedMapping"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "mapping not suggested"
+    );
 
     let mapping = json!([
         {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},
@@ -241,7 +253,10 @@ async fn analyze_import_yaml() -> anyhow::Result<()> {
         .json()
         .await?;
     let datasets = &analyze["data"]["datasets"];
-    anyhow::ensure!(datasets.as_array().map(|a| a.len()) == Some(1), "expected 1 dataset");
+    anyhow::ensure!(
+        datasets.as_array().map(|a| a.len()) == Some(1),
+        "expected 1 dataset"
+    );
     assert_eq!(datasets[0]["format"], "yaml");
 
     let mapping = json!([
@@ -268,5 +283,76 @@ async fn analyze_import_yaml() -> anyhow::Result<()> {
         .await?;
     assert_eq!(import["data"]["created"], 2, "expected 2 created");
     assert_eq!(import["data"]["failed"], 0, "expected 0 failed");
+    Ok(())
+}
+
+/// Saved mapping presets are persisted to the DB and round-trip via the API.
+#[tokio::test(flavor = "multi_thread")]
+async fn mapping_presets_persist() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    let preset = json!({
+        "name": "Shopify Products",
+        "sourceUid": "shopify",
+        "targetUid": PRODUCT_UID,
+        "mapping": [
+            {"sourceField": "product_name", "targetField": "name", "transform": "none", "status": "autoMapped"}
+        ]
+    });
+    // Save.
+    let saved: Value = client
+        .post(format!("{base}/admin/import-export/mappings"))
+        .bearer_auth(&token)
+        .json(&preset)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let id = saved["data"]["id"].as_i64().expect("preset id");
+    assert_eq!(saved["data"]["name"], "Shopify Products");
+
+    // List (persisted).
+    let list: Value = client
+        .get(format!("{base}/admin/import-export/mappings"))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let found = list["data"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .any(|p| p["id"] == serde_json::json!(id) && p["targetUid"] == PRODUCT_UID)
+        })
+        .unwrap_or(false);
+    assert!(found, "saved preset not listed");
+
+    // Delete.
+    let del: Value = client
+        .delete(format!("{base}/admin/import-export/mappings/{id}"))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(del["deleted"], true, "preset not deleted");
+
+    // Empty after delete.
+    let list2: Value = client
+        .get(format!("{base}/admin/import-export/mappings"))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        list2["data"].as_array().map(|a| a.len()).unwrap_or(0),
+        0,
+        "preset still present"
+    );
+
     Ok(())
 }

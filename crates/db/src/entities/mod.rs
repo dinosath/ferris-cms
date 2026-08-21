@@ -470,3 +470,25 @@ pub mod workflow_node_run {
 
     impl ActiveModelBehavior for ActiveModel {}
 }
+
+/// `import_export_mapping_preset` — saved Import/Export field mappings.
+pub mod import_export_mapping_preset {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "import_export_mapping_preset")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub name: String,
+        pub source_uid: String,
+        pub target_uid: String,
+        /// The field mapping (Vec<MappingDto>) as JSON.
+        pub mapping_json: Json,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

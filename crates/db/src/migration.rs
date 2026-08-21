@@ -22,6 +22,7 @@ impl MigratorTrait for Migrator {
             Box::new(M20260731Init),
             Box::new(M20260731Rbac),
             Box::new(M20260820Workflow),
+            Box::new(M20260821ImportExportPresets),
         ]
     }
 }
@@ -594,4 +595,51 @@ async fn create_unique_index(
         idx.col(Alias::new(*c));
     }
     manager.create_index(idx.to_owned()).await
+}
+
+/// Import & Export mapping presets (persisted so they survive restarts).
+struct M20260821ImportExportPresets;
+
+impl MigrationName for M20260821ImportExportPresets {
+    fn name(&self) -> &str {
+        "m20260821_000004_init_import_export_presets"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260821ImportExportPresets {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        IS_POSTGRES.store(
+            matches!(
+                manager.get_database_backend(),
+                sea_orm::DatabaseBackend::Postgres
+            ),
+            Ordering::Relaxed,
+        );
+
+        // ---- import_export_mapping_preset ----
+        let mut t = Table::create()
+            .table(Alias::new("import_export_mapping_preset"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(str_col("name"));
+        t.col(str_col("source_uid"));
+        t.col(str_col("target_uid"));
+        {
+            let mut c = ColumnDef::new(Alias::new("mapping_json"));
+            c.json();
+            t.col(&mut c);
+        }
+        timestamps(&mut t);
+        manager.create_table(t).await?;
+        create_index(
+            manager,
+            "import_export_mapping_preset",
+            &["source_uid", "target_uid"],
+        )
+        .await?;
+
+        Ok(())
+    }
 }

@@ -51,23 +51,23 @@ async fn export(
     Ok(Json(serde_json::json!({ "data": resp })))
 }
 
-async fn list_mappings(_admin: AdminCtx) -> Result<Json<serde_json::Value>, AppError> {
-    let presets = services::import_export::list_presets();
+async fn list_mappings(admin: AdminCtx) -> Result<Json<serde_json::Value>, AppError> {
+    let presets = services::import_export::list_presets(&admin.0).await?;
     Ok(Json(serde_json::json!({ "data": presets })))
 }
 
 async fn save_mapping(
-    _admin: AdminCtx,
+    admin: AdminCtx,
     Json(req): Json<MappingPresetUpsert>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let preset = services::import_export::upsert_preset(&req);
+    let preset = services::import_export::upsert_preset(&admin.0, &req).await?;
     Ok(Json(serde_json::json!({ "data": preset })))
 }
 
 async fn delete_mapping(
-    _admin: AdminCtx,
+    admin: AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let ok = services::import_export::delete_preset(id);
+    let ok = services::import_export::delete_preset(&admin.0, id).await?;
     Ok(Json(serde_json::json!({ "deleted": ok })))
 }
