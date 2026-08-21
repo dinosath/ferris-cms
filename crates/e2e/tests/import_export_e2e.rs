@@ -173,3 +173,97 @@ async fn import_upsert_updates_existing() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Analyze + import a JSON array of objects (the format commonly pasted/uploaded).
+#[tokio::test(flavor = "multi_thread")]
+async fn analyze_import_json() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    let content = r#"[{"name":"Ferris Lager","sku":"BEER-001","price":3.5},{"name":"Ferris IPA","sku":"BEER-002","price":4.0}]"#;
+    let analyze: Value = client
+        .post(format!("{base}/admin/import-export/analyze"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{"filename": "products.json", "content": content}]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let datasets = &analyze["data"]["datasets"];
+    anyhow::ensure!(datasets.as_array().map(|a| a.len()) == Some(1), "expected 1 dataset");
+    assert_eq!(datasets[0]["recordCount"], 2, "expected 2 records");
+
+    let mapping = json!([
+        {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "sku", "targetField": "sku", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "price", "targetField": "price", "transform": "number", "status": "autoMapped"}
+    ]);
+    let import: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "products.json",
+            "dataset": "products",
+            "content": content,
+            "uid": PRODUCT_UID,
+            "mapping": mapping,
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en"
+        }]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(import["data"]["created"], 2, "expected 2 created");
+    assert_eq!(import["data"]["failed"], 0, "expected 0 failed");
+    Ok(())
+}
+
+/// Analyze + import a YAML document (one dataset from an array).
+#[tokio::test(flavor = "multi_thread")]
+async fn analyze_import_yaml() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    let content = "- name: Ferris Lager\n  sku: BEER-001\n  price: 3.5\n- name: Ferris IPA\n  sku: BEER-002\n  price: 4.0\n";
+    let analyze: Value = client
+        .post(format!("{base}/admin/import-export/analyze"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{"filename": "products.yaml", "content": content}]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let datasets = &analyze["data"]["datasets"];
+    anyhow::ensure!(datasets.as_array().map(|a| a.len()) == Some(1), "expected 1 dataset");
+    assert_eq!(datasets[0]["format"], "yaml");
+
+    let mapping = json!([
+        {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "sku", "targetField": "sku", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "price", "targetField": "price", "transform": "number", "status": "autoMapped"}
+    ]);
+    let import: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "products.yaml",
+            "dataset": "products",
+            "content": content,
+            "uid": PRODUCT_UID,
+            "mapping": mapping,
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en"
+        }]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(import["data"]["created"], 2, "expected 2 created");
+    assert_eq!(import["data"]["failed"], 0, "expected 0 failed");
+    Ok(())
+}
