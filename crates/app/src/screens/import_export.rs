@@ -2,7 +2,8 @@
 
 use api_types::{
     AnalyzeFileResponse, AnalyzeRequest, DataFormat, ExportRequest, FileImportConfig, FilePayload,
-    ImportMode, ImportRequest, ImportState, MappingDto, MappingStatus, TransformKind,
+    ImportMode, ImportRequest, ImportState, MappingDto, MappingPresetUpsert, MappingStatus,
+    TransformKind,
 };
 use core_schema::Schema;
 use dioxus::prelude::*;
@@ -117,6 +118,11 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
     let mut status = use_signal(|| None::<String>);
     let mut analyze_req = use_signal(|| false);
     let mut import_req = use_signal(|| false);
+    let mut presets = use_signal(Vec::<serde_json::Value>::new);
+    let mut preset_name = use_signal(String::new);
+    let mut presets_loaded = use_signal(|| false);
+    let mut presets_load_req = use_signal(|| false);
+    let mut preset_save_req = use_signal(|| false);
     let mut route = global.route;
 
     // Load content types for the target dropdowns.
@@ -269,6 +275,58 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                         Err(e) => status2.set(Some(format!("Import failed: {e}"))),
                     }
                     busy2.set(false);
+                });
+            }
+        }
+    });
+
+    // Load saved mapping presets (once on mount, and on demand).
+    use_effect({
+        let client = client.clone();
+        move || {
+            if presets_load_req() || !presets_loaded() {
+                if presets_load_req() {
+                    presets_load_req.set(false);
+                }
+                presets_loaded.set(true);
+                let client = client.clone();
+                let mut ps = presets;
+                spawn(async move {
+                    if let Ok(v) = client.import_export_mappings().await {
+                        ps.set(
+                            v.get("data")
+                                .and_then(|d| d.as_array())
+                                .cloned()
+                                .unwrap_or_default(),
+                        );
+                    }
+                });
+            }
+        }
+    });
+
+    // Save the first dataset's mapping as a reusable preset.
+    use_effect({
+        let client = client.clone();
+        move || {
+            if preset_save_req() {
+                preset_save_req.set(false);
+                let name = preset_name();
+                if name.trim().is_empty() {
+                    return;
+                }
+                let target = targets().get(0).cloned().flatten().unwrap_or_default();
+                let mapping = mappings().get(0).cloned().unwrap_or_default();
+                let client = client.clone();
+                spawn(async move {
+                    let _ = client
+                        .import_export_mapping_save(&MappingPresetUpsert {
+                            name,
+                            source_uid: "import".to_string(),
+                            target_uid: target,
+                            mapping,
+                        })
+                        .await;
                 });
             }
         }
@@ -490,6 +548,33 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                     }
                 }
             } else if step() == 2 {
+                Card { padding: 20,
+                    div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Saved mappings" }
+                    div { style: "display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;",
+                        Dropdown {
+                            label: "Use saved mapping".to_string(),
+                            value: String::new(),
+                            options: presets().iter().map(|p| (p["id"].to_string(), p["name"].as_str().unwrap_or("").to_string())).collect(),
+                            onchange: move |v: String| {
+                                if let Some(p) = presets().iter().find(|p| p["id"].to_string() == v) {
+                                    if let Ok(mapping) = serde_json::from_value::<Vec<MappingDto>>(p["mapping"].clone()) {
+                                        let mut m = mappings();
+                                        if !m.is_empty() { m[0] = mapping; }
+                                        mappings.set(m);
+                                    }
+                                }
+                            },
+                        }
+                        TextField {
+                            value: preset_name(),
+                            label: "Preset name".to_string(),
+                            placeholder: "e.g. Shopify Products".to_string(),
+                            oninput: move |val| preset_name.set(val),
+                        }
+                        Button { label: "Save mapping".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| preset_save_req.set(true) }
+                        Button { label: "Refresh".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| presets_load_req.set(true) }
+                    }
+                }
                 div { style: "display:flex; flex-direction:column; gap:16px;", {mapping_cards.into_iter()} }
                 Card { padding: 24,
                     div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Import options" }
