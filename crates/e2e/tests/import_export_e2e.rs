@@ -464,3 +464,65 @@ async fn import_csv_custom_delimiter_no_header() -> anyhow::Result<()> {
     assert_eq!(fields.len(), 3, "expected 3 synthesized columns");
     Ok(())
 }
+
+/// Export respects filters (only matching entries are included).
+#[tokio::test(flavor = "multi_thread")]
+async fn export_respects_filters() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    // Seed three products with different prices.
+    let content = "name,sku,price\nCheap,SKU-1,3.5\nMid,SKU-2,4.5\nPremium,SKU-3,5.5\n";
+    let mapping = json!([
+        {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "sku", "targetField": "sku", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "price", "targetField": "price", "transform": "number", "status": "autoMapped"}
+    ]);
+    let import: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "products.csv",
+            "dataset": "data",
+            "content": content,
+            "uid": PRODUCT_UID,
+            "mapping": mapping,
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en"
+        }]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(import["data"]["created"], 3);
+
+    // Export only products with price > 4.
+    let export: Value = client
+        .post(format!("{base}/admin/import-export/export"))
+        .bearer_auth(&token)
+        .json(&json!({
+            "uids": [PRODUCT_UID],
+            "format": "json",
+            "fields": ["name", "price"],
+            "filters": {"leaf": {"field": "price", "op": "$gt", "values": [4]}}
+        }))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let content = export["data"]["content"].as_str().unwrap_or("");
+    assert!(content.contains("Mid"), "Mid missing");
+    assert!(content.contains("Premium"), "Premium missing");
+    assert!(
+        !content.contains("Cheap"),
+        "filter failed: Cheap should be excluded"
+    );
+    assert!(
+        !content.contains("SKU-1"),
+        "filter failed: SKU-1 should be excluded"
+    );
+
+    Ok(())
+}
