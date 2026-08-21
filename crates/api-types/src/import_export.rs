@@ -78,6 +78,10 @@ pub struct AnalyzeFileResponse {
 #[serde(rename_all = "camelCase")]
 pub struct AnalyzeRequest {
     pub files: Vec<FilePayload>,
+    /// Optional target content-type uid to prefer when computing the suggested
+    /// field mappings (used when launching import from the Content Manager).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefer_uid: Option<String>,
 }
 
 /// Response: a flat list of dataset analyses (one per dataset across all files).

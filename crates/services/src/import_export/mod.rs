@@ -40,11 +40,38 @@ pub async fn analyze(
             let inferred = analyzer::infer_schema(&ds.records);
             let candidates = analyzer::detect_content_types(&schemas, &inferred);
             let detected = analyzer::best_suggestion(&candidates, 0.4);
-            let suggested_mapping = detected
-                .as_ref()
-                .and_then(|c| schemas.iter().find(|s| s.uid.as_str() == c.uid))
-                .map(|schema| mapper::build_mappings(&inferred, schema))
-                .unwrap_or_default();
+            // If the caller asked for a specific content type (e.g. launched
+            // from the Content Manager), compute the suggested mapping against
+            // it so the wizard pre-fills that target.
+            let (detected, suggested_mapping) = match req.prefer_uid.as_deref() {
+                Some(uid) => match schemas.iter().find(|s| s.uid.as_str() == uid) {
+                    Some(schema) => (
+                        Some(ContentTypeSuggestion {
+                            uid: schema.uid.as_str().to_string(),
+                            display_name: schema.info.display_name.clone(),
+                            confidence: 1.0,
+                            matched_fields: vec![],
+                        }),
+                        mapper::build_mappings(&inferred, schema),
+                    ),
+                    None => (
+                        detected.clone(),
+                        detected
+                            .as_ref()
+                            .and_then(|c| schemas.iter().find(|s| s.uid.as_str() == c.uid))
+                            .map(|schema| mapper::build_mappings(&inferred, schema))
+                            .unwrap_or_default(),
+                    ),
+                },
+                None => (
+                    detected.clone(),
+                    detected
+                        .as_ref()
+                        .and_then(|c| schemas.iter().find(|s| s.uid.as_str() == c.uid))
+                        .map(|schema| mapper::build_mappings(&inferred, schema))
+                        .unwrap_or_default(),
+                ),
+            };
             let preview: Vec<serde_json::Value> = ds.records.iter().take(5).cloned().collect();
             datasets.push(AnalyzeFileResponse {
                 filename: file.filename.clone(),

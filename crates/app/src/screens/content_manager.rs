@@ -568,6 +568,8 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     let g_delete = global.clone();
     let uid_create = uid.clone();
     let uid_create_empty = uid.clone();
+    let uid_import = uid.clone();
+    let uid_export = uid.clone();
     let uid_bulk_delete = uid.clone();
 
     // Build sortable header cells outside rsx (the parser dislikes method calls
@@ -606,7 +608,11 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                         span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "Collection type · {total} entries" }
                     }
                 }
-                Button { label: "Create entry".to_string(), on_click: move |_| route.set(Route::ContentManagerEntry { uid: uid_create.clone(), document_id: NEW_ENTRY.to_string() }) }
+                div { style: "display:flex; align-items:center; gap:8px;",
+                    Button { label: "Import into this content type".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::Import(Some(uid_import.clone()))) }
+                    Button { label: "Export this content type".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::Export(Some(uid_export.clone()))) }
+                    Button { label: "Create entry".to_string(), on_click: move |_| route.set(Route::ContentManagerEntry { uid: uid_create.clone(), document_id: NEW_ENTRY.to_string() }) }
+                }
             }
 
             div { style: "display:flex; gap:12px; margin-bottom:16px; align-items:center;",

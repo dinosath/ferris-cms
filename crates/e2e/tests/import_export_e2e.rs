@@ -185,7 +185,7 @@ async fn analyze_import_json() -> anyhow::Result<()> {
     let analyze: Value = client
         .post(format!("{base}/admin/import-export/analyze"))
         .bearer_auth(&token)
-        .json(&json!({"files": [{"filename": "products.json", "content": content}]}))
+        .json(&json!({"files": [{"filename": "products.json", "content": content}], "preferUid": PRODUCT_UID}))
         .send()
         .await?
         .json()
@@ -193,6 +193,9 @@ async fn analyze_import_json() -> anyhow::Result<()> {
     let datasets = &analyze["data"]["datasets"];
     anyhow::ensure!(datasets.as_array().map(|a| a.len()) == Some(1), "expected 1 dataset");
     assert_eq!(datasets[0]["recordCount"], 2, "expected 2 records");
+    // The preferred content type is selected and the mapping is pre-filled.
+    assert_eq!(datasets[0]["detectedContentType"]["uid"], PRODUCT_UID, "preferUid not honored");
+    assert!(datasets[0]["suggestedMapping"].as_array().map(|a| !a.is_empty()).unwrap_or(false), "mapping not suggested");
 
     let mapping = json!([
         {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},

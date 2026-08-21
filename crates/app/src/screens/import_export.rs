@@ -119,8 +119,6 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
     let mut import_req = use_signal(|| false);
     let mut route = global.route;
 
-    let _ = initial_uid;
-
     // Load content types for the target dropdowns.
     use_effect({
         let client = client.clone();
@@ -174,9 +172,13 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                         content: c.clone(),
                     })
                     .collect();
+                let prefer_uid = initial_uid.clone();
                 spawn(async move {
                     match client
-                        .import_export_analyze(&AnalyzeRequest { files: payloads })
+                        .import_export_analyze(&AnalyzeRequest {
+                            files: payloads,
+                            prefer_uid,
+                        })
                         .await
                     {
                         Ok(v) => {
