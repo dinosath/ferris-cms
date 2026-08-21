@@ -34,6 +34,10 @@ pub enum Route {
     Execution(i64),
     Credentials,
     Settings,
+    /// Import wizard; optional content-type uid to prefill the target.
+    Import(Option<String>),
+    /// Export wizard; optional content-type uid to prefill.
+    Export(Option<String>),
 }
 
 /// Global app state provided to every screen through the component context.

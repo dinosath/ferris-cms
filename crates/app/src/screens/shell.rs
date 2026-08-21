@@ -6,8 +6,8 @@ use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
 use crate::screens::{
-    content_manager, content_type_builder, credentials, executions, home, media, settings, workflow_editor,
-    workflows,
+    content_manager, content_type_builder, credentials, executions, home, import_export, media,
+    settings, workflow_editor, workflows,
 };
 
 #[component]
@@ -36,6 +36,8 @@ pub fn Shell() -> Element {
                         Route::Execution(id) => rsx! { executions::ExecutionDetail { execution_id: id } },
                         Route::Credentials => rsx! { credentials::Credentials {} },
                         Route::Settings => rsx! { settings::Settings {} },
+                        Route::Import(uid) => rsx! { import_export::ImportWizard { initial_uid: uid } },
+                        Route::Export(uid) => rsx! { import_export::ExportWizard { initial_uid: uid } },
                         _ => rsx! { home::Home {} },
                     }
                 }
@@ -94,7 +96,10 @@ fn TopBar() -> Element {
             nav = vec![Route::Home, Route::ContentManager];
         }
         Route::ContentTypeBuilder => {
-            crumbs = vec![("Home".into(), false), ("Content-Type Builder".into(), true)];
+            crumbs = vec![
+                ("Home".into(), false),
+                ("Content-Type Builder".into(), true),
+            ];
             nav = vec![Route::Home];
         }
         Route::ContentTypeBuilderEditor(uid) => {
@@ -108,6 +113,14 @@ fn TopBar() -> Element {
         }
         Route::Media => {
             crumbs = vec![("Home".into(), false), ("Media Library".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Import(_) => {
+            crumbs = vec![("Home".into(), false), ("Import".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Export(_) => {
+            crumbs = vec![("Home".into(), false), ("Export".into(), true)];
             nav = vec![Route::Home];
         }
         Route::Workflows => {
@@ -179,6 +192,8 @@ fn Sidebar() -> Element {
     let mut g_exec = global.clone();
     let mut g_cred = global.clone();
     let mut g_settings = global.clone();
+    let mut g_import = global.clone();
+    let mut g_export = global.clone();
     let mut g_logout = global.clone();
 
     let sidebar_style = format!(
@@ -229,6 +244,12 @@ fn Sidebar() -> Element {
                 NavItem { label: "Content Manager".to_string(), icon: "stack".to_string(), active: active(Route::ContentManager), onclick: move |_| g_cm.route.set(Route::ContentManager) }
                 NavItem { label: "Content-Type Builder".to_string(), icon: "grid".to_string(), active: active(Route::ContentTypeBuilder), onclick: move |_| g_ctb.route.set(Route::ContentTypeBuilder) }
                 NavItem { label: "Media Library".to_string(), icon: "image".to_string(), active: active(Route::Media), onclick: move |_| g_media.route.set(Route::Media) }
+            }
+            div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
+            span { style: "{section_label}", "DATA" }
+            div { style: "padding:0 12px 12px; display:flex; flex-direction:column; gap:4px;",
+                NavItem { label: "Import".to_string(), icon: "download".to_string(), active: matches!(route(), Route::Import(_)), onclick: move |_| g_import.route.set(Route::Import(None)) }
+                NavItem { label: "Export".to_string(), icon: "upload".to_string(), active: matches!(route(), Route::Export(_)), onclick: move |_| g_export.route.set(Route::Export(None)) }
             }
             div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
             span { style: "{section_label}", "AUTOMATION" }

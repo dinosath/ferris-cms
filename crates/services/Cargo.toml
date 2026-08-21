@@ -21,6 +21,8 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 regex = { workspace = true }
 once_cell = { workspace = true }
+csv = { workspace = true }
+serde_yaml = { workspace = true }
 sea-orm = { workspace = true }
 sea-query = { workspace = true }
 arc-swap = "1"

@@ -4,7 +4,9 @@
 
 pub mod admin;
 pub mod envelope;
+pub mod import_export;
 pub mod query;
 
 pub use envelope::*;
+pub use import_export::*;
 pub use query::*;

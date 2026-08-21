@@ -363,7 +363,7 @@ pub async fn cm_update_configuration(
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn load_schema(ctx: &AppContext, uid_str: &str) -> Result<Schema, ServiceError> {
+pub(crate) fn load_schema(ctx: &AppContext, uid_str: &str) -> Result<Schema, ServiceError> {
     let uid = Uid::new(uid_str);
     ctx.schema_cache
         .get(&uid)
