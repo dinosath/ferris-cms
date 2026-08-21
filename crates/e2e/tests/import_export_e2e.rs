@@ -356,3 +356,56 @@ async fn mapping_presets_persist() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Export supports field projection: selecting fields excludes the others.
+#[tokio::test(flavor = "multi_thread")]
+async fn export_field_selection() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    // Seed two entries.
+    let csv = "name,sku,price\nFerris Lager,BEER-001,3.50\n";
+    let mapping = json!([
+        {"sourceField": "name", "targetField": "name", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "sku", "targetField": "sku", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "price", "targetField": "price", "transform": "number", "status": "autoMapped"}
+    ]);
+    let import: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "products.csv",
+            "dataset": "data",
+            "content": csv,
+            "uid": PRODUCT_UID,
+            "mapping": mapping,
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en"
+        }]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(import["data"]["created"], 1);
+
+    // Export only the `name` and `sku` fields.
+    let export: Value = client
+        .post(format!("{base}/admin/import-export/export"))
+        .bearer_auth(&token)
+        .json(&json!({"uids": [PRODUCT_UID], "format": "json", "fields": ["name", "sku"]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let content = export["data"]["content"].as_str().unwrap_or("");
+    assert!(content.contains("Ferris Lager"), "name missing");
+    assert!(content.contains("BEER-001"), "sku missing");
+    assert!(
+        !content.contains("3.5") && !content.contains("price"),
+        "projection failed: price should be excluded"
+    );
+
+    Ok(())
+}
