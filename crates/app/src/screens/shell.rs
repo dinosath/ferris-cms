@@ -25,7 +25,10 @@ pub fn Shell() -> Element {
                     match route() {
                         Route::Home => rsx! { home::Home {} },
                         Route::ContentTypeBuilder => rsx! { content_type_builder::ContentTypeBuilder {} },
+                        Route::ContentTypeBuilderEditor(uid) => rsx! { content_type_builder::ContentTypeBuilderEditor { uid } },
                         Route::ContentManager => rsx! { content_manager::ContentManager {} },
+                        Route::ContentManagerEntries(uid) => rsx! { content_manager::ContentManagerEntries { uid } },
+                        Route::ContentManagerEntry { uid, document_id } => rsx! { content_manager::ContentManagerEntry { uid, document_id } },
                         Route::Media => rsx! { media::MediaLibrary {} },
                         Route::Workflows => rsx! { workflows::Workflows {} },
                         Route::WorkflowEditor(id) => rsx! { workflow_editor::WorkflowEditor { workflow_id: id } },
@@ -55,24 +58,88 @@ pub fn Shell() -> Element {
 }
 
 /// A slim Strapi-style breadcrumb strip rendered above every authenticated
-/// screen, giving a persistent sense of place in the admin hierarchy.
+/// screen, giving a persistent sense of place in the admin hierarchy. Nested
+/// routes (editor / entries / entry) resolve the content-type display name from
+/// the shared `ct_names` registry to render "Home / Content Manager / Products".
 #[component]
 fn TopBar() -> Element {
     let global = use_global();
     let mut route = global.route;
-    let section = match route() {
-        Route::ContentManager => "Content Manager",
-        Route::ContentTypeBuilder => "Content-Type Builder",
-        Route::Media => "Media Library",
-        Route::Workflows => "Workflows",
-        Route::WorkflowEditor(_) => "Workflow Editor",
-        Route::WorkflowExecutions => "Workflow Executions",
-        Route::Execution(_) => "Execution",
-        Route::Credentials => "API / Integrations",
-        Route::Settings => "Settings",
-        _ => "Home",
-    };
-    let crumbs = vec![("Home".to_string(), false), (section.to_string(), true)];
+    let ct_names_signal = global.ct_names;
+    let ct_names = ct_names_signal();
+
+    let mut crumbs: Vec<(String, bool)> = Vec::new();
+    let mut nav: Vec<Route> = Vec::new();
+    match route() {
+        Route::ContentManager => {
+            crumbs = vec![("Home".into(), false), ("Content Manager".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::ContentManagerEntries(uid) => {
+            let name = ct_name(&ct_names, &uid);
+            crumbs = vec![
+                ("Home".into(), false),
+                ("Content Manager".into(), false),
+                (name, true),
+            ];
+            nav = vec![Route::Home, Route::ContentManager];
+        }
+        Route::ContentManagerEntry { uid, .. } => {
+            let name = ct_name(&ct_names, &uid);
+            crumbs = vec![
+                ("Home".into(), false),
+                ("Content Manager".into(), false),
+                (name, true),
+            ];
+            nav = vec![Route::Home, Route::ContentManager];
+        }
+        Route::ContentTypeBuilder => {
+            crumbs = vec![("Home".into(), false), ("Content-Type Builder".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::ContentTypeBuilderEditor(uid) => {
+            let name = ct_name(&ct_names, &uid);
+            crumbs = vec![
+                ("Home".into(), false),
+                ("Content-Type Builder".into(), false),
+                (name, true),
+            ];
+            nav = vec![Route::Home, Route::ContentTypeBuilder];
+        }
+        Route::Media => {
+            crumbs = vec![("Home".into(), false), ("Media Library".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Workflows => {
+            crumbs = vec![("Home".into(), false), ("Workflows".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::WorkflowEditor(_) => {
+            crumbs = vec![("Home".into(), false), ("Workflow Editor".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::WorkflowExecutions => {
+            crumbs = vec![("Home".into(), false), ("Workflow Executions".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Execution(_) => {
+            crumbs = vec![("Home".into(), false), ("Execution".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Credentials => {
+            crumbs = vec![("Home".into(), false), ("API / Integrations".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::Settings => {
+            crumbs = vec![("Home".into(), false), ("Settings".into(), true)];
+            nav = vec![Route::Home];
+        }
+        _ => {
+            crumbs = vec![("Home".into(), false), ("Home".into(), true)];
+            nav = vec![Route::Home];
+        }
+    }
+
     let bar_style = format!(
         "display:flex; align-items:center; height:56px; padding:0 32px; border-bottom:1px solid {}; background:{}; position:sticky; top:0; z-index:50;",
         color::NEUTRAL_150, color::NEUTRAL_0
@@ -81,10 +148,23 @@ fn TopBar() -> Element {
         div { style: "{bar_style}",
             Breadcrumbs {
                 crumbs,
-                on_navigate: move |_| route.set(Route::Home),
+                on_navigate: move |idx: usize| {
+                    if let Some(r) = nav.get(idx).cloned() {
+                        route.set(r);
+                    }
+                },
             }
         }
     }
+}
+
+/// Resolve a content type's display name from the shared (uid, name) registry.
+fn ct_name(registry: &[(String, String)], uid: &str) -> String {
+    registry
+        .iter()
+        .find(|(u, _)| u == uid)
+        .map(|(_, n)| n.clone())
+        .unwrap_or_else(|| uid.to_string())
 }
 
 #[component]

@@ -2873,6 +2873,7 @@ name = "ferriscms"
 version = "0.2.0"
 dependencies = [
  "api-types",
+ "chrono",
  "client-core",
  "console_error_panic_hook",
  "core-domain",
