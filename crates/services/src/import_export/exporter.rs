@@ -14,6 +14,7 @@ pub async fn load_entries(
     limit: Option<i64>,
     locale: Option<String>,
     status: Option<String>,
+    filters: Option<api_types::Filter>,
 ) -> Result<(String, Vec<JsonValue>), crate::ServiceError> {
     let schema = crate::content::load_schema(ctx, uid)?;
     let params = QueryParams {
@@ -30,6 +31,7 @@ pub async fn load_entries(
                 core_domain::PublicationState::Draft
             }
         }),
+        filters,
         ..Default::default()
     };
     let list = crate::content::cm_list(ctx, uid, &params).await?;
@@ -155,6 +157,14 @@ pub async fn run_export(
 ) -> Result<api_types::ExportResponse, crate::ServiceError> {
     let mut datasets: Vec<(String, Vec<JsonValue>)> = Vec::new();
     let mut counts = Vec::new();
+    let filters: Option<api_types::Filter> = req
+        .filters
+        .as_ref()
+        .map(|v| {
+            serde_json::from_value(v.clone())
+                .map_err(|e| crate::ServiceError::internal(format!("filter parse: {e}")))
+        })
+        .transpose()?;
     for uid in &req.uids {
         let (display_name, rows) = load_entries(
             ctx,
@@ -163,6 +173,7 @@ pub async fn run_export(
             req.limit,
             req.locale.clone(),
             req.status.clone(),
+            filters.clone(),
         )
         .await?;
         counts.push(ExportCount {
