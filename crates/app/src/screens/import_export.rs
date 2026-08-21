@@ -61,6 +61,22 @@ fn transform_from_key(k: &str) -> TransformKind {
     }
 }
 
+/// Parse a filter value string into a typed JSON value (bool / number / string).
+fn parse_filter_value(s: &str) -> serde_json::Value {
+    let t = s.trim();
+    if t.eq_ignore_ascii_case("true") {
+        serde_json::json!(true)
+    } else if t.eq_ignore_ascii_case("false") {
+        serde_json::json!(false)
+    } else if let Ok(n) = t.parse::<i64>() {
+        serde_json::json!(n)
+    } else if let Ok(f) = t.parse::<f64>() {
+        serde_json::json!(f)
+    } else {
+        serde_json::json!(t)
+    }
+}
+
 /// Read the content of selected files into the `on_files` callback.
 #[component]
 fn FileInput(on_files: EventHandler<Vec<(String, String)>>) -> Element {
@@ -685,6 +701,10 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
     let mut selected = use_signal(move || initial_uid.clone().map(|u| vec![u]).unwrap_or_default());
     let mut format = use_signal(|| DataFormat::Json);
     let mut fields = use_signal(Vec::<String>::new);
+    let mut filter_field = use_signal(String::new);
+    let mut filter_op = use_signal(|| "$eq".to_string());
+    let mut filter_value = use_signal(String::new);
+    let mut filter_json = use_signal(|| None::<serde_json::Value>);
     let mut busy = use_signal(|| false);
     let mut output = use_signal(|| None::<(String, String)>);
     let mut status = use_signal(|| None::<String>);
@@ -733,7 +753,7 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
                     uids: sel,
                     format: format(),
                     fields: fields(),
-                    filters: None,
+                    filters: filter_json(),
                     limit: None,
                     locale: None,
                     status: None,
@@ -867,6 +887,75 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
                     }
                 } else {
                     rsx! {}
+                }
+            }
+
+            {
+                let sel_uid = selected().first().cloned().unwrap_or_default();
+                let schema = schemas().iter().find(|s| s.uid.as_str() == sel_uid).cloned();
+                let field_options: Vec<(String, String)> = schema
+                    .as_ref()
+                    .map(|s| {
+                        s.attributes
+                            .iter()
+                            .filter(|(_, a)| a.attr_type.is_scalar_column())
+                            .map(|(n, _)| (n.clone(), n.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                rsx! {
+                    Card { padding: 20,
+                        div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:4px;", "Filter" }
+                        span { style: "font-size:12px; color:{color::NEUTRAL_500}; display:block; margin-bottom:10px;", "Only export entries matching one condition (optional)." }
+                        div { style: "display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;",
+                            Dropdown {
+                                label: "Field".to_string(),
+                                value: filter_field(),
+                                options: field_options,
+                                onchange: move |v: String| filter_field.set(v),
+                            }
+                            Dropdown {
+                                label: "Operator".to_string(),
+                                value: filter_op(),
+                                options: vec![
+                                    ("$eq".to_string(), "is".to_string()),
+                                    ("$ne".to_string(), "is not".to_string()),
+                                    ("$lt".to_string(), "less than".to_string()),
+                                    ("$lte".to_string(), "≤".to_string()),
+                                    ("$gt".to_string(), "greater than".to_string()),
+                                    ("$gte".to_string(), "≥".to_string()),
+                                    ("$contains".to_string(), "contains".to_string()),
+                                ],
+                                onchange: move |v: String| filter_op.set(v),
+                            }
+                            TextField {
+                                value: filter_value(),
+                                label: "Value".to_string(),
+                                placeholder: "e.g. 4".to_string(),
+                                oninput: move |v| filter_value.set(v),
+                            }
+                            Button {
+                                label: "Apply filter".to_string(), variant: "secondary".to_string(), size: "sm".to_string(),
+                                on_click: move |_| {
+                                    if !filter_field().is_empty() {
+                                        let value = parse_filter_value(&filter_value());
+                                        filter_json.set(Some(serde_json::json!({
+                                            "leaf": {"field": filter_field(), "op": filter_op(), "values": [value]}
+                                        })));
+                                    }
+                                },
+                            }
+                            Button {
+                                label: "Clear".to_string(), variant: "secondary".to_string(), size: "sm".to_string(),
+                                on_click: move |_| { filter_json.set(None); filter_field.set(String::new()); filter_value.set(String::new()); },
+                            }
+                        }
+                        if filter_json().is_some() {
+                            div { style: "margin-top:10px;",
+                                Badge { text: "Filter applied".to_string(), kind: "modified".to_string() }
+                            }
+                        }
+                    }
                 }
             }
 
