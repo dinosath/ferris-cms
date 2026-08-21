@@ -208,10 +208,29 @@ pub fn column_to_json(
             Some(i) => i.into(),
             None => JsonValue::Null,
         },
-        SqlFamily::Decimal | SqlFamily::Double => match get!(f64) {
-            Some(f) => serde_json::Number::from_f64(f).into(),
-            None => JsonValue::Null,
-        },
+        SqlFamily::Decimal | SqlFamily::Double => {
+            if let Some(f) = get!(f64) {
+                serde_json::Number::from_f64(f).into()
+            } else if let Some(d) = get!(sea_orm::prelude::Decimal) {
+                // Postgres NUMERIC decodes to a Decimal, not f64.
+                d.to_string()
+                    .trim()
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(JsonValue::Number)
+                    .unwrap_or(JsonValue::Null)
+            } else if let Some(s) = get!(String) {
+                s.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(JsonValue::Number)
+                    .unwrap_or(JsonValue::Null)
+            } else {
+                JsonValue::Null
+            }
+        }
         SqlFamily::Bool => match get!(bool) {
             Some(b) => b.into(),
             None => match backend {
