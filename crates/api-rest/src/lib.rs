@@ -10,6 +10,7 @@ pub mod auth;
 pub mod content;
 pub mod ctb;
 pub mod error;
+pub mod import_export;
 pub mod workflow;
 
 use axum::{
@@ -141,7 +142,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(media_list_handler).post(media_upload_handler),
         )
         // Workflow automation
-        .route("/admin/workflows", get(workflow::list_workflows).post(workflow::create_workflow))
+        .route(
+            "/admin/workflows",
+            get(workflow::list_workflows).post(workflow::create_workflow),
+        )
         .route("/admin/workflows/import", post(workflow::import_workflow))
         .route(
             "/admin/workflows/{id}",
@@ -149,20 +153,41 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .put(workflow::save_workflow)
                 .delete(workflow::delete_workflow),
         )
-        .route("/admin/workflows/{id}/activate", post(workflow::activate_workflow))
-        .route("/admin/workflows/{id}/deactivate", post(workflow::deactivate_workflow))
-        .route("/admin/workflows/{id}/duplicate", post(workflow::duplicate_workflow))
-        .route("/admin/workflows/{id}/validate", post(workflow::validate_workflow))
-        .route("/admin/workflows/{id}/export", get(workflow::export_workflow))
-        .route("/admin/workflows/{id}/execute", post(workflow::execute_workflow_handler))
+        .route(
+            "/admin/workflows/{id}/activate",
+            post(workflow::activate_workflow),
+        )
+        .route(
+            "/admin/workflows/{id}/deactivate",
+            post(workflow::deactivate_workflow),
+        )
+        .route(
+            "/admin/workflows/{id}/duplicate",
+            post(workflow::duplicate_workflow),
+        )
+        .route(
+            "/admin/workflows/{id}/validate",
+            post(workflow::validate_workflow),
+        )
+        .route(
+            "/admin/workflows/{id}/export",
+            get(workflow::export_workflow),
+        )
+        .route(
+            "/admin/workflows/{id}/execute",
+            post(workflow::execute_workflow_handler),
+        )
         // Executions
         .route("/admin/executions", get(workflow::list_executions))
+        .route("/admin/executions/{id}", get(workflow::get_execution))
         .route(
-            "/admin/executions/{id}",
-            get(workflow::get_execution),
+            "/admin/executions/{id}/cancel",
+            post(workflow::cancel_execution),
         )
-        .route("/admin/executions/{id}/cancel", post(workflow::cancel_execution))
-        .route("/admin/executions/{id}/retry", post(workflow::retry_execution))
+        .route(
+            "/admin/executions/{id}/retry",
+            post(workflow::retry_execution),
+        )
         // Credentials
         .route(
             "/admin/workflow-credentials",
@@ -180,8 +205,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         // Node library + content types + permission actions
         .route("/admin/workflow-node-library", get(workflow::node_library))
-        .route("/admin/workflow-content-types", get(workflow::workflow_content_types))
-        .route("/admin/workflow-permission-actions", get(workflow::workflow_permission_actions));
+        .route(
+            "/admin/workflow-content-types",
+            get(workflow::workflow_content_types),
+        )
+        .route(
+            "/admin/workflow-permission-actions",
+            get(workflow::workflow_permission_actions),
+        )
+        .merge(import_export::router());
 
     // Public webhook triggers for active workflows.
     let webhook_router = Router::new().route(

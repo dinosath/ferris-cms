@@ -630,20 +630,28 @@ impl Client {
         } else {
             format!("/admin/workflows/{id}/deactivate")
         };
-        self.transport.post_json(&path, &serde_json::json!({})).await
+        self.transport
+            .post_json(&path, &serde_json::json!({}))
+            .await
     }
 
     /// Duplicate a workflow.
     pub async fn workflow_duplicate(&self, id: i64) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .post_json(&format!("/admin/workflows/{id}/duplicate"), &serde_json::json!({}))
+            .post_json(
+                &format!("/admin/workflows/{id}/duplicate"),
+                &serde_json::json!({}),
+            )
             .await
     }
 
     /// Validate a workflow.
     pub async fn workflow_validate(&self, id: i64) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .post_json(&format!("/admin/workflows/{id}/validate"), &serde_json::json!({}))
+            .post_json(
+                &format!("/admin/workflows/{id}/validate"),
+                &serde_json::json!({}),
+            )
             .await
     }
 
@@ -669,8 +677,13 @@ impl Client {
     }
 
     /// Import a workflow from JSON.
-    pub async fn workflow_import(&self, value: &serde_json::Value) -> Result<serde_json::Value, ClientError> {
-        self.transport.post_json("/admin/workflows/import", value).await
+    pub async fn workflow_import(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/workflows/import", value)
+            .await
     }
 
     /// List executions.
@@ -696,20 +709,28 @@ impl Client {
 
     /// Get one execution + its node runs.
     pub async fn execution_get(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json(&format!("/admin/executions/{id}")).await
+        self.transport
+            .get_json(&format!("/admin/executions/{id}"))
+            .await
     }
 
     /// Cancel an execution.
     pub async fn execution_cancel(&self, id: i64) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .post_json(&format!("/admin/executions/{id}/cancel"), &serde_json::json!({}))
+            .post_json(
+                &format!("/admin/executions/{id}/cancel"),
+                &serde_json::json!({}),
+            )
             .await
     }
 
     /// Retry a failed execution.
     pub async fn execution_retry(&self, id: i64) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .post_json(&format!("/admin/executions/{id}/retry"), &serde_json::json!({}))
+            .post_json(
+                &format!("/admin/executions/{id}/retry"),
+                &serde_json::json!({}),
+            )
             .await
     }
 
@@ -719,7 +740,9 @@ impl Client {
         self.transport.get_json("/admin/workflow-credentials").await
     }
     pub async fn credential_types(&self) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json("/admin/workflow-credentials/types").await
+        self.transport
+            .get_json("/admin/workflow-credentials/types")
+            .await
     }
     pub async fn credential_create(
         &self,
@@ -735,16 +758,22 @@ impl Client {
             .await
     }
     pub async fn credential_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/workflow-credentials/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/workflow-credentials/{id}"))
+            .await
     }
 
     // -- Node library / content types --
 
     pub async fn workflow_node_library(&self) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json("/admin/workflow-node-library").await
+        self.transport
+            .get_json("/admin/workflow-node-library")
+            .await
     }
     pub async fn workflow_content_types(&self) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json("/admin/workflow-content-types").await
+        self.transport
+            .get_json("/admin/workflow-content-types")
+            .await
     }
 
     // -- i18n locales --
@@ -811,6 +840,65 @@ impl Client {
         }
         let resp = req.send().await?;
         Ok(resp.json().await?)
+    }
+
+    // -- Import / Export --
+
+    /// Analyze uploaded files (parse, infer schemas, detect content types).
+    pub async fn import_export_analyze(
+        &self,
+        req: &api_types::AnalyzeRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/import-export/analyze", &serde_json::to_value(req)?)
+            .await
+    }
+
+    /// Run an import.
+    pub async fn import_export_import(
+        &self,
+        req: &api_types::ImportRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/import-export/import", &serde_json::to_value(req)?)
+            .await
+    }
+
+    /// Run an export.
+    pub async fn import_export_export(
+        &self,
+        req: &api_types::ExportRequest,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/import-export/export", &serde_json::to_value(req)?)
+            .await
+    }
+
+    /// List saved mapping presets.
+    pub async fn import_export_mappings(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .get_json("/admin/import-export/mappings")
+            .await
+    }
+
+    /// Save a mapping preset.
+    pub async fn import_export_mapping_save(
+        &self,
+        req: &api_types::MappingPresetUpsert,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/import-export/mappings", &serde_json::to_value(req)?)
+            .await
+    }
+
+    /// Delete a mapping preset.
+    pub async fn import_export_mapping_delete(
+        &self,
+        id: i64,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .delete_json(&format!("/admin/import-export/mappings/{id}"))
+            .await
     }
 }
 
