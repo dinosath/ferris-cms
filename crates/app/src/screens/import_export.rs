@@ -123,6 +123,8 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
     let mut presets_loaded = use_signal(|| false);
     let mut presets_load_req = use_signal(|| false);
     let mut preset_save_req = use_signal(|| false);
+    let mut csv_delimiter = use_signal(|| ",".to_string());
+    let mut csv_has_header = use_signal(|| true);
     let mut route = global.route;
 
     // Load content types for the target dropdowns.
@@ -171,11 +173,15 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                 let mut busy2 = busy;
                 let mut status2 = status;
                 busy2.set(true);
+                let csv_delim = csv_delimiter();
+                let csv_header = csv_has_header();
                 let payloads: Vec<FilePayload> = files
                     .iter()
                     .map(|(n, c)| FilePayload {
                         filename: n.clone(),
                         content: c.clone(),
+                        csv_delimiter: Some(csv_delim.clone()),
+                        csv_has_header: Some(csv_header),
                     })
                     .collect();
                 let prefer_uid = initial_uid.clone();
@@ -251,6 +257,8 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                         import_state: import_state(),
                         locale_field: None,
                         locale: locale(),
+                        csv_delimiter: Some(csv_delimiter()),
+                        csv_has_header: Some(csv_has_header()),
                     });
                 }
                 if configs.is_empty() {
@@ -540,6 +548,21 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                             div { style: "display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid {color::NEUTRAL_150}; border-radius:6px;",
                                 span { style: "flex:1; font-size:14px; color:{color::NEUTRAL_800};", "{name}" }
                                 Badge { text: "ready".to_string(), kind: "published".to_string() }
+                            }
+                        }
+                        div { style: "display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;",
+                            TextField {
+                                value: csv_delimiter(),
+                                label: "CSV delimiter".to_string(),
+                                placeholder: ",".to_string(),
+                                oninput: move |v| csv_delimiter.set(v),
+                            }
+                            div { style: "display:flex; flex-direction:column; gap:4px;",
+                                span { style: "font-size:12px; font-weight:600; color:{color::NEUTRAL_600};", "CSV header row" }
+                                label { style: "display:flex; align-items:center; gap:6px; font-size:13px; color:{color::NEUTRAL_700}; cursor:pointer;",
+                                    input { r#type: "checkbox", checked: csv_has_header(), onchange: move |e| csv_has_header.set(e.checked()) }
+                                    span { "First row contains column names" }
+                                }
                             }
                         }
                         div { style: "display:flex; justify-content:flex-end;",

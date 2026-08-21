@@ -409,3 +409,58 @@ async fn export_field_selection() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// CSV import honors a custom delimiter and a missing header row (col0..).
+#[tokio::test(flavor = "multi_thread")]
+async fn import_csv_custom_delimiter_no_header() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+
+    // Semicolon-delimited CSV, no header row.
+    let content = "Ferris Lager;BEER-001;3.5\nFerris IPA;BEER-002;4.0\n";
+    let mapping = json!([
+        {"sourceField": "col0", "targetField": "name", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "col1", "targetField": "sku", "transform": "none", "status": "autoMapped"},
+        {"sourceField": "col2", "targetField": "price", "transform": "number", "status": "autoMapped"}
+    ]);
+    let import: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{
+            "filename": "products.csv",
+            "dataset": "data",
+            "content": content,
+            "uid": PRODUCT_UID,
+            "mapping": mapping,
+            "mode": "createOnly",
+            "importState": "draft",
+            "locale": "en",
+            "csvDelimiter": ";",
+            "csvHasHeader": false
+        }]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        import["data"]["created"], 2,
+        "expected 2 created with custom delimiter"
+    );
+
+    // Analyze with the same options yields the synthesized col0/col1/col2 fields.
+    let analyze: Value = client
+        .post(format!("{base}/admin/import-export/analyze"))
+        .bearer_auth(&token)
+        .json(&json!({"files": [{"filename": "products.csv", "content": content, "csvDelimiter": ";", "csvHasHeader": false}]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let fields = analyze["data"]["datasets"][0]["schema"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(fields.len(), 3, "expected 3 synthesized columns");
+    Ok(())
+}

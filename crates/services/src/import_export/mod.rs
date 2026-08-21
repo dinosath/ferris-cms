@@ -33,8 +33,13 @@ pub async fn analyze(
     let schemas = crate::content_type_builder::ctb_list(ctx).await;
     let mut datasets = Vec::new();
     for file in &req.files {
-        let parsed =
-            parser::parse_content(&file.filename, &file.content).map_err(ServiceError::Internal)?;
+        let parsed = parser::parse_content_with_csv(
+            &file.filename,
+            &file.content,
+            file.csv_delimiter.as_deref(),
+            file.csv_has_header,
+        )
+        .map_err(ServiceError::Internal)?;
         for ds in parsed {
             let inferred = analyzer::infer_schema(&ds.records);
             let candidates = analyzer::detect_content_types(&schemas, &inferred);
@@ -93,6 +98,8 @@ pub fn payload(filename: &str, content: &str) -> FilePayload {
     FilePayload {
         filename: filename.to_string(),
         content: content.to_string(),
+        csv_delimiter: None,
+        csv_has_header: None,
     }
 }
 

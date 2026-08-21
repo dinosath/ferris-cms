@@ -97,6 +97,12 @@ pub struct AnalyzeResponse {
 pub struct FilePayload {
     pub filename: String,
     pub content: String,
+    /// Optional CSV field delimiter (default ",").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csv_delimiter: Option<String>,
+    /// Whether the first CSV row is a header row (default true).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csv_has_header: Option<bool>,
 }
 
 /// One source field mapping to a target field.
@@ -192,6 +198,12 @@ pub struct FileImportConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale_field: Option<String>,
     pub locale: String,
+    /// Optional CSV field delimiter (default ",").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csv_delimiter: Option<String>,
+    /// Whether the first CSV row is a header row (default true).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub csv_has_header: Option<bool>,
 }
 
 fn default_dataset() -> String {
