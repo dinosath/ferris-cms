@@ -253,13 +253,13 @@ async fn all_main_screens_render() -> anyhow::Result<()> {
     // Content Manager (no content types -> empty state).
     let cm = goto_screen(page, "Content Manager", "Content Manager").await?;
     assert!(
-        cm.contains("Select a content type to manage its entries."),
+        cm.contains("No content types available"),
         "CM empty state expected"
     );
 
     // Content-Type Builder (no types -> empty state).
-    let ctb = goto_screen(page, "Content-Type Builder", "Select a content type").await?;
-    assert!(ctb.contains("Content-Type Builder"), "CTB header missing");
+    let ctb = goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
+    assert!(ctb.contains("No content types yet"), "CTB empty state missing");
 
     // Media Library (no assets -> empty state).
     let media = goto_screen(page, "Media Library", "Media Library").await?;
@@ -283,12 +283,12 @@ async fn content_type_builder_create_type_modal() -> anyhow::Result<()> {
     let harness = E2eHarness::start().await?;
     let ui = open_app(&harness).await?;
     let page = &ui.page;
-    goto_screen(page, "Content-Type Builder", "Select a content type").await?;
+    goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
 
-    // Open the create-collection-type modal.
+    // Open the create-content-type modal.
     assert!(
-        click_button_by_text(page, "+ Create new collection type").await?,
-        "create collection type button not found"
+        click_button_by_text(page, "Create content type").await?,
+        "create content type button not found"
     );
     let modal = wait_for_text(page, |t| t.contains("Create a collection type"))
         .await
@@ -315,14 +315,14 @@ async fn content_type_builder_create_type_modal() -> anyhow::Result<()> {
         );
     }
 
-    // Continue accepts the (local) schema.
+    // Continue persists the type and navigates to its editor.
     assert!(
         click_button_by_text(page, "Continue").await?,
         "Continue not found"
     );
     wait_for_text(page, |t| t.contains("Article"))
         .await
-        .context("new type not selected in editor")?;
+        .context("new type not opened in editor")?;
 
     take_screenshot(page, "screen-ctb-create").await?;
     Ok(())
@@ -555,5 +555,131 @@ async fn ui_access_requires_authorization() -> anyhow::Result<()> {
     );
 
     take_screenshot(&page, "screen-ui-access-boundary").await?;
+    Ok(())
+}
+
+/// In-browser smoke test of the table-first navigation. Provisions an admin and
+/// seeds a content type + entry over the HTTP API (verifying the data path),
+/// then drives the real UI through the Obscura headless browser to confirm the
+/// Content-Type Builder and Content Manager open as table-first listing pages
+/// (not a secondary sidebar) and that navigation between them works.
+///
+/// Note on data rows: Obscura does not propagate the app's `Headers`-object
+/// `Authorization` header on `fetch(Request)` (an explicit `fetch` with the same
+/// token returns 200), so authenticated data rows do not render in-browser here.
+/// The data path is therefore verified separately over the HTTP API; the in-
+/// browser assertions cover the rendered navigation UI.
+#[tokio::test(flavor = "multi_thread")]
+async fn table_first_navigation_full_smoke() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+
+    // Register the FIRST super admin and use its token to seed data + the
+    // browser session (avoiding the crashing in-app auth form).
+    let token = register_admin_token(&base).await?;
+    let client = reqwest::Client::new();
+    let ct = serde_json::json!({
+        "uid": "api::product.product",
+        "kind": "collectionType",
+        "info": {"singularName":"product","pluralName":"products","displayName":"Product"},
+        "options": {"draftAndPublish": true},
+        "attributes": {"name": {"type":"string"}, "price": {"type":"decimal"}}
+    });
+    let apply = client
+        .post(format!("{base}/content-type-builder/schema"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"schemas":[ct]}))
+        .send()
+        .await?;
+    anyhow::ensure!(apply.status().is_success(), "seed schema failed");
+    let create = client
+        .post(format!("{base}/admin/content-manager/collection-types/api::product.product"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"data": {"name":"Widget","price":12.5}}))
+        .send()
+        .await?;
+    anyhow::ensure!(create.status().is_success(), "seed entry failed");
+
+    // The data path works over the API with the seeded token.
+    let list = client
+        .get(format!("{base}/content-type-builder/content-types"))
+        .bearer_auth(&token)
+        .send()
+        .await?;
+    assert_eq!(list.status().as_u16(), 200, "ctb_list API should succeed");
+    let list_body: serde_json::Value = list.json().await?;
+    let names: Vec<String> = list_body["data"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s["info"]["displayName"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(names.contains(&"Product".to_string()), "Product not in API ctb_list");
+
+    // Bootstrap an authenticated browser session with the same token.
+    let pw = Playwright::launch().await?;
+    let browser = pw
+        .chromium()
+        .connect_over_cdp(harness.browser_cdp_url(), None)
+        .await?;
+    let page = browser.new_page().await?;
+    page.add_init_script(&format!("localStorage.setItem('ferriscms_token', '{token}');"))
+        .await?;
+    page.goto(&format!("{}/", harness.browser_app_url()), None)
+        .await?;
+    wait_for_text(&page, |t| t.contains("ferriscms"))
+        .await
+        .context("admin UI did not hydrate")?;
+    let ui = UiPage {
+        page,
+        _browser: browser,
+        _pw: pw,
+    };
+    let page = &ui.page;
+
+    // The shell renders top-level modules only — no content types in the sidebar.
+    let shell = body_text(page).await?;
+    for label in [
+        "Content Manager",
+        "Content-Type Builder",
+        "Media Library",
+        "Workflows",
+        "Settings",
+    ] {
+        assert!(shell.contains(label), "missing top-level nav: {label}");
+    }
+    assert!(
+        !shell.contains("Product"),
+        "content type leaked into the application sidebar"
+    );
+
+    // Content-Type Builder opens as a table-first listing page.
+    goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
+    let ctb = wait_for_text(page, |t| {
+        t.contains("Define and manage the structure of your content.")
+            && t.contains("Create content type")
+            && t.contains("Collection Types")
+    })
+    .await
+    .context("CTB table-first listing did not render")?;
+    assert!(
+        ctb.contains("Single Types") && ctb.contains("Components"),
+        "CTB type tabs missing"
+    );
+
+    // Navigate to Content Manager: table-first listing page.
+    goto_screen(page, "Content Manager", "Content Manager").await?;
+    wait_for_text(page, |t| t.contains("Create, read, update and delete your content."))
+        .await
+        .context("CM table-first listing did not render")?;
+
+    // Navigate back to the Content-Type Builder to confirm two-way navigation.
+    goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
+    wait_for_text(page, |t| t.contains("Define and manage the structure of your content."))
+        .await
+        .context("did not return to CTB listing")?;
+
     Ok(())
 }
