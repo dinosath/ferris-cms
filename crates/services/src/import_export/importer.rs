@@ -78,13 +78,20 @@ pub async fn import_dataset(
     cfg: &FileImportConfig,
     schema: &Schema,
 ) -> Result<(ImportSummary, Vec<ImportErrorDto>), ServiceError> {
-    let datasets =
-        parser::parse_content(&cfg.filename, &cfg.content).map_err(ServiceError::Internal)?;
+    let parse = || {
+        parser::parse_content_with_csv(
+            &cfg.filename,
+            &cfg.content,
+            cfg.csv_delimiter.as_deref(),
+            cfg.csv_has_header,
+        )
+    };
+    let datasets = parse().map_err(ServiceError::Internal)?;
     let dataset = datasets
         .into_iter()
         .find(|d| d.name == cfg.dataset)
         .unwrap_or_else(|| {
-            parser::parse_content(&cfg.filename, &cfg.content)
+            parse()
                 .ok()
                 .and_then(|mut ds| ds.pop())
                 .unwrap_or(parser::Dataset {

@@ -41,35 +41,78 @@ pub fn detect_format(filename: &str, content: &str) -> DataFormat {
     DataFormat::Json
 }
 
-/// Parse a file's content into datasets.
+/// Parse a file's content into datasets (default CSV settings).
 pub fn parse_content(filename: &str, content: &str) -> Result<Vec<Dataset>, String> {
+    parse_content_with_csv(filename, content, None, None)
+}
+
+/// Parse a file's content into datasets, honoring optional CSV delimiter and
+/// header-row settings.
+pub fn parse_content_with_csv(
+    filename: &str,
+    content: &str,
+    csv_delimiter: Option<&str>,
+    csv_has_header: Option<bool>,
+) -> Result<Vec<Dataset>, String> {
     let format = detect_format(filename, content);
     match format {
-        DataFormat::Csv => parse_csv(content),
+        DataFormat::Csv => parse_csv(
+            content,
+            csv_delimiter.unwrap_or(","),
+            csv_has_header.unwrap_or(true),
+        ),
         DataFormat::Json => parse_json(filename, content),
         DataFormat::Yaml => parse_yaml(filename, content),
     }
 }
 
-fn parse_csv(content: &str) -> Result<Vec<Dataset>, String> {
+fn parse_csv(content: &str, delimiter: &str, has_header: bool) -> Result<Vec<Dataset>, String> {
+    let delim = delimiter.as_bytes().first().copied().unwrap_or(b',');
     let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
         .trim(csv::Trim::All)
+        .delimiter(delim)
+        .has_headers(has_header)
         .from_reader(content.as_bytes());
-    let headers: Vec<String> = rdr
-        .headers()
-        .map_err(|e| format!("invalid CSV header: {e}"))?
-        .iter()
-        .map(|h| h.to_string())
-        .collect();
+
     let mut records = Vec::new();
-    for (i, row) in rdr.records().enumerate() {
-        let row = row.map_err(|e| format!("CSV row {}: {e}", i + 1))?;
-        let mut obj = serde_json::Map::new();
-        for (h, field) in headers.iter().zip(row.iter()) {
-            obj.insert(h.clone(), JsonValue::String(field.to_string()));
+    if has_header {
+        let headers: Vec<String> = rdr
+            .headers()
+            .map_err(|e| format!("invalid CSV header: {e}"))?
+            .iter()
+            .map(|h| h.to_string())
+            .collect();
+        for (i, row) in rdr.records().enumerate() {
+            let row = row.map_err(|e| format!("CSV row {}: {e}", i + 1))?;
+            let mut obj = serde_json::Map::new();
+            for (h, field) in headers.iter().zip(row.iter()) {
+                obj.insert(h.clone(), JsonValue::String(field.to_string()));
+            }
+            records.push(JsonValue::Object(obj));
         }
-        records.push(JsonValue::Object(obj));
+    } else {
+        // No header row: synthesize col0, col1, ... from the first row's width.
+        let mut iter = rdr.records();
+        if let Some(first) = iter.next() {
+            let first = first.map_err(|e| format!("CSV row 1: {e}"))?;
+            let headers: Vec<String> = (0..first.len()).map(|i| format!("col{i}")).collect();
+            let mut obj = serde_json::Map::new();
+            for (h, field) in headers.iter().zip(first.iter()) {
+                obj.insert(h.clone(), JsonValue::String(field.to_string()));
+            }
+            records.push(JsonValue::Object(obj));
+            let mut idx = 2usize;
+            for row in iter {
+                let row = row.map_err(|e| format!("CSV row {idx}: {e}"))?;
+                idx += 1;
+                let mut obj = serde_json::Map::new();
+                for (h, field) in headers.iter().zip(row.iter()) {
+                    obj.insert(h.clone(), JsonValue::String(field.to_string()));
+                }
+                records.push(JsonValue::Object(obj));
+            }
+        }
     }
     Ok(vec![Dataset {
         name: "data".to_string(),
@@ -172,6 +215,19 @@ mod tests {
         let ds = parse_content("products.yaml", content).unwrap();
         assert_eq!(ds.len(), 1);
         assert_eq!(ds[0].records.len(), 2);
+    }
+
+    #[test]
+    fn parses_csv_custom_delimiter_and_no_header() {
+        let content = "Ferris Lager;BEER-001\nFerris IPA;BEER-002\n";
+        let ds = parse_content_with_csv("p.csv", content, Some(";"), Some(false)).unwrap();
+        assert_eq!(ds[0].records.len(), 2);
+        assert_eq!(ds[0].records[0]["col0"], "Ferris Lager");
+        assert_eq!(ds[0].records[0]["col1"], "BEER-001");
+        // Default (comma, header) is unaffected.
+        let content2 = "name,sku\nA,S1\n";
+        let ds2 = parse_content("p.csv", content2).unwrap();
+        assert_eq!(ds2[0].records[0]["name"], "A");
     }
 
     #[test]
