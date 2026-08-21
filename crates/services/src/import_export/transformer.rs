@@ -204,4 +204,43 @@ mod tests {
         assert_eq!(slugify("Ferris Lager"), "ferris-lager");
         assert_eq!(slugify("  Hi There  "), "hi-there");
     }
+
+    #[test]
+    fn number_parse_fails_gracefully() {
+        // A non-numeric string is left untouched (validator flags it later).
+        assert_eq!(
+            apply_transform(&TransformKind::Number, &JsonValue::from("€12,50")),
+            JsonValue::from("€12,50")
+        );
+    }
+
+    #[test]
+    fn boolean_accepts_variants() {
+        assert_eq!(
+            apply_transform(&TransformKind::Boolean, &JsonValue::from("on")),
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            apply_transform(&TransformKind::Boolean, &JsonValue::from("0")),
+            serde_json::json!(false)
+        );
+    }
+
+    #[test]
+    fn replace_and_parse_json() {
+        assert_eq!(
+            apply_transform(
+                &TransformKind::Replace {
+                    from: " ".into(),
+                    to: "_".into()
+                },
+                &JsonValue::from("a b")
+            ),
+            JsonValue::from("a_b")
+        );
+        assert_eq!(
+            apply_transform(&TransformKind::ParseJson, &JsonValue::from("{\"a\":1}")),
+            serde_json::json!({"a":1})
+        );
+    }
 }

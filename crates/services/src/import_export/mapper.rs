@@ -226,4 +226,20 @@ mod tests {
         let price = mappings.iter().find(|m| m.source_field == "price").unwrap();
         assert_eq!(price.target_field.as_deref(), Some("price"));
     }
+
+    #[test]
+    fn unmapped_field_gets_needs_attention() {
+        let schema = schema_with(&[("name", FieldType::String)]);
+        let inferred = vec![InferredField {
+            name: "totally_unknown".into(),
+            kind: InferredKind::String,
+            nullable: false,
+            example: None,
+            confidence: 1.0,
+        }];
+        let mappings = build_mappings(&inferred, &schema);
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(mappings[0].target_field, None);
+        assert_eq!(mappings[0].status, MappingStatus::NeedsAttention);
+    }
 }
