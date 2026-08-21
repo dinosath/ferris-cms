@@ -259,7 +259,10 @@ async fn all_main_screens_render() -> anyhow::Result<()> {
 
     // Content-Type Builder (no types -> empty state).
     let ctb = goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
-    assert!(ctb.contains("No content types yet"), "CTB empty state missing");
+    assert!(
+        ctb.contains("No content types yet"),
+        "CTB empty state missing"
+    );
 
     // Media Library (no assets -> empty state).
     let media = goto_screen(page, "Media Library", "Media Library").await?;
@@ -593,7 +596,9 @@ async fn table_first_navigation_full_smoke() -> anyhow::Result<()> {
         .await?;
     anyhow::ensure!(apply.status().is_success(), "seed schema failed");
     let create = client
-        .post(format!("{base}/admin/content-manager/collection-types/api::product.product"))
+        .post(format!(
+            "{base}/admin/content-manager/collection-types/api::product.product"
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"data": {"name":"Widget","price":12.5}}))
         .send()
@@ -616,7 +621,10 @@ async fn table_first_navigation_full_smoke() -> anyhow::Result<()> {
                 .collect()
         })
         .unwrap_or_default();
-    assert!(names.contains(&"Product".to_string()), "Product not in API ctb_list");
+    assert!(
+        names.contains(&"Product".to_string()),
+        "Product not in API ctb_list"
+    );
 
     // Bootstrap an authenticated browser session with the same token.
     let pw = Playwright::launch().await?;
@@ -625,8 +633,10 @@ async fn table_first_navigation_full_smoke() -> anyhow::Result<()> {
         .connect_over_cdp(harness.browser_cdp_url(), None)
         .await?;
     let page = browser.new_page().await?;
-    page.add_init_script(&format!("localStorage.setItem('ferriscms_token', '{token}');"))
-        .await?;
+    page.add_init_script(&format!(
+        "localStorage.setItem('ferriscms_token', '{token}');"
+    ))
+    .await?;
     page.goto(&format!("{}/", harness.browser_app_url()), None)
         .await?;
     wait_for_text(&page, |t| t.contains("ferriscms"))
@@ -671,15 +681,63 @@ async fn table_first_navigation_full_smoke() -> anyhow::Result<()> {
 
     // Navigate to Content Manager: table-first listing page.
     goto_screen(page, "Content Manager", "Content Manager").await?;
-    wait_for_text(page, |t| t.contains("Create, read, update and delete your content."))
-        .await
-        .context("CM table-first listing did not render")?;
+    wait_for_text(page, |t| {
+        t.contains("Create, read, update and delete your content.")
+    })
+    .await
+    .context("CM table-first listing did not render")?;
 
     // Navigate back to the Content-Type Builder to confirm two-way navigation.
     goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
-    wait_for_text(page, |t| t.contains("Define and manage the structure of your content."))
-        .await
-        .context("did not return to CTB listing")?;
+    wait_for_text(page, |t| {
+        t.contains("Define and manage the structure of your content.")
+    })
+    .await
+    .context("did not return to CTB listing")?;
+
+    Ok(())
+}
+
+/// The Import and Export wizards are reachable from the sidebar and render
+/// their screens (works without authed data, which the -no-render Obscura
+/// build can't fetch).
+#[tokio::test(flavor = "multi_thread")]
+async fn import_export_wizards_render() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
+    let page = &ui.page;
+
+    // Sidebar exposes Import and Export under the DATA section.
+    let shell = body_text(page).await?;
+    assert!(shell.contains("Import"), "Import nav missing");
+    assert!(shell.contains("Export"), "Export nav missing");
+
+    // Open the Import wizard.
+    assert!(
+        click_button_by_text(page, "Import").await?,
+        "Import nav not clickable"
+    );
+    let imp = wait_for_text(page, |t| {
+        t.contains("Step 1: Files") && t.contains("Analyze")
+    })
+    .await
+    .context("Import wizard did not render")?;
+    assert!(
+        imp.contains("CSV delimiter"),
+        "CSV options missing in import"
+    );
+
+    // Open the Export wizard.
+    assert!(
+        click_button_by_text(page, "Export").await?,
+        "Export nav not clickable"
+    );
+    let exp = wait_for_text(page, |t| {
+        t.contains("Content types") && t.contains("Format")
+    })
+    .await
+    .context("Export wizard did not render")?;
+    assert!(exp.contains("Export"), "Export header missing");
 
     Ok(())
 }
