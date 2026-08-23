@@ -741,3 +741,45 @@ async fn import_export_wizards_render() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// The AI screens are reachable from the sidebar and render their chrome
+/// (works without authed data, which the -no-render Obscura build can't fetch).
+#[tokio::test(flavor = "multi_thread")]
+async fn ai_screens_render() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
+    let page = &ui.page;
+
+    let shell = body_text(page).await?;
+    assert!(shell.contains("Assistant"), "AI Assistant nav missing");
+    assert!(shell.contains("AI Settings"), "AI Settings nav missing");
+
+    // AI Settings renders its section headers even with no providers configured.
+    assert!(
+        click_button_by_text(page, "AI Settings").await?,
+        "AI Settings nav not clickable"
+    );
+    let settings = wait_for_text(page, |t| {
+        t.contains("AI Settings") && t.contains("AI providers") && t.contains("AI models")
+    })
+    .await
+    .context("AI Settings did not render")?;
+    assert!(settings.contains("Usage summary"), "usage summary missing");
+
+    // The Assistant renders its chat chrome + new-conversation controls.
+    assert!(
+        click_button_by_text(page, "Assistant").await?,
+        "Assistant nav not clickable"
+    );
+    let assistant = wait_for_text(page, |t| {
+        t.contains("AI Assistant") && t.contains("New conversation")
+    })
+    .await
+    .context("AI Assistant did not render")?;
+    assert!(
+        assistant.contains("Select or create a conversation"),
+        "assistant empty state missing"
+    );
+
+    Ok(())
+}
