@@ -59,7 +59,13 @@ pub fn Workflows() -> Element {
         let client = client.clone();
         let mut g = global.clone();
         move || {
-            let a = action.take();
+            // Read reactively before taking so the effect re-runs when the
+            // action is set (Signal::take alone is a write, not a read).
+            let a = if action().is_some() {
+                action.take()
+            } else {
+                None
+            };
             match a {
                 Some(WfAction::Create(name)) => {
                     let client = client.clone();

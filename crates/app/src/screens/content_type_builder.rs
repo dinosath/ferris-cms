@@ -162,7 +162,14 @@ pub fn ContentTypeBuilder() -> Element {
         let client = client.clone();
         let mut g = g_disp.clone();
         move || {
-            let a = action.take();
+            // Read the signal reactively before taking it, so this effect
+            // re-runs when the action is set (Signal::take alone is a write and
+            // does not subscribe the effect).
+            let a = if action().is_some() {
+                action.take()
+            } else {
+                None
+            };
             match a {
                 Some(CtbAction::Create(schema)) => {
                     let client = client.clone();
