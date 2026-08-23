@@ -2,8 +2,8 @@
 
 use api_types::{
     AnalyzeFileResponse, AnalyzeRequest, DataFormat, ExportRequest, FileImportConfig, FilePayload,
-    ImportMode, ImportRequest, ImportState, MappingDto, MappingPresetUpsert, MappingStatus,
-    TransformKind,
+    ImportMode, ImportRequest, ImportState, InferredField, MappingDto, MappingPresetUpsert,
+    MappingStatus, TransformKind,
 };
 use core_schema::Schema;
 use dioxus::prelude::*;
@@ -61,24 +61,27 @@ fn transform_from_key(k: &str) -> TransformKind {
     }
 }
 
-/// Regenerate a suggested mapping against a (possibly different) target content
-/// type: a source field maps to the matching target attribute when the names
-/// agree (auto-mapped), otherwise it becomes NeedsAttention so the user can
-/// assign it by hand. Used when the user changes the "Import into" target so
-/// the mapping table always reflects the selected existing content.
-fn remap_for_target(mapping: Vec<MappingDto>, schema: Option<&Schema>) -> Vec<MappingDto> {
-    let attrs: Vec<String> = schema
-        .map(|s| s.attributes.keys().cloned().collect())
-        .unwrap_or_default();
-    mapping
-        .into_iter()
-        .map(|mut m| {
-            if attrs.iter().any(|k| *k == m.source_field) {
-                m.target_field = Some(m.source_field.clone());
-                m.status = MappingStatus::AutoMapped;
-            } else {
-                m.target_field = None;
-                m.status = MappingStatus::NeedsAttention;
+/// Build the mapping table rows from the input's source fields against a target
+/// content type. Each source field becomes a row: a matching target attribute
+/// (same name) is auto-mapped, otherwise the row is left NeedsAttention so the
+/// user can pick a target from the dropdown. This is what drives the mapping
+/// table once a content type is selected.
+fn mapping_for_source(source_fields: &[InferredField], schema: Option<&Schema>) -> Vec<MappingDto> {
+    source_fields
+        .iter()
+        .map(|f| {
+            let mut m = MappingDto {
+                source_field: f.name.clone(),
+                target_field: None,
+                transform: TransformKind::None,
+                status: MappingStatus::NeedsAttention,
+                confidence: 1.0,
+            };
+            if let Some(s) = schema {
+                if s.attributes.contains_key(&f.name) {
+                    m.target_field = Some(f.name.clone());
+                    m.status = MappingStatus::AutoMapped;
+                }
             }
             m
         })
@@ -243,10 +246,20 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                             let mut t = vec![None; n];
                             let mut m = vec![vec![]; n];
                             for (i, d) in list.iter().enumerate() {
-                                if let Some(c) = &d.detected_content_type {
+                                // Prefer the backend suggestion, but always fall
+                                // back to the input's source fields so the mapping
+                                // table is ready even when no content type matched.
+                                let mapping = if let Some(c) = &d.detected_content_type {
                                     t[i] = Some(c.uid.clone());
-                                    m[i] = d.suggested_mapping.clone();
-                                }
+                                    if d.suggested_mapping.is_empty() {
+                                        mapping_for_source(&d.schema, None)
+                                    } else {
+                                        d.suggested_mapping.clone()
+                                    }
+                                } else {
+                                    mapping_for_source(&d.schema, None)
+                                };
+                                m[i] = mapping;
                             }
                             ds.set(list);
                             ts.set(t);
@@ -452,6 +465,7 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
             .iter()
             .filter_map(|f| f.example.as_ref().map(|v| (f.name.clone(), v.to_string())))
             .collect();
+        let source_fields = d.schema.clone();
         let mut rows: Vec<Element> = Vec::new();
         for (j, m) in mapping.iter().enumerate() {
             let src = m.source_field.clone();
@@ -536,15 +550,16 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                                 let mut t = targets_i();
                                 if i_c < t.len() { t[i_c] = Some(v.clone()); }
                                 targets_i.set(t);
-                                // Regenerate the suggested mapping against the newly
-                                // selected content type so the table reflects it.
+                                // Rebuild the mapping table from the input's source
+                                // fields against the newly selected content type, so
+                                // every input field gets a target-field dropdown.
                                 let new_schema = schemas()
                                     .iter()
                                     .find(|s| s.uid.as_str() == v)
                                     .cloned();
                                 let mut ms = mappings();
-                                if let Some(row) = ms.get_mut(i_c) {
-                                    *row = remap_for_target(row.clone(), new_schema.as_ref());
+                                if i_c < ms.len() {
+                                    ms[i_c] = mapping_for_source(&source_fields, new_schema.as_ref());
                                 }
                                 mappings.set(ms);
                             },
@@ -1059,42 +1074,44 @@ mod tests {
         s
     }
 
-    fn row(source: &str, target: Option<&str>, status: MappingStatus) -> MappingDto {
-        MappingDto {
-            source_field: source.to_string(),
-            target_field: target.map(|s| s.to_string()),
-            transform: TransformKind::None,
-            status,
+    fn src_field(name: &str) -> InferredField {
+        InferredField {
+            name: name.to_string(),
+            kind: api_types::InferredKind::String,
+            nullable: false,
+            example: None,
             confidence: 1.0,
         }
     }
 
     #[test]
-    fn remap_matches_same_named_fields_as_auto() {
-        let mapping = vec![
-            row("name", None, MappingStatus::NeedsAttention),
-            row("sku", Some("sku"), MappingStatus::AutoMapped),
-            row("extra", None, MappingStatus::NeedsAttention),
-        ];
+    fn mapping_for_source_auto_maps_same_named_fields() {
+        let source = vec![src_field("name"), src_field("sku"), src_field("extra")];
         let schema = schema_with(&["name", "sku", "price"]);
-        let out = remap_for_target(mapping, Some(&schema));
+        let out = mapping_for_source(&source, Some(&schema));
         assert_eq!(out.len(), 3);
         // Same-named target fields become AutoMapped.
+        assert_eq!(out[0].source_field, "name");
         assert_eq!(out[0].target_field.as_deref(), Some("name"));
         assert_eq!(out[0].status, MappingStatus::AutoMapped);
+        assert_eq!(out[1].source_field, "sku");
         assert_eq!(out[1].target_field.as_deref(), Some("sku"));
         assert_eq!(out[1].status, MappingStatus::AutoMapped);
         // A source field with no matching target attribute stays unmapped and
         // needs attention so the user assigns it.
+        assert_eq!(out[2].source_field, "extra");
         assert_eq!(out[2].target_field, None);
         assert_eq!(out[2].status, MappingStatus::NeedsAttention);
     }
 
     #[test]
-    fn remap_against_missing_target_drops_mappings() {
-        let mapping = vec![row("name", Some("name"), MappingStatus::AutoMapped)];
-        let out = remap_for_target(mapping, None);
-        assert_eq!(out[0].target_field, None);
-        assert_eq!(out[0].status, MappingStatus::NeedsAttention);
+    fn mapping_for_source_without_target_leaves_all_unmapped() {
+        let source = vec![src_field("name"), src_field("sku")];
+        let out = mapping_for_source(&source, None);
+        assert_eq!(out.len(), 2);
+        for m in out {
+            assert_eq!(m.target_field, None);
+            assert_eq!(m.status, MappingStatus::NeedsAttention);
+        }
     }
 }
