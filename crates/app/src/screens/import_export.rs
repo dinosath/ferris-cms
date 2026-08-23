@@ -88,6 +88,30 @@ fn mapping_for_source(source_fields: &[InferredField], schema: Option<&Schema>) 
         .collect()
 }
 
+/// Given the analyze results for one or more datasets, decide the initial
+/// target content type and mapping table for each. The backend's suggested
+/// mapping is used when a content type matched; otherwise (or when the
+/// suggestion is empty) the table falls back to the input's source fields so
+/// it is always populated once the user picks a target.
+fn plan_mappings(list: &[AnalyzeFileResponse]) -> (Vec<Option<String>>, Vec<Vec<MappingDto>>) {
+    let mut targets = vec![None; list.len()];
+    let mut mappings = vec![vec![]; list.len()];
+    for (i, d) in list.iter().enumerate() {
+        let mapping = if let Some(c) = &d.detected_content_type {
+            targets[i] = Some(c.uid.clone());
+            if d.suggested_mapping.is_empty() {
+                mapping_for_source(&d.schema, None)
+            } else {
+                d.suggested_mapping.clone()
+            }
+        } else {
+            mapping_for_source(&d.schema, None)
+        };
+        mappings[i] = mapping;
+    }
+    (targets, mappings)
+}
+
 /// Parse a filter value string into a typed JSON value (bool / number / string).
 fn parse_filter_value(s: &str) -> serde_json::Value {
     let t = s.trim();
@@ -242,25 +266,7 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
                                 .and_then(|d| d.get("datasets"))
                                 .and_then(|d| serde_json::from_value(d.clone()).ok())
                                 .unwrap_or_default();
-                            let n = list.len();
-                            let mut t = vec![None; n];
-                            let mut m = vec![vec![]; n];
-                            for (i, d) in list.iter().enumerate() {
-                                // Prefer the backend suggestion, but always fall
-                                // back to the input's source fields so the mapping
-                                // table is ready even when no content type matched.
-                                let mapping = if let Some(c) = &d.detected_content_type {
-                                    t[i] = Some(c.uid.clone());
-                                    if d.suggested_mapping.is_empty() {
-                                        mapping_for_source(&d.schema, None)
-                                    } else {
-                                        d.suggested_mapping.clone()
-                                    }
-                                } else {
-                                    mapping_for_source(&d.schema, None)
-                                };
-                                m[i] = mapping;
-                            }
+                            let (t, m) = plan_mappings(&list);
                             ds.set(list);
                             ts.set(t);
                             ms.set(m);
@@ -1112,6 +1118,83 @@ mod tests {
         for m in out {
             assert_eq!(m.target_field, None);
             assert_eq!(m.status, MappingStatus::NeedsAttention);
+        }
+    }
+
+    fn analyze_response(
+        fields: &[&str],
+        suggested: Vec<MappingDto>,
+        detected: Option<&str>,
+    ) -> AnalyzeFileResponse {
+        let detected_content_type = detected.map(|uid| api_types::ContentTypeSuggestion {
+            uid: uid.to_string(),
+            display_name: uid.to_string(),
+            confidence: 1.0,
+            matched_fields: fields.iter().map(|f| f.to_string()).collect(),
+        });
+        AnalyzeFileResponse {
+            filename: "f.csv".to_string(),
+            dataset: "data".to_string(),
+            format: api_types::DataFormat::Csv,
+            record_count: 1,
+            preview: vec![],
+            schema: fields.iter().map(|f| src_field(f)).collect(),
+            suggested_mapping: suggested,
+            detected_content_type,
+            candidates: vec![],
+        }
+    }
+
+    #[test]
+    fn plan_mappings_uses_suggested_when_detected() {
+        let suggested = vec![
+            row_m("name", Some("name"), MappingStatus::AutoMapped),
+            row_m("sku", Some("sku"), MappingStatus::AutoMapped),
+        ];
+        let list = vec![analyze_response(
+            &["name", "sku"],
+            suggested.clone(),
+            Some("api::v.v"),
+        )];
+        let (targets, mappings) = plan_mappings(&list);
+        assert_eq!(targets[0].as_deref(), Some("api::v.v"));
+        assert_eq!(mappings[0].len(), 2);
+        assert_eq!(mappings[0][0].target_field.as_deref(), Some("name"));
+        assert_eq!(mappings[0][0].status, MappingStatus::AutoMapped);
+    }
+
+    #[test]
+    fn plan_mappings_falls_back_to_source_fields_when_no_detection() {
+        let list = vec![analyze_response(&["host", "status"], vec![], None)];
+        let (targets, mappings) = plan_mappings(&list);
+        // No target selected yet, but the table is still populated from the
+        // input's source fields so it renders once a content type is chosen.
+        assert_eq!(targets[0], None);
+        assert_eq!(mappings[0].len(), 2);
+        assert_eq!(mappings[0][0].source_field, "host");
+        assert_eq!(mappings[0][0].target_field, None);
+        assert_eq!(mappings[0][0].status, MappingStatus::NeedsAttention);
+        assert_eq!(mappings[0][1].source_field, "status");
+    }
+
+    #[test]
+    fn plan_mappings_falls_back_when_detected_but_suggestion_empty() {
+        let list = vec![analyze_response(&["name"], vec![], Some("api::v.v"))];
+        let (targets, mappings) = plan_mappings(&list);
+        assert_eq!(targets[0].as_deref(), Some("api::v.v"));
+        // Empty suggestion still yields a populated row from the source fields.
+        assert_eq!(mappings[0].len(), 1);
+        assert_eq!(mappings[0][0].source_field, "name");
+        assert_eq!(mappings[0][0].status, MappingStatus::NeedsAttention);
+    }
+
+    fn row_m(source: &str, target: Option<&str>, status: MappingStatus) -> MappingDto {
+        MappingDto {
+            source_field: source.to_string(),
+            target_field: target.map(|s| s.to_string()),
+            transform: TransformKind::None,
+            status,
+            confidence: 1.0,
         }
     }
 }
