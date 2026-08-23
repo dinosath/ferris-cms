@@ -207,7 +207,7 @@ async fn create_conversation(
     admin: AdminCtx,
     Json(req): Json<AiConversationCreate>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::create_conversation(&admin.0, req.title, req.system_prompt, req.provider_id, req.model).await;
+    let r = ai::create_conversation(&admin.0, req.title, req.system_prompt, req.provider_id, req.model, req.privacy_mode).await;
     wrap(r)
 }
 

@@ -562,6 +562,9 @@ pub mod ai_conversation {
         pub title: String,
         pub system_prompt: Option<String>,
         pub requires_confirmation: bool,
+        /// Privacy mode: when true, conversation history is NOT sent to the
+        /// provider (only the current message + system prompt are).
+        pub privacy_mode: bool,
         pub created_at: DateTimeUtc,
         pub updated_at: DateTimeUtc,
     }

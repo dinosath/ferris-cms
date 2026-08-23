@@ -144,12 +144,17 @@ async fn ai_conversation_and_usage() -> anyhow::Result<()> {
     let conv = client
         .post(format!("{base}/admin/ai/conversations"))
         .bearer_auth(&token)
-        .json(&json!({ "title": "Draft a welcome post", "systemPrompt": null }))
+        .json(&json!({ "title": "Draft a welcome post", "systemPrompt": null, "privacyMode": true }))
         .send()
         .await?;
     assert_eq!(conv.status().as_u16(), 200, "create conversation");
     let conv: Value = conv.json().await?;
     let conv_id = conv["data"]["id"].as_i64().expect("conversation id");
+    assert_eq!(
+        conv["data"]["privacyMode"].as_bool(),
+        Some(true),
+        "privacy mode persisted"
+    );
 
     let list = client
         .get(format!("{base}/admin/ai/conversations"))

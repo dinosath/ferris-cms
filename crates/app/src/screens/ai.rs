@@ -379,6 +379,7 @@ pub fn AiAssistant() -> Element {
     let mut selected: Signal<Option<i64>> = use_signal(|| None);
     let mut title = use_signal(|| String::new());
     let mut model = use_signal(|| String::new());
+    let mut privacy = use_signal(|| false);
     let mut input = use_signal(|| String::new());
     let mut busy = use_signal(|| false);
     let mut pending: Signal<Option<serde_json::Value>> = use_signal(|| None);
@@ -423,6 +424,7 @@ pub fn AiAssistant() -> Element {
                         system_prompt: None,
                         provider_id: None,
                         model: if model().is_empty() { None } else { Some(model()) },
+                        privacy_mode: privacy(),
                     };
                     match client.ai_conversation_create(&body).await {
                         Ok(v) => {
@@ -657,6 +659,10 @@ pub fn AiAssistant() -> Element {
                             options: model_options,
                             onchange: move |v: String| model.set(v),
                         }
+                    }
+                    label { style: "display:flex; align-items:center; gap:6px; font-size:12px; color:{color::NEUTRAL_700}; cursor:pointer;",
+                        input { r#type: "checkbox", checked: privacy(), onchange: move |e| privacy.set(e.checked()) }
+                        span { "Private mode (don't send history to the model)" }
                     }
                     Button { label: "+ New conversation".to_string(), disabled: model().is_empty(), on_click: move |_| create_req.set(true) }
                     div { style: "display:flex; flex-direction:column; gap:6px;", {convo_buttons.into_iter()} }

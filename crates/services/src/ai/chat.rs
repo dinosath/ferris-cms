@@ -31,6 +31,7 @@ pub async fn create_conversation(
     system_prompt: Option<String>,
     provider_id: Option<i64>,
     model: Option<String>,
+    privacy_mode: bool,
 ) -> Result<serde_json::Value, ServiceError> {
     let user = ctx.require_admin()?;
     let now = chrono::Utc::now();
@@ -41,6 +42,7 @@ pub async fn create_conversation(
         title: Set(title),
         system_prompt: Set(system_prompt),
         requires_confirmation: Set(true),
+        privacy_mode: Set(privacy_mode),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -94,6 +96,7 @@ fn conversation_dto(row: ai_conversation::Model) -> serde_json::Value {
         "model": row.model,
         "systemPrompt": row.system_prompt,
         "requiresConfirmation": row.requires_confirmation,
+        "privacyMode": row.privacy_mode,
         "createdAt": row.created_at,
         "updatedAt": row.updated_at,
     })
@@ -223,7 +226,19 @@ pub async fn send_message(
         .order_by_asc(ai_message::Column::Id)
         .all(&ctx.db)
         .await?;
-    let mut messages = history_messages(&prior);
+    // Privacy mode: never send conversation history to the provider — only the
+    // current user message (plus system prompt) leaves the CMS.
+    let mut messages = if conv.privacy_mode {
+        prior
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .cloned()
+            .map(|m| history_messages(std::slice::from_ref(&m)))
+            .unwrap_or_default()
+    } else {
+        history_messages(&prior)
+    };
 
     let tools: Vec<AiTool> = definitions();
     let mut total_in = 0u64;

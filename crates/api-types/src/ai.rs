@@ -84,6 +84,10 @@ pub struct AiConversationCreate {
     pub system_prompt: Option<String>,
     pub provider_id: Option<i64>,
     pub model: Option<String>,
+    /// Privacy mode: when true, conversation history is not sent to the
+    /// provider (only the current message + system prompt are).
+    #[serde(default)]
+    pub privacy_mode: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -24,6 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(M20260820Workflow),
             Box::new(M20260821ImportExportPresets),
             Box::new(M20260823Ai),
+            Box::new(M20260823AiPrivacy),
         ]
     }
 }
@@ -777,6 +778,47 @@ impl MigrationTrait for M20260823Ai {
                 .drop_table(Table::drop().table(Alias::new(table)).if_exists().to_owned())
                 .await?;
         }
+        Ok(())
+    }
+}
+
+/// Add privacy controls to AI conversations (per-conversation privacy mode).
+struct M20260823AiPrivacy;
+
+impl MigrationName for M20260823AiPrivacy {
+    fn name(&self) -> &str {
+        "m20260823_000006_ai_privacy_mode"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260823AiPrivacy {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Alias::new("ai_conversation"))
+                    .add_column(
+                        ColumnDef::new(Alias::new("privacy_mode"))
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Alias::new("ai_conversation"))
+                    .drop_column(Alias::new("privacy_mode"))
+                    .to_owned(),
+            )
+            .await?;
         Ok(())
     }
 }
