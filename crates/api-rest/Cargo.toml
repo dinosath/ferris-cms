@@ -9,6 +9,7 @@ core-domain = { workspace = true }
 core-schema = { workspace = true }
 api-types = { workspace = true }
 services = { workspace = true }
+ai = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

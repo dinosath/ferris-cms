@@ -6,8 +6,8 @@ use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
 use crate::screens::{
-    content_manager, content_type_builder, credentials, executions, home, import_export, media,
-    settings, workflow_editor, workflows,
+    ai, content_manager, content_type_builder, credentials, executions, home, import_export,
+    media, settings, workflow_editor, workflows,
 };
 
 #[component]
@@ -38,6 +38,8 @@ pub fn Shell() -> Element {
                         Route::Settings => rsx! { settings::Settings {} },
                         Route::Import(uid) => rsx! { import_export::ImportWizard { initial_uid: uid } },
                         Route::Export(uid) => rsx! { import_export::ExportWizard { initial_uid: uid } },
+                        Route::AiAssistant => rsx! { ai::AiAssistant {} },
+                        Route::AiSettings => rsx! { ai::AiSettings {} },
                         _ => rsx! { home::Home {} },
                     }
                 }
@@ -147,6 +149,14 @@ fn TopBar() -> Element {
             crumbs = vec![("Home".into(), false), ("Settings".into(), true)];
             nav = vec![Route::Home];
         }
+        Route::AiAssistant => {
+            crumbs = vec![("Home".into(), false), ("AI Assistant".into(), true)];
+            nav = vec![Route::Home];
+        }
+        Route::AiSettings => {
+            crumbs = vec![("Home".into(), false), ("AI Settings".into(), true)];
+            nav = vec![Route::Home];
+        }
         _ => {
             crumbs = vec![("Home".into(), false), ("Home".into(), true)];
             nav = vec![Route::Home];
@@ -194,6 +204,8 @@ fn Sidebar() -> Element {
     let mut g_settings = global.clone();
     let mut g_import = global.clone();
     let mut g_export = global.clone();
+    let mut g_ai = global.clone();
+    let mut g_ai2 = global.clone();
     let mut g_logout = global.clone();
 
     let sidebar_style = format!(
@@ -257,6 +269,12 @@ fn Sidebar() -> Element {
                 NavItem { label: "Workflows".to_string(), icon: "layers".to_string(), active: active(Route::Workflows) || matches!(route(), Route::WorkflowEditor(_)), onclick: move |_| g_wf.route.set(Route::Workflows) }
                 NavItem { label: "Executions".to_string(), icon: "list".to_string(), active: active(Route::WorkflowExecutions) || matches!(route(), Route::Execution(_)), onclick: move |_| g_exec.route.set(Route::WorkflowExecutions) }
                 NavItem { label: "API / Integrations".to_string(), icon: "key".to_string(), active: active(Route::Credentials), onclick: move |_| g_cred.route.set(Route::Credentials) }
+            }
+            div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
+            span { style: "{section_label}", "AI" }
+            div { style: "padding:0 12px 12px; display:flex; flex-direction:column; gap:4px;",
+                NavItem { label: "Assistant".to_string(), icon: "text".to_string(), active: active(Route::AiAssistant), onclick: move |_| g_ai.route.set(Route::AiAssistant) }
+                NavItem { label: "AI Settings".to_string(), icon: "puzzle".to_string(), active: active(Route::AiSettings), onclick: move |_| g_ai2.route.set(Route::AiSettings) }
             }
             div { style: "margin:8px 16px; height:1px; background:{color::NEUTRAL_150};" }
             span { style: "{section_label}", "GENERAL" }

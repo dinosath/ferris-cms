@@ -900,6 +900,174 @@ impl Client {
             .delete_json(&format!("/admin/import-export/mappings/{id}"))
             .await
     }
+
+    // -----------------------------------------------------------------------
+    // AI subsystem
+    // -----------------------------------------------------------------------
+
+    pub async fn ai_providers(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/ai/providers").await
+    }
+
+    pub async fn ai_provider_create(
+        &self,
+        req: &api_types::AiProviderCreate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/providers", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_provider_update(
+        &self,
+        id: i64,
+        req: &api_types::AiProviderUpdate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .put_json(&format!("/admin/ai/providers/{id}"), &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_provider_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/ai/providers/{id}")).await
+    }
+
+    pub async fn ai_models(&self, provider_id: Option<i64>) -> Result<serde_json::Value, ClientError> {
+        match provider_id {
+            Some(pid) => self.transport.get_json(&format!("/admin/ai/providers/{pid}/models")).await,
+            None => self.transport.get_json("/admin/ai/models").await,
+        }
+    }
+
+    pub async fn ai_model_create(
+        &self,
+        req: &api_types::AiModelCreate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/models", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_model_update(
+        &self,
+        id: i64,
+        req: &api_types::AiModelUpdate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .put_json(&format!("/admin/ai/models/{id}"), &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_model_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/ai/models/{id}")).await
+    }
+
+    pub async fn ai_conversations(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/ai/conversations").await
+    }
+
+    pub async fn ai_conversation_create(
+        &self,
+        req: &api_types::AiConversationCreate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/conversations", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_conversation_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.delete_json(&format!("/admin/ai/conversations/{id}")).await
+    }
+
+    pub async fn ai_messages(&self, id: i64) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json(&format!("/admin/ai/conversations/{id}/messages")).await
+    }
+
+    pub async fn ai_send_message(
+        &self,
+        id: i64,
+        text: &str,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = api_types::AiSendMessage { text: text.to_string() };
+        self.transport
+            .post_json(&format!("/admin/ai/conversations/{id}/messages"), &serde_json::to_value(&body)?)
+            .await
+    }
+
+    pub async fn ai_confirm_tool_calls(
+        &self,
+        id: i64,
+        calls: Vec<api_types::AiConfirmToolCall>,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = api_types::AiConfirmBody { calls };
+        self.transport
+            .post_json(&format!("/admin/ai/conversations/{id}/confirm"), &serde_json::to_value(&body)?)
+            .await
+    }
+
+    pub async fn ai_generate(
+        &self,
+        req: &api_types::AiGenerateBody,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/generate", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_edit(&self, req: &api_types::AiEditBody) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/edit", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_translate(
+        &self,
+        req: &api_types::AiTranslateBody,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/translate", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_schema_generate(
+        &self,
+        req: &api_types::AiSchemaGenerateBody,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/schema/generate", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_schema_apply(
+        &self,
+        schema: serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        let body = api_types::AiSchemaApplyBody { schema };
+        self.transport
+            .post_json("/admin/ai/schema/apply", &serde_json::to_value(&body)?)
+            .await
+    }
+
+    pub async fn ai_media_analyze(
+        &self,
+        req: &api_types::AiMediaAnalyzeBody,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/media/analyze", &serde_json::to_value(req)?)
+            .await
+    }
+
+    pub async fn ai_tools(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/ai/tools").await
+    }
+
+    pub async fn ai_usage(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/ai/usage").await
+    }
+
+    pub async fn ai_usage_summary(&self) -> Result<serde_json::Value, ClientError> {
+        self.transport.get_json("/admin/ai/usage/summary").await
+    }
 }
 
 /// Simple query string builder for QueryParams.

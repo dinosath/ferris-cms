@@ -23,6 +23,7 @@ impl MigratorTrait for Migrator {
             Box::new(M20260731Rbac),
             Box::new(M20260820Workflow),
             Box::new(M20260821ImportExportPresets),
+            Box::new(M20260823Ai),
         ]
     }
 }
@@ -640,6 +641,142 @@ impl MigrationTrait for M20260821ImportExportPresets {
         )
         .await?;
 
+        Ok(())
+    }
+}
+
+/// AI subsystem tables (AI providers/models, conversations/messages, usage).
+struct M20260823Ai;
+
+impl MigrationName for M20260823Ai {
+    fn name(&self) -> &str {
+        "m20260823_000005_init_ai_tables"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260823Ai {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        IS_POSTGRES.store(
+            matches!(
+                manager.get_database_backend(),
+                sea_orm::DatabaseBackend::Postgres
+            ),
+            Ordering::Relaxed,
+        );
+
+        // ---- ai_provider ----
+        {
+            let mut t = Table::create()
+                .table(Alias::new("ai_provider"))
+                .if_not_exists()
+                .to_owned();
+            t.col(pk_col());
+            t.col(str_col("name"));
+            t.col(str_col("kind"));
+            t.col(str_opt("base_url"));
+            t.col(str_opt("api_key_encrypted"));
+            t.col(str_opt("organization"));
+            t.col(bool_col("enabled"));
+            t.col(int_opt("sort_order"));
+            timestamps(&mut t);
+            manager.create_table(t).await?;
+        }
+
+        // ---- ai_model ----
+        {
+            let mut t = Table::create()
+                .table(Alias::new("ai_model"))
+                .if_not_exists()
+                .to_owned();
+            t.col(pk_col());
+            t.col(int_col("provider_id"));
+            t.col(str_col("name"));
+            t.col(str_opt("display_name"));
+            t.col(str_opt("description"));
+            t.col(bool_col("supports_chat"));
+            t.col(bool_col("supports_tools"));
+            t.col(bool_col("supports_streaming"));
+            t.col(int_opt("max_input_tokens"));
+            t.col(int_opt("max_output_tokens"));
+            t.col(bool_col("enabled"));
+            timestamps(&mut t);
+            manager.create_table(t).await?;
+            create_index(manager, "ai_model", &["provider_id"]).await?;
+        }
+
+        // ---- ai_conversation ----
+        {
+            let mut t = Table::create()
+                .table(Alias::new("ai_conversation"))
+                .if_not_exists()
+                .to_owned();
+            t.col(pk_col());
+            t.col(int_col("user_id"));
+            t.col(int_opt("provider_id"));
+            t.col(str_opt("model"));
+            t.col(str_col("title"));
+            t.col(str_opt("system_prompt"));
+            t.col(bool_col("requires_confirmation"));
+            timestamps(&mut t);
+            manager.create_table(t).await?;
+            create_index(manager, "ai_conversation", &["user_id"]).await?;
+        }
+
+        // ---- ai_message ----
+        {
+            let mut t = Table::create()
+                .table(Alias::new("ai_message"))
+                .if_not_exists()
+                .to_owned();
+            t.col(pk_col());
+            t.col(int_col("conversation_id"));
+            t.col(str_col("role"));
+            t.col(str_col("content"));
+            {
+                let mut c = ColumnDef::new(Alias::new("tool_calls_json"));
+                c.json();
+                t.col(&mut c);
+            }
+            t.col(str_opt("tool_call_id"));
+            t.col(str_opt("tool_name"));
+            t.col(int_opt("input_tokens"));
+            t.col(int_opt("output_tokens"));
+            timestamps(&mut t);
+            manager.create_table(t).await?;
+            create_index(manager, "ai_message", &["conversation_id"]).await?;
+        }
+
+        // ---- ai_usage ----
+        {
+            let mut t = Table::create()
+                .table(Alias::new("ai_usage"))
+                .if_not_exists()
+                .to_owned();
+            t.col(pk_col());
+            t.col(int_col("user_id"));
+            t.col(int_opt("provider_id"));
+            t.col(str_opt("model"));
+            t.col(str_opt("feature"));
+            t.col(int_col("input_tokens"));
+            t.col(int_col("output_tokens"));
+            t.col(int_col("total_tokens"));
+            t.col(str_opt("status"));
+            timestamps(&mut t);
+            manager.create_table(t).await?;
+            create_index(manager, "ai_usage", &["user_id"]).await?;
+            create_index(manager, "ai_usage", &["created_at"]).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        for table in ["ai_usage", "ai_message", "ai_conversation", "ai_model", "ai_provider"] {
+            manager
+                .drop_table(Table::drop().table(Alias::new(table)).if_exists().to_owned())
+                .await?;
+        }
         Ok(())
     }
 }

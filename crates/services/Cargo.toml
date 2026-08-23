@@ -11,6 +11,7 @@ api-types = { workspace = true }
 db = { workspace = true }
 dynamic-store = { workspace = true }
 workflow = { workspace = true }
+ai = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

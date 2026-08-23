@@ -12,6 +12,7 @@ pub mod ctb;
 pub mod error;
 pub mod import_export;
 pub mod workflow;
+pub mod ai;
 
 use axum::{
     extract::{Path, Query, State},
@@ -213,7 +214,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/workflow-permission-actions",
             get(workflow::workflow_permission_actions),
         )
-        .merge(import_export::router());
+        .merge(import_export::router())
+        .merge(ai::router());
 
     // Public webhook triggers for active workflows.
     let webhook_router = Router::new().route(

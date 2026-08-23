@@ -492,3 +492,129 @@ pub mod import_export_mapping_preset {
 
     impl ActiveModelBehavior for ActiveModel {}
 }
+
+/// `ai_provider` — an LLM provider configuration (API keys stored encrypted).
+pub mod ai_provider {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "ai_provider")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub name: String,
+        /// AiProviderKind as a lowercase string.
+        pub kind: String,
+        pub base_url: Option<String>,
+        /// Encrypted API key (ChaCha20-Poly1305), never returned by the API.
+        pub api_key_encrypted: Option<String>,
+        pub organization: Option<String>,
+        pub enabled: bool,
+        pub sort_order: Option<i64>,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `ai_model` — a model offered by a provider, with capability flags.
+pub mod ai_model {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "ai_model")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub provider_id: i64,
+        pub name: String,
+        pub display_name: Option<String>,
+        pub description: Option<String>,
+        pub supports_chat: bool,
+        pub supports_tools: bool,
+        pub supports_streaming: bool,
+        pub max_input_tokens: Option<i64>,
+        pub max_output_tokens: Option<i64>,
+        pub enabled: bool,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `ai_conversation` — an assistant conversation owned by an admin user.
+pub mod ai_conversation {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "ai_conversation")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub user_id: i64,
+        pub provider_id: Option<i64>,
+        pub model: Option<String>,
+        pub title: String,
+        pub system_prompt: Option<String>,
+        pub requires_confirmation: bool,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `ai_message` — a message within a conversation.
+pub mod ai_message {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "ai_message")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub conversation_id: i64,
+        pub role: String,
+        pub content: String,
+        pub tool_calls_json: Option<Json>,
+        pub tool_call_id: Option<String>,
+        pub tool_name: Option<String>,
+        pub input_tokens: Option<i64>,
+        pub output_tokens: Option<i64>,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
+/// `ai_usage` — AI usage/audit accounting per user and feature.
+pub mod ai_usage {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "ai_usage")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub user_id: i64,
+        pub provider_id: Option<i64>,
+        pub model: Option<String>,
+        pub feature: Option<String>,
+        pub input_tokens: i64,
+        pub output_tokens: i64,
+        pub total_tokens: i64,
+        pub status: Option<String>,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}

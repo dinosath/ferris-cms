@@ -38,6 +38,10 @@ pub enum Route {
     Import(Option<String>),
     /// Export wizard; optional content-type uid to prefill.
     Export(Option<String>),
+    /// AI assistant (chat).
+    AiAssistant,
+    /// AI settings (providers / models / usage).
+    AiSettings,
 }
 
 /// Global app state provided to every screen through the component context.

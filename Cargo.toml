@@ -7,6 +7,7 @@ members = [
     "crates/db",
     "crates/dynamic-store",
     "crates/workflow",
+    "crates/ai",
     "crates/services",
     "crates/api-rest",
     "crates/client-core",
@@ -31,6 +32,7 @@ api-types = { path = "crates/api-types" }
 db = { path = "crates/db" }
 dynamic-store = { path = "crates/dynamic-store" }
 workflow = { path = "crates/workflow" }
+ai = { path = "crates/ai" }
 services = { path = "crates/services" }
 api-rest = { path = "crates/api-rest" }
 client-core = { path = "crates/client-core" }
