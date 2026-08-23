@@ -783,3 +783,51 @@ async fn ai_screens_render() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Regression test for the CTB create dispatcher reactivity bug: clicking
+/// Continue must actually dispatch (close the modal + attempt the request),
+/// instead of doing nothing. Works in -no-render Obscura because it asserts
+/// the dispatcher fires (modal closes / toast appears), not authed data.
+#[tokio::test(flavor = "multi_thread")]
+async fn ctb_create_continue_dispatches() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let ui = open_app(&harness).await?;
+    let page = &ui.page;
+    goto_screen(page, "Content-Type Builder", "Content-Type Builder").await?;
+
+    assert!(
+        click_button_by_text(page, "Create content type").await?,
+        "create button not found"
+    );
+    let modal = wait_for_text(page, |t| t.contains("Create a collection type"))
+        .await
+        .context("create modal did not open")?;
+    assert!(modal.contains("Continue"), "Continue button missing");
+    assert!(
+        fill_input_by_label(page, "Display name", "Article").await?,
+        "display name input not found"
+    );
+
+    // Clicking Continue must close the modal (i.e. the dispatcher effect fired),
+    // even if the subsequent authed request fails in -no-render Obscura.
+    assert!(
+        click_button_by_text(page, "Continue").await?,
+        "Continue not found"
+    );
+    let gone = {
+        let mut done = false;
+        for _ in 0..15 {
+            tokio::time::sleep(Duration::from_millis(1000)).await;
+            if let Ok(b) = body_text(page).await {
+                if !b.contains("Create a collection type") {
+                    done = true;
+                    break;
+                }
+            }
+        }
+        done
+    };
+    anyhow::ensure!(gone, "Continue did not dispatch (modal stayed open)");
+
+    Ok(())
+}
