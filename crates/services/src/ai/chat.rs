@@ -7,7 +7,7 @@
 //! `confirm_tool_calls`.
 
 use ai::{AiMessage, AiRequest, AiTool, AiToolCall};
-use db::entities::{ai_conversation, ai_message};
+use db::entities::{ai_conversation, ai_message, ai_model, ai_provider};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -200,6 +200,89 @@ fn history_messages(rows: &[ai_message::Model]) -> Vec<AiMessage> {
 /// Non-mutating tools execute immediately under RBAC. Mutating tools are NOT
 /// executed — they are returned as `confirmationRequired` for the client to
 /// approve via `confirm_tool_calls`.
+// ---------------------------------------------------------------------------
+// Provider resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve the provider + model for a conversation.
+///
+/// A conversation may be created with only a model name (no provider), so the
+/// provider is resolved from that model; otherwise it falls back to the first
+/// enabled provider that has an enabled chat model.
+async fn resolve_provider_and_model(
+    ctx: &AppContext,
+    conv: &ai_conversation::Model,
+) -> Result<(i64, String), ServiceError> {
+    // 1. Prefer an explicit provider; otherwise find the provider that owns a
+    //    model matching the conversation's model name.
+    let provider_id = if let Some(pid) = conv.provider_id {
+        Some(pid)
+    } else if let Some(name) = &conv.model {
+        ai_model::Entity::find()
+            .filter(ai_model::Column::Name.eq(name.clone()))
+            .filter(ai_model::Column::SupportsChat.eq(true))
+            .filter(ai_model::Column::Enabled.eq(true))
+            .one(&ctx.db)
+            .await?
+            .map(|m| m.provider_id)
+    } else {
+        None
+    };
+
+    let provider_id = match provider_id {
+        Some(pid) => pid,
+        None => {
+            // Fall back to the first enabled provider with a chat model.
+            let m = ai_model::Entity::find()
+                .filter(ai_model::Column::SupportsChat.eq(true))
+                .filter(ai_model::Column::Enabled.eq(true))
+                .order_by_asc(ai_model::Column::Id)
+                .one(&ctx.db)
+                .await?
+                .ok_or_else(|| {
+                    ServiceError::internal(
+                        "no AI provider is configured — add a provider and model in AI Settings first",
+                    )
+                })?;
+            m.provider_id
+        }
+    };
+
+    // Verify the provider still exists and is enabled.
+    let prow = ai_provider::Entity::find_by_id(provider_id)
+        .one(&ctx.db)
+        .await?
+        .ok_or_else(|| ServiceError::internal("AI provider no longer exists"))?;
+    if !prow.enabled {
+        return Err(ServiceError::internal(format!(
+            "AI provider '{}' is disabled — enable it in AI Settings",
+            prow.name
+        )));
+    }
+
+    // 2. Resolve the model name (explicit, else the provider's first chat model).
+    let model = if let Some(name) = &conv.model {
+        name.clone()
+    } else {
+        ai_model::Entity::find()
+            .filter(ai_model::Column::ProviderId.eq(provider_id))
+            .filter(ai_model::Column::SupportsChat.eq(true))
+            .filter(ai_model::Column::Enabled.eq(true))
+            .order_by_asc(ai_model::Column::Id)
+            .one(&ctx.db)
+            .await?
+            .map(|m| m.name)
+            .ok_or_else(|| {
+                ServiceError::internal(format!(
+                    "AI provider '{}' has no chat model configured",
+                    prow.name
+                ))
+            })?
+    };
+
+    Ok((provider_id, model))
+}
+
 pub async fn send_message(
     ctx: &AppContext,
     conversation_id: i64,
@@ -211,12 +294,7 @@ pub async fn send_message(
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::NotFound(format!("ai conversation {conversation_id}")))?;
-    let provider_id = conv.provider_id.ok_or_else(|| {
-        ServiceError::internal("this conversation has no AI provider — edit it in AI Settings first")
-    })?;
-    let model = conv.model.clone().ok_or_else(|| {
-        ServiceError::internal("this conversation has no AI model selected")
-    })?;
+    let (provider_id, model) = resolve_provider_and_model(ctx, &conv).await?;
     let (_prow, provider) = build_provider(ctx, provider_id).await?;
 
     insert_message(ctx, conversation_id, "user", text, None, None, None, None, None).await?;
@@ -340,8 +418,7 @@ pub async fn confirm_tool_calls(
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::NotFound(format!("ai conversation {conversation_id}")))?;
-    let provider_id = conv.provider_id.ok_or_else(|| ServiceError::internal("conversation has no provider"))?;
-    let model = conv.model.clone().ok_or_else(|| ServiceError::internal("conversation has no model"))?;
+    let (provider_id, model) = resolve_provider_and_model(ctx, &conv).await?;
     let (_prow, provider) = build_provider(ctx, provider_id).await?;
 
     let mut executed: Vec<Value> = Vec::new();

@@ -120,8 +120,8 @@ async fn ai_provider_and_model_crud() -> anyhow::Result<()> {
         .iter()
         .filter_map(|t| t["name"].as_str())
         .collect();
-    assert!(tool_names.contains(&"content.list"), "has content.list");
-    assert!(tool_names.contains(&"content.create"), "has content.create");
+    assert!(tool_names.contains(&"content_list"), "has content_list");
+    assert!(tool_names.contains(&"content_create"), "has content_create");
 
     // Delete model + provider.
     assert_eq!(

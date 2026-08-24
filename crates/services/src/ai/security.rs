@@ -8,9 +8,9 @@ use crate::ServiceError;
 
 /// Features that mutate data and require user confirmation before execution.
 const CONFIRMATION_REQUIRED: &[&str] = &[
-    "content.create",
-    "content.update",
-    "content.delete",
+    "content_create",
+    "content_update",
+    "content_delete",
     "schema.apply",
 ];
 
@@ -73,9 +73,9 @@ mod tests {
 
     #[test]
     fn confirmation_features() {
-        assert!(requires_confirmation("content.update"));
-        assert!(requires_confirmation("content.delete"));
-        assert!(!requires_confirmation("content.list"));
-        assert!(!requires_confirmation("content.get"));
+        assert!(requires_confirmation("content_update"));
+        assert!(requires_confirmation("content_delete"));
+        assert!(!requires_confirmation("content_list"));
+        assert!(!requires_confirmation("content_get"));
     }
 }

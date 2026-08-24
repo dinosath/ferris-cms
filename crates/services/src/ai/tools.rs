@@ -16,12 +16,12 @@ use crate::{AppContext, ServiceError};
 pub fn definitions() -> Vec<AiTool> {
     vec![
         AiTool {
-            name: "content.listTypes".into(),
+            name: "content_list_types".into(),
             description: "List all content types and their fields in the CMS.".into(),
             parameters: json!({ "type": "object", "properties": {} }),
         },
         AiTool {
-            name: "content.list".into(),
+            name: "content_list".into(),
             description: "List entries of a content type. Returns id, documentId and the data fields.".into(),
             parameters: json!({
                 "type": "object",
@@ -34,7 +34,7 @@ pub fn definitions() -> Vec<AiTool> {
             }),
         },
         AiTool {
-            name: "content.get".into(),
+            name: "content_get".into(),
             description: "Get a single entry by documentId.".into(),
             parameters: json!({
                 "type": "object",
@@ -46,7 +46,7 @@ pub fn definitions() -> Vec<AiTool> {
             }),
         },
         AiTool {
-            name: "content.create".into(),
+            name: "content_create".into(),
             description: "Create a new entry in a content type. Only fields defined on the content type are accepted.".into(),
             parameters: json!({
                 "type": "object",
@@ -58,7 +58,7 @@ pub fn definitions() -> Vec<AiTool> {
             }),
         },
         AiTool {
-            name: "content.update".into(),
+            name: "content_update".into(),
             description: "Update an existing entry by documentId. Only fields defined on the content type are accepted.".into(),
             parameters: json!({
                 "type": "object",
@@ -71,7 +71,7 @@ pub fn definitions() -> Vec<AiTool> {
             }),
         },
         AiTool {
-            name: "content.delete".into(),
+            name: "content_delete".into(),
             description: "Delete an entry by documentId.".into(),
             parameters: json!({
                 "type": "object",
@@ -83,7 +83,7 @@ pub fn definitions() -> Vec<AiTool> {
             }),
         },
         AiTool {
-            name: "content.translate".into(),
+            name: "content_translate".into(),
             description: "Translate a piece of text to a target locale (e.g. 'en', 'fr').".into(),
             parameters: json!({
                 "type": "object",
@@ -104,13 +104,13 @@ pub async fn execute_tool(
     fallback_model: Option<&str>,
 ) -> Result<AiToolResult, ServiceError> {
     let result = match call.name.as_str() {
-        "content.listTypes" => execute_list_types(ctx).await,
-        "content.list" => execute_list(ctx, &call.arguments).await,
-        "content.get" => execute_get(ctx, &call.arguments).await,
-        "content.create" => execute_create(ctx, &call.arguments).await,
-        "content.update" => execute_update(ctx, &call.arguments).await,
-        "content.delete" => execute_delete(ctx, &call.arguments).await,
-        "content.translate" => execute_translate(ctx, &call.arguments, fallback_model).await,
+        "content_list_types" => execute_list_types(ctx).await,
+        "content_list" => execute_list(ctx, &call.arguments).await,
+        "content_get" => execute_get(ctx, &call.arguments).await,
+        "content_create" => execute_create(ctx, &call.arguments).await,
+        "content_update" => execute_update(ctx, &call.arguments).await,
+        "content_delete" => execute_delete(ctx, &call.arguments).await,
+        "content_translate" => execute_translate(ctx, &call.arguments, fallback_model).await,
         other => Err(ServiceError::internal(format!(
             "unknown AI tool '{other}' (not in the allowed tool registry)"
         ))),
