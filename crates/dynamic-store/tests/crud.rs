@@ -222,7 +222,9 @@ async fn crud_and_filters() {
     assert_eq!(total, 2);
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0]["title"], json!("Rust rocks"));
-    assert_eq!(rows[0]["author_id"], json!(author_id));
+    // The manyToOne relation FK is read back under the schema attribute name
+    // (not the physical `author_id` column).
+    assert_eq!(rows[0]["author"], json!(author_id));
     assert_eq!(rows[0]["publicationState"], json!("draft"));
 
     // filter: title contains "rust" (case-insensitive) AND views >= 5
