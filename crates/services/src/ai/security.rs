@@ -11,7 +11,15 @@ const CONFIRMATION_REQUIRED: &[&str] = &[
     "content_create",
     "content_update",
     "content_delete",
-    "schema.apply",
+    "content_publish",
+    "content_unpublish",
+    "content_type_save",
+    "content_type_delete",
+    "workflow_create",
+    "workflow_update",
+    "workflow_delete",
+    "workflow_activate",
+    "workflow_deactivate",
 ];
 
 /// Returns true when a feature (tool name) requires explicit user confirmation.

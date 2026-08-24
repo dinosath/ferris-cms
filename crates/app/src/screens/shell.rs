@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 
 use crate::app::{use_global, Route};
-use crate::components::{Breadcrumbs, Icon, NavItem, Toast};
+use crate::components::{Breadcrumbs, Button, Icon, NavItem, Toast};
 use crate::screens::{
     ai, content_manager, content_type_builder, credentials, executions, home, import_export,
     media, settings, workflow_editor, workflows,
@@ -15,6 +15,7 @@ pub fn Shell() -> Element {
     let global = use_global();
     let route = global.route;
     let mut toasts = global.toasts;
+    let mut chat_open = use_signal(|| false);
 
     rsx! {
         div { style: "display:flex; min-height:100vh;",
@@ -45,6 +46,23 @@ pub fn Shell() -> Element {
                 }
             }
         }
+
+        // Floating AI chat overlay.
+        button {
+            "style": "position:fixed; bottom:24px; right:24px; z-index:1000; width:56px; height:56px; border-radius:50%; background:{color::PRIMARY_600}; color:#fff; border:none; cursor:pointer; font-size:18px; font-weight:700; box-shadow:0 4px 16px rgba(0,0,0,.25); display:flex; align-items:center; justify-content:center;",
+            onclick: move |_| chat_open.set(!chat_open()),
+            span { "AI" }
+        }
+        if chat_open() {
+            div { style: "position:fixed; bottom:92px; right:24px; width:640px; max-width:94vw; height:76vh; background:#fff; border-radius:12px; box-shadow:0 12px 44px rgba(0,0,0,.28); z-index:1001; display:flex; flex-direction:column; overflow:hidden;",
+                div { style: "display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid {color::NEUTRAL_150}; flex-shrink:0;",
+                    span { style: "font-weight:600; color:{color::NEUTRAL_900};", "AI Assistant" }
+                    Button { label: "Close".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| chat_open.set(false) }
+                }
+                div { style: "flex:1; overflow:auto;", ai::AiAssistant {} }
+            }
+        }
+
         div { style: "position:fixed; top:16px; right:16px; z-index:1000; display:flex; flex-direction:column; gap:8px;",
             for (idx, (msg, kind)) in toasts().into_iter().enumerate() {
                 Toast {

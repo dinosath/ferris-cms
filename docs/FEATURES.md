@@ -118,9 +118,13 @@ conditional visibility (`visibleWhen`).
   through [Rig](https://rig.rs); provider/model CRUD with encrypted keys.
   Adding a provider tests connectivity and auto-discovers its models (with a
   manual fallback); editing a provider re-verifies it is reachable before saving.
-- **Chat** — assistant conversations + messages + tool-calling loop.
+- **Chat** — assistant conversations + messages + tool-calling loop. Chat
+  history is persisted and shown in a table; a floating overlay launches the
+  assistant from anywhere.
 - **Tools** — an RBAC-aware tool registry (the model is never the security
   boundary; it only requests tools that the CMS authorizes and executes).
+  Includes content CRUD + publish/unpublish, content-type CRUD, and workflow
+  actions (list/get/create/update/delete/activate/deactivate).
 - **Content** — AI content generation / editing / translation.
 - **Schema** — AI content-type / schema generation.
 - **Media** — AI media metadata.

@@ -755,25 +755,44 @@ pub fn AiAssistant() -> Element {
         .unwrap_or(0);
     let confirm_text = format!("The assistant wants to run {pending_count} action(s) that modify content.");
 
-    let convo_buttons: Vec<Element> = conversations()
+    // Chat history rendered as a table (click a row to open, delete per row).
+    let convo_rows: Vec<Element> = conversations()
         .iter()
         .map(|c| {
             let id = c["id"].as_i64().unwrap_or(0);
             let name = c["title"].as_str().unwrap_or("Untitled").to_string();
+            let updated = c["updatedAt"].as_str().unwrap_or("").to_string();
             let active = selected() == Some(id);
-            let style = if active {
-                format!("padding:10px 12px; border-radius:6px; background:{primary100}; color:{primary800}; cursor:pointer; font-size:13px;", primary100 = color::PRIMARY_100, primary800 = color::PRIMARY_800)
+            let row_style = if active {
+                format!("cursor:pointer; background:{};", color::PRIMARY_100)
             } else {
-                format!("padding:10px 12px; border-radius:6px; cursor:pointer; font-size:13px; color:{neutral800};", neutral800 = color::NEUTRAL_800)
+                "cursor:pointer;".to_string()
             };
             rsx! {
-                div { key: "{id}", style: "{style}", onclick: move |_| { selected.set(Some(id)); save_last_conversation(Some(id)); },
-                    span { "{name}" }
-                    Button { label: "×".to_string(), variant: "danger".to_string(), size: "sm".to_string(), on_click: move |_| delete_req.set(Some(id)) }
+                tr { "class": "table-row", style: "{row_style}",
+                    onclick: move |_| { selected.set(Some(id)); save_last_conversation(Some(id)); },
+                    td { "class": "table-td", "{name}" }
+                    td { "class": "table-td", "{updated}" }
+                    td { "class": "table-td",
+                        Button { label: "Delete".to_string(), variant: "danger".to_string(), size: "sm".to_string(), on_click: move |_| delete_req.set(Some(id)) }
+                    }
                 }
             }
         })
         .collect();
+
+    let convo_table: Element = rsx! {
+        table { "class": "table",
+            thead {
+                tr {
+                    th { "class": "table-th", "Title" }
+                    th { "class": "table-th", "Updated" }
+                    th { "class": "table-th", "" }
+                }
+            }
+            tbody { {convo_rows.into_iter()} }
+        }
+    };
 
     let bubbles: Vec<Element> = messages()
         .iter()
@@ -820,7 +839,7 @@ pub fn AiAssistant() -> Element {
                         span { "Private mode (don't send history to the model)" }
                     }
                     Button { label: "+ New conversation".to_string(), disabled: model().is_empty(), on_click: move |_| create_req.set(true) }
-                    div { style: "display:flex; flex-direction:column; gap:6px;", {convo_buttons.into_iter()} }
+                    div { style: "display:flex; flex-direction:column; gap:6px;", {convo_table} }
                 }
                 // Right: chat thread
                 div { style: "flex:1; display:flex; flex-direction:column; gap:16px;",
