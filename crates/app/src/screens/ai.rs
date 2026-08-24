@@ -610,14 +610,29 @@ pub fn AiAssistant() -> Element {
             let sel = selected();
             let client = client.clone();
             let mut msgs = messages;
+            let mut pend = pending;
             if let Some(id) = sel {
                 spawn(async move {
                     if let Ok(v) = client.ai_messages(id).await {
-                        msgs.set(v["data"].as_array().cloned().unwrap_or_default());
+                        let arr = v["data"].as_array().cloned().unwrap_or_default();
+                        msgs.set(arr.clone());
+                        // If the last message is an assistant tool-call turn that
+                        // has not been confirmed, restore the pending-confirmation
+                        // UI (so the Confirm card reappears after a reload).
+                        match arr.last() {
+                            Some(last)
+                                if last["role"].as_str() == Some("assistant")
+                                    && last["toolCalls"].as_array().map(|a| !a.is_empty()).unwrap_or(false) =>
+                            {
+                                pend.set(Some(serde_json::json!({ "calls": last["toolCalls"].clone() })));
+                            }
+                            _ => pend.set(None),
+                        }
                     }
                 });
             } else {
                 msgs.set(vec![]);
+                pend.set(None);
             }
         }
     });
