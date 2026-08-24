@@ -180,7 +180,7 @@ pub fn ContentTypeBuilder() -> Element {
                     let new_uid = schema.uid.as_str().to_string();
                     spawn(async move {
                         w.write().push(schema);
-                        match client.ctb_apply(w()).await {
+                        match client.ctb_apply(w(), Vec::new()).await {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
@@ -204,7 +204,7 @@ pub fn ContentTypeBuilder() -> Element {
                         if let Some(ns) = copy {
                             w.write().push(ns);
                         }
-                        match client.ctb_apply(w()).await {
+                        match client.ctb_apply(w(), Vec::new()).await {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
@@ -224,7 +224,7 @@ pub fn ContentTypeBuilder() -> Element {
                     let mut del = to_delete;
                     spawn(async move {
                         w.write().retain(|s| s.uid.as_str() != uid);
-                        match client.ctb_apply(w()).await {
+                        match client.ctb_apply(w(), vec![uid.to_string()]).await {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
@@ -559,7 +559,7 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                             saving.set(true);
                             spawn(async move {
                                 let mut toast = toast;
-                                match g.client.ctb_apply(schemas).await {
+                                match g.client.ctb_apply(schemas, Vec::new()).await {
                                     Ok(_) => { is_dirty.set(false); status.set(Some("Saved".to_string())); toast.toast("Schema saved".to_string(), "success"); }
                                     Err(e) => { status.set(Some(format!("Error: {e}"))); toast.toast(format!("Save failed: {e}"), "danger"); }
                                 }

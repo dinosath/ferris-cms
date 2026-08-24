@@ -71,7 +71,7 @@ pub async fn apply_generated_schema(
         )));
     }
     all.push(schema);
-    let applied = crate::content_type_builder::ctb_apply(ctx, all).await?;
+    let applied = crate::content_type_builder::ctb_apply(ctx, all, Vec::new()).await?;
     let added = applied
         .iter()
         .find(|s| s.uid.as_str() == new_uid)

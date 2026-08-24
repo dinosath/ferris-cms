@@ -6,7 +6,7 @@
 //! Everything runs inside one transaction.
 
 use crate::{schema_cache::SchemaCache, AppContext, ServiceError, ValidationErrorItem};
-use core_domain::ContentTypeKind;
+use core_domain::{ContentTypeKind, Uid};
 use core_schema::{diff, diff_removed, validate_schemas, Schema, SchemaDiff};
 use db::entities::content_type_schema;
 use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
@@ -26,9 +26,15 @@ pub async fn ctb_get(ctx: &AppContext, uid: &str) -> Result<Schema, ServiceError
 }
 
 /// Batch-apply the desired schema set.
+///
+/// `desired` contains the schemas to **create or update** (upsert only — the
+/// batch is never treated as a full replacement). Schemas are only removed when
+/// their uid is explicitly listed in `removed`, so a partial batch can never
+/// accidentally delete content types that are simply absent from the request.
 pub async fn ctb_apply(
     ctx: &AppContext,
     desired: Vec<Schema>,
+    removed: Vec<Uid>,
 ) -> Result<Vec<Schema>, ServiceError> {
     // 1. Validate
     let validation_errors = validate_schemas(&desired);
@@ -55,8 +61,13 @@ pub async fn ctb_apply(
         let cur = current.iter().find(|s| s.uid == schema.uid);
         diffs.push(diff(cur, schema));
     }
+
+    // Only remove schemas whose uid is explicitly requested for removal AND is
+    // not also present in the desired batch (a uid can't be updated and removed
+    // in the same apply). Absence from the batch implies nothing.
+    let removed_uids: HashSet<&Uid> = removed.iter().collect();
     for schema in &current {
-        if !desired_uids.contains(&schema.uid) {
+        if removed_uids.contains(&schema.uid) && !desired_uids.contains(&schema.uid) {
             diffs.push(diff_removed(schema));
         }
     }

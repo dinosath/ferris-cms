@@ -371,7 +371,8 @@ async fn ctb_apply_handler(
     admin: auth::AdminCtx,
     Json(req): Json<api_types::admin::CtbApplyRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let schemas = ctb_apply(&admin.0, req.schemas).await?;
+    let removed = req.removed.iter().map(|s| core_domain::Uid::new(s)).collect();
+    let schemas = ctb_apply(&admin.0, req.schemas, removed).await?;
     Ok(Json(api_types::admin::CtbApplyResponse {
         data: api_types::admin::CtbApplyData {
             schemas,

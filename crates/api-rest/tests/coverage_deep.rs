@@ -291,7 +291,8 @@ async fn content_type_removal_single_and_component() {
     });
     apply_schema(&router, &token, serde_json::json!([temp])).await;
 
-    // Now apply a single type + component, dropping `temp`.
+    // Now apply a single type + component, explicitly removing `temp` via the
+    // `removed` list. Absence from the batch alone would no longer delete it.
     let single = serde_json::json!({
         "uid": "api::settings.settings",
         "kind": "singleType",
@@ -306,7 +307,23 @@ async fn content_type_removal_single_and_component() {
         "options": {"draftAndPublish": false},
         "attributes": {"metaTitle": {"type": "string"}}
     });
-    apply_schema(&router, &token, serde_json::json!([single, component])).await;
+    let resp = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({"schemas":[single, component], "removed":["api::temp.temp"]}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "apply with explicit removal");
+    let body = body_json(resp).await;
+    assert_eq!(
+        body["error"]["message"],
+        serde_json::Value::Null,
+        "apply failed: {body}"
+    );
 
     // temp should be gone (404 on get).
     let gone = router
@@ -358,6 +375,95 @@ async fn content_type_removal_single_and_component() {
         StatusCode::CONFLICT,
         "single type public list -> 409"
     );
+}
+
+/// Applying a partial batch (without an explicit `removed` list) must NOT
+/// delete content types that are simply absent from the request. This guards
+/// against the accidental mass-removal footgun.
+#[tokio::test]
+async fn partial_batch_does_not_remove_unlisted_content_types() {
+    let (router, _state) = setup().await;
+    let token = register_admin(&router).await;
+
+    let make = |uid: &str, name: &str| serde_json::json!({
+        "uid": uid,
+        "kind": "collectionType",
+        "info": {"singularName": name, "pluralName": &format!("{name}s"), "displayName": name},
+        "options": {"draftAndPublish": true},
+        "attributes": {"name": {"type": "string"}}
+    });
+    let alpha = "api::alpha.alpha";
+    let beta = "api::beta.beta";
+
+    // Create two content types.
+    apply_schema(&router, &token, serde_json::json!([make(alpha, "alpha"), make(beta, "beta")])).await;
+
+    // Apply a partial batch containing ONLY `alpha`, with no `removed` list.
+    // Under the old semantics this would have soft-deleted `beta`.
+    let resp = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({"schemas":[make(alpha, "alpha")]}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "partial apply succeeds");
+
+    // Both content types must still exist.
+    for (uid, label) in [(alpha, "alpha"), (beta, "beta")] {
+        let get = router
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                &format!("/content-type-builder/content-types/{uid}"),
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            get.status(),
+            StatusCode::OK,
+            "{label} should still exist after a partial batch"
+        );
+    }
+
+    // Explicitly removing `beta` now deletes it.
+    let resp = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({"schemas":[make(alpha, "alpha")], "removed":[beta]}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "explicit removal succeeds");
+
+    let gone = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/content-type-builder/content-types/{beta}"),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(gone.status(), StatusCode::NOT_FOUND, "beta should be removed");
+    // alpha survives the explicit removal of beta.
+    let alpha_get = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            &format!("/content-type-builder/content-types/{alpha}"),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(alpha_get.status(), StatusCode::OK, "alpha should survive");
 }
 
 #[tokio::test]

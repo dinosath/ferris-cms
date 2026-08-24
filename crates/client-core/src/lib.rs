@@ -343,8 +343,9 @@ impl Client {
     pub async fn ctb_apply(
         &self,
         schemas: Vec<core_schema::Schema>,
+        removed: Vec<String>,
     ) -> Result<api_types::admin::CtbApplyResponse, ClientError> {
-        let req = api_types::admin::CtbApplyRequest { schemas };
+        let req = api_types::admin::CtbApplyRequest { schemas, removed };
         let v = self
             .transport
             .post_json("/content-type-builder/schema", &serde_json::to_value(req)?)

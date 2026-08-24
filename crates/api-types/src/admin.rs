@@ -117,10 +117,19 @@ pub struct CreateApiTokenRequest {
 // Content-Type Builder (Part V §5)
 // ---------------------------------------------------------------------------
 
-/// `POST /content-type-builder/schema` body: the full desired schema set.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// `POST /content-type-builder/schema` body.
+///
+/// `schemas` are the content types to create or update (upsert only — the batch
+/// is never treated as a full replacement). Content types are removed only when
+/// their uid is listed in `removed`, never by absence from `schemas`. This
+/// prevents a partial batch from accidentally deleting content types.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CtbApplyRequest {
     pub schemas: Vec<core_schema::Schema>,
+    /// Uids of content types to soft-delete (defaults to none).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed: Vec<String>,
 }
 
 /// Result of a batch apply.
