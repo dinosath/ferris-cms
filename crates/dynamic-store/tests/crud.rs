@@ -28,6 +28,7 @@ fn schema(uid: &str, singular: &str, plural: &str, attrs: Vec<(&str, Attribute)>
             .into_iter()
             .map(|(n, a)| (n.to_string(), a))
             .collect::<IndexMap<_, _>>(),
+    metadata: None,
     }
 }
 

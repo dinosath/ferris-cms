@@ -1072,6 +1072,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: Default::default(),
+        metadata: None,
         };
         for f in fields {
             s.attributes

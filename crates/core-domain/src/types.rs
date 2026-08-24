@@ -1,8 +1,33 @@
 //! Core value types (design Part I §2, Part XII glossary).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
+
+/// Kubernetes-style object metadata: a namespace for grouping, an arbitrary
+/// set of key/value labels (used for grouping/selection across content types
+/// and workflows), and non-identifying annotations. Optional and additive.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    /// Optional grouping namespace (e.g. `marketing`, `products`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    /// Key/value labels used to group and select resources.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub labels: BTreeMap<String, String>,
+    /// Non-identifying key/value annotations.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub annotations: BTreeMap<String, String>,
+}
+
+impl Metadata {
+    /// Whether this metadata has any labels that could be used for grouping.
+    pub fn has_labels(&self) -> bool {
+        !self.labels.is_empty()
+    }
+}
 
 /// Stable identifier for a content-type or component.
 /// `api::<singular>.<singular>` for content-types, `<category>.<name>` for components.

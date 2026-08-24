@@ -62,6 +62,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: Default::default(),
+        metadata: None,
         };
         for r in required {
             let mut a = Attribute::new(FieldType::String);

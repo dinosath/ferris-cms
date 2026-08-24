@@ -321,6 +321,7 @@ mod tests {
                 .iter()
                 .map(|(n, a)| (n.to_string(), a.clone()))
                 .collect::<IndexMap<_, _>>(),
+        metadata: None,
         }
     }
 

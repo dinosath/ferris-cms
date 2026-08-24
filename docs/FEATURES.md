@@ -50,6 +50,10 @@ conditional visibility (`visibleWhen`).
   one-to-many inverse FK columns) in two phases.
 - **Removal** — soft-deletes a schema (sets `deleted_at`, negates `version`) and
   drops its tables.
+- **Kubernetes-style metadata** — every content type (and workflow) carries an
+  optional `metadata` block with a `namespace`, key/value `labels`, and
+  `annotations`. Labels are edited in the builder and shown as badges, enabling
+  grouping content types and workflows together.
 - **Reserved names** — an endpoint exposes reserved API ids / attribute names.
 
 ## Content Manager

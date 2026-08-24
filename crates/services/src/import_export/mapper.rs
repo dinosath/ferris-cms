@@ -167,6 +167,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: Default::default(),
+        metadata: None,
         };
         for (n, t) in fields {
             s.attributes.insert((*n).to_string(), Attribute::new(*t));

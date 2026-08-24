@@ -206,6 +206,7 @@ pub async fn workflow_create(
             settings: Default::default(),
             variables: Default::default(),
             tags: vec![],
+            metadata: None,
             created_at: now,
             updated_at: now,
         });

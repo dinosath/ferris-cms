@@ -28,6 +28,9 @@ enum ModalKind {
         ct_uid: String,
         field_type: FieldType,
     },
+    Metadata {
+        ct_uid: String,
+    },
 }
 
 /// The official Strapi field picker set, in the exact order Strapi shows them.
@@ -265,6 +268,12 @@ pub fn ContentTypeBuilder() -> Element {
         let uid = s.uid.as_str().to_string();
         let kind = s.kind;
         let field_count = s.attributes.len();
+        let labels: Vec<String> = s
+            .metadata
+            .as_ref()
+            .map(|m| m.labels.iter().map(|(k, v)| format!("{k}={v}")).collect())
+            .unwrap_or_default();
+        let namespace = s.metadata.as_ref().and_then(|m| m.namespace.clone());
         let mut open_tr = route;
         let mut open_name = route;
         let mut open_edit = route;
@@ -289,7 +298,14 @@ pub fn ContentTypeBuilder() -> Element {
                 }
                 td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{uid}" }
                 td { style: "padding:12px 16px; font-size:14px; color:{color::NEUTRAL_700};", "{field_count}" }
-                td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_500};", "—" }
+                td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_500};",
+                    if let Some(ns) = &namespace {
+                        span { style: "font-size:12px; font-weight:600; color:{color::PRIMARY_600}; margin-right:6px;", "{ns}/" }
+                    }
+                    for lb in labels.iter() {
+                        Badge { text: lb.clone(), kind: "neutral".to_string() }
+                    }
+                }
                 td { style: "padding:12px 16px;",
                     div { style: "display:flex; gap:4px;",
                         IconButton { name: "pencil".to_string(), aria_label: "Edit".to_string(),
@@ -550,6 +566,7 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                     if let Some(status) = status() {
                         span { style: "font-size:{typography::PI_SIZE}; color:{color::SUCCESS_600};", "{status}" }
                     }
+                    Button { label: "Metadata".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| modal.set(ModalKind::Metadata { ct_uid: selected_uid_str.clone() }) }
                     Button {
                         label: "Save".to_string(), variant: "success".to_string(), disabled: !is_dirty(), loading: saving(),
                         on_click: move |_| {
@@ -653,6 +670,87 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                     is_dirty.set(true);
                     modal.set(ModalKind::None);
                 },
+            }
+        }
+        if let ModalKind::Metadata { ct_uid } = modal() {
+            {
+                let initial = selected.as_ref().and_then(|s| s.metadata.clone()).unwrap_or_default();
+                rsx! {
+                    MetadataEditorModal {
+                        initial,
+                        on_close: move |_| modal.set(ModalKind::None),
+                        on_save: move |md: core_domain::Metadata| {
+                            let uid = ct_uid.clone();
+                            if let Some(schema) = working.write().iter_mut().find(|s| s.uid.as_str() == uid) {
+                                schema.metadata = Some(md);
+                            }
+                            is_dirty.set(true);
+                            modal.set(ModalKind::None);
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Kubernetes-style metadata editor (namespace + labels + annotations).
+#[component]
+fn MetadataEditorModal(
+    initial: core_domain::Metadata,
+    on_close: EventHandler<MouseEvent>,
+    on_save: EventHandler<core_domain::Metadata>,
+) -> Element {
+    let mut namespace = use_signal(|| initial.namespace.clone().unwrap_or_default());
+    let mut labels: Signal<Vec<(String, String)>> =
+        use_signal(|| initial.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+    let mut annotations: Signal<Vec<(String, String)>> =
+        use_signal(|| initial.annotations.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+
+    let row_style = |_| format!("display:flex; gap:8px; margin-top:6px; align-items:center;");
+    let input_style = format!("flex:1; padding:8px; border:1px solid {}; border-radius:6px; font-size:13px;", color::NEUTRAL_200);
+
+    rsx! {
+        Modal { title: "Content type metadata".to_string(), width: 600, on_close: move |e| on_close.call(e),
+            div { style: "display:flex; flex-direction:column; gap:18px;",
+                TextField { value: namespace(), label: "Namespace".to_string(), placeholder: "e.g. marketing (used for grouping)".to_string(), oninput: move |v| namespace.set(v) }
+
+                div {
+                    span { style: "font-size:13px; font-weight:600; color:{color::NEUTRAL_700};", "Labels (group content types + workflows)" }
+                    for (i, (k, v)) in labels().into_iter().enumerate() {
+                        div { key: "lbl-{i}", style: "{row_style(())}",
+                            input { value: k, placeholder: "key".to_string(), style: "{input_style}", oninput: move |e| { let mut l = labels(); if i < l.len() { l[i].0 = e.value(); } labels.set(l); } }
+                            input { value: v, placeholder: "value".to_string(), style: "{input_style}", oninput: move |e| { let mut l = labels(); if i < l.len() { l[i].1 = e.value(); } labels.set(l); } }
+                            Button { label: "×".to_string(), variant: "danger".to_string(), size: "sm".to_string(), on_click: move |_| { let mut l = labels(); if i < l.len() { l.remove(i); } labels.set(l); } }
+                        }
+                    }
+                    Button { label: "+ Add label".to_string(), size: "sm".to_string(), on_click: move |_| { let mut l = labels(); l.push((String::new(), String::new())); labels.set(l); } }
+                }
+
+                div {
+                    span { style: "font-size:13px; font-weight:600; color:{color::NEUTRAL_700};", "Annotations" }
+                    for (i, (k, v)) in annotations().into_iter().enumerate() {
+                        div { key: "ann-{i}", style: "{row_style(())}",
+                            input { value: k, placeholder: "key".to_string(), style: "{input_style}", oninput: move |e| { let mut a = annotations(); if i < a.len() { a[i].0 = e.value(); } annotations.set(a); } }
+                            input { value: v, placeholder: "value".to_string(), style: "{input_style}", oninput: move |e| { let mut a = annotations(); if i < a.len() { a[i].1 = e.value(); } annotations.set(a); } }
+                            Button { label: "×".to_string(), variant: "danger".to_string(), size: "sm".to_string(), on_click: move |_| { let mut a = annotations(); if i < a.len() { a.remove(i); } annotations.set(a); } }
+                        }
+                    }
+                    Button { label: "+ Add annotation".to_string(), size: "sm".to_string(), on_click: move |_| { let mut a = annotations(); a.push((String::new(), String::new())); annotations.set(a); } }
+                }
+            }
+            div { style: "display:flex; justify-content:flex-end; gap:12px; margin-top:20px;",
+                Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |e| on_close.call(e) }
+                Button { label: "Save metadata".to_string(), on_click: move |_| {
+                    let mut md = core_domain::Metadata::default();
+                    let ns = namespace();
+                    if !ns.trim().is_empty() {
+                        md.namespace = Some(ns.trim().to_string());
+                    }
+                    md.labels = labels().into_iter().filter(|(k, _)| !k.trim().is_empty()).map(|(k, v)| (k.trim().to_string(), v)).collect();
+                    md.annotations = annotations().into_iter().filter(|(k, _)| !k.trim().is_empty()).map(|(k, v)| (k.trim().to_string(), v)).collect();
+                    on_save.call(md);
+                } }
             }
         }
     }
@@ -759,6 +857,7 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
                 None
             },
             attributes: Default::default(),
+        metadata: None,
         }
     };
 

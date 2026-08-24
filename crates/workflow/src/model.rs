@@ -175,6 +175,9 @@ pub struct Workflow {
     pub variables: IndexMap<String, serde_json::Value>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// Kubernetes-style object metadata (namespace, labels, annotations).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<core_domain::Metadata>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }

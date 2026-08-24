@@ -782,6 +782,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: attrs,
+        metadata: None,
         }
     }
 

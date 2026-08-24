@@ -35,6 +35,9 @@ pub struct Schema {
     pub plugin_options: Option<SchemaPluginOptions>,
     #[serde(default)]
     pub attributes: IndexMap<String, Attribute>,
+    /// Kubernetes-style object metadata (namespace, labels, annotations).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<core_domain::Metadata>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
