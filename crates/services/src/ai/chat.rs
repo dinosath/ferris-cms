@@ -330,7 +330,7 @@ pub async fn send_message(
             messages: messages.clone(),
             system: conv.system_prompt.clone(),
             temperature: Some(0.6),
-            max_tokens: Some(1200),
+            max_tokens: Some(4000),
             tools: Some(tools.clone()),
         };
         let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
@@ -339,6 +339,15 @@ pub async fn send_message(
 
         let calls = resp.tool_calls.clone().unwrap_or_default();
         if calls.is_empty() {
+            // A provider can return an empty completion (e.g. it burned its
+            // whole output budget on hidden reasoning). Don't store an empty
+            // assistant bubble — surface a clear message instead.
+            if resp.content.trim().is_empty() {
+                return Err(ServiceError::internal(
+                    "the AI provider returned an empty response (it may have hit its token limit). \
+                     Try rephrasing your request or using a model with a larger output window.",
+                ));
+            }
             insert_message(
                 ctx, conversation_id, "assistant", &resp.content, None, None, None,
                 Some(resp.usage.input_tokens as i64), Some(resp.usage.output_tokens as i64),
@@ -443,7 +452,7 @@ pub async fn confirm_tool_calls(
         messages,
         system: conv.system_prompt.clone(),
         temperature: Some(0.5),
-        max_tokens: Some(1000),
+        max_tokens: Some(4000),
         tools: None,
     };
     let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
