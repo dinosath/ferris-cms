@@ -116,6 +116,7 @@ conditional visibility (`visibleWhen`).
 
 - **Providers** — OpenAI-compatible, Ollama, Anthropic, Gemini, all run
   through [Rig](https://rig.rs); provider/model CRUD with encrypted keys.
+  Adding a provider automatically creates a sensible default model for it.
 - **Chat** — assistant conversations + messages + tool-calling loop.
 - **Tools** — an RBAC-aware tool registry (the model is never the security
   boundary; it only requests tools that the CMS authorizes and executes).

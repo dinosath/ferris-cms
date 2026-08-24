@@ -5,7 +5,8 @@ use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
 use crate::components::{
-    Badge, Button, Card, ConfirmDialog, Dropdown, EmptyState, Spinner, Table, TextArea, TextField,
+    Badge, Button, Card, ConfirmDialog, Dropdown, EmptyState, Modal, Spinner, Table, TextArea,
+    TextField,
 };
 
 /// Kinds offered when creating a provider.
@@ -78,6 +79,7 @@ pub fn AiSettings() -> Element {
                 let client = client.clone();
                 let mut g = g.clone();
                 let mut ps = providers;
+                let mut ms = models;
                 let mut ld = loading;
                 spawn(async move {
                     let body = api_types::AiProviderCreate {
@@ -93,6 +95,11 @@ pub fn AiSettings() -> Element {
                         Ok(_) => {
                             if let Ok(v) = client.ai_providers().await {
                                 ps.set(v["data"].as_array().cloned().unwrap_or_default());
+                            }
+                            // A default model is created automatically with the
+                            // provider, so refresh the models table too.
+                            if let Ok(v) = client.ai_models(None).await {
+                                ms.set(v["data"].as_array().cloned().unwrap_or_default());
                             }
                             g.toast("AI provider saved", "success");
                         }
@@ -270,7 +277,14 @@ pub fn AiSettings() -> Element {
             // Providers
             Card { header: "AI providers".to_string(),
                 div { style: "display:flex; justify-content:flex-end; margin-bottom:12px;",
-                    Button { label: "+ New provider".to_string(), on_click: move |_| show_provider.set(true) }
+                    Button { label: "+ New provider".to_string(), on_click: move |_| {
+                        provider_name.set(String::new());
+                        provider_kind.set("openai".to_string());
+                        base_url.set(String::new());
+                        api_key.set(String::new());
+                        provider_enabled.set(true);
+                        show_provider.set(true);
+                    } }
                 }
                 if loading() {
                     Spinner {}
@@ -330,7 +344,7 @@ pub fn AiSettings() -> Element {
             }
 
             if show_provider() {
-                Card { header: "New provider".to_string(),
+                Modal { title: "New provider".to_string(), width: 560, on_close: move |_| show_provider.set(false),
                     div { style: "display:grid; grid-template-columns:1fr 1fr; gap:16px;",
                         TextField { value: provider_name(), label: "Name".to_string(), placeholder: "OpenAI".to_string(), oninput: move |v| provider_name.set(v) }
                         Dropdown {
@@ -342,7 +356,7 @@ pub fn AiSettings() -> Element {
                         TextField { value: base_url(), label: "Base URL".to_string(), placeholder: "https://api.openai.com/v1".to_string(), oninput: move |v| base_url.set(v) }
                         TextField { value: api_key(), label: "API key".to_string(), placeholder: "sk-...".to_string(), oninput: move |v| api_key.set(v) }
                     }
-                    div { style: "display:flex; justify-content:flex-end; gap:12px; margin-top:16px;",
+                    div { style: "display:flex; justify-content:flex-end; gap:12px; margin-top:20px;",
                         Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_provider.set(false) }
                         Button { label: "Save".to_string(), on_click: move |_| {
                             provider_req.set(Some((provider_name(), provider_kind(), base_url(), api_key(), provider_enabled())));

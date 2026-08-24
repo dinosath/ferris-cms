@@ -50,24 +50,8 @@ async fn ai_provider_and_model_crud() -> anyhow::Result<()> {
     // The API must never return the key.
     assert!(provider["data"].get("apiKey").is_none(), "no api key leaked");
 
-    // Create a model.
-    let model = client
-        .post(format!("{base}/admin/ai/models"))
-        .bearer_auth(&token)
-        .json(&json!({
-            "providerId": provider_id,
-            "name": "llama3",
-            "supportsChat": true,
-            "supportsTools": true,
-            "enabled": true
-        }))
-        .send()
-        .await?;
-    assert_eq!(model.status().as_u16(), 200, "create model");
-    let model: Value = model.json().await?;
-    let model_id = model["data"]["id"].as_i64().expect("model id");
-
-    // List providers + models.
+    // List providers + models. Creating the provider auto-created a default
+    // model, so there is exactly one provider and one (default) model.
     let providers = client
         .get(format!("{base}/admin/ai/providers"))
         .bearer_auth(&token)
@@ -84,6 +68,43 @@ async fn ai_provider_and_model_crud() -> anyhow::Result<()> {
         .json::<Value>()
         .await?;
     assert_eq!(models["data"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        models["data"][0]["name"].as_str(),
+        Some("llama3.2"),
+        "provider auto-creates a default Ollama model"
+    );
+    assert_eq!(
+        models["data"][0]["providerId"].as_i64(),
+        Some(provider_id),
+        "default model belongs to the new provider"
+    );
+
+    // Create an explicit model — now a second one.
+    let model = client
+        .post(format!("{base}/admin/ai/models"))
+        .bearer_auth(&token)
+        .json(&json!({
+            "providerId": provider_id,
+            "name": "llama3",
+            "supportsChat": true,
+            "supportsTools": true,
+            "enabled": true
+        }))
+        .send()
+        .await?;
+    assert_eq!(model.status().as_u16(), 200, "create model");
+    let model: Value = model.json().await?;
+    let model_id = model["data"]["id"].as_i64().expect("model id");
+
+    // The explicit model is now a second one.
+    let models = client
+        .get(format!("{base}/admin/ai/models"))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json::<Value>()
+        .await?;
+    assert_eq!(models["data"].as_array().unwrap().len(), 2);
 
     // Tool registry exposes definitions + confirmation requirements.
     let tools = client

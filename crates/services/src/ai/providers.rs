@@ -68,7 +68,38 @@ pub async fn create_provider(
     }
     .insert(&ctx.db)
     .await?;
+
+    // Auto-create a sensible default model so the new provider is immediately
+    // usable (and appears in the assistant model picker) without a separate
+    // model-creation step.
+    let provider_id = row.id;
+    let (model_name, supports_tools) = default_model_for(&row.kind);
+    let _ = create_model(
+        ctx,
+        provider_id,
+        model_name.clone(),
+        Some(model_name),
+        Some("Default model for this provider".to_string()),
+        true,
+        supports_tools,
+        false,
+        None,
+        None,
+        true,
+    )
+    .await;
+
     Ok(provider_dto(row))
+}
+
+/// A sensible default model name + tool support for a freshly created provider.
+fn default_model_for(kind: &str) -> (String, bool) {
+    match kind {
+        "ollama" => ("llama3.2".to_string(), true),
+        "anthropic" => ("claude-3-5-sonnet-latest".to_string(), true),
+        "gemini" => ("gemini-2.0-flash".to_string(), true),
+        _ => ("gpt-4o-mini".to_string(), true),
+    }
 }
 
 /// Update a provider. `api_key` is optional: when supplied it replaces the
