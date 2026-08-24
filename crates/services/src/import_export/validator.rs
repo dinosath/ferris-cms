@@ -1,8 +1,12 @@
 //! Record validation against a target content type schema (required fields,
-//! field types, enum values). Unique / relation / media constraints are handled
-//! at import time.
+//! field types, min/max, length, patterns, enum values). Unique / relation /
+//! media constraints are handled at import time.
+//!
+//! Validation runs against the shared `core-schema::validate_payload` so the
+//! import pipeline applies exactly the same constraints (required, min, max,
+//! minLength/maxLength, regex, enum) as the content CRUD and store layers,
+//! before any record is written.
 
-use core_domain::FieldType;
 use core_schema::Schema;
 use serde_json::Value as JsonValue;
 
@@ -20,96 +24,27 @@ pub fn validate_record(
     schema: &Schema,
     obj: &serde_json::Map<String, JsonValue>,
 ) -> Vec<ValidationIssue> {
-    let mut issues = Vec::new();
-
-    for (name, attr) in &schema.attributes {
-        let value = obj.get(name);
-        let missing = value
-            .map(|v| v.is_null() || (v.as_str().map(|s| s.is_empty()).unwrap_or(false)))
-            .unwrap_or(true);
-
-        if attr.required && missing {
-            issues.push(ValidationIssue {
-                field: Some(name.clone()),
-                message: format!("required field '{name}' is missing"),
-                suggested_fix: Some("provide a value or map a source field to it".into()),
-            });
-            continue;
-        }
-        if missing {
-            continue;
-        }
-        let v = value.unwrap();
-        if let Some(msg) = type_issue(attr.attr_type, name, v) {
-            issues.push(msg);
-        }
-    }
-
-    // Enum values must be one of the allowed options.
-    for (name, attr) in &schema.attributes {
-        if attr.attr_type == FieldType::Enumeration && !attr.enum_values.is_empty() {
-            if let Some(v) = obj.get(name) {
-                if let Some(s) = v.as_str() {
-                    if !attr.enum_values.iter().any(|e| e == s) {
-                        issues.push(ValidationIssue {
-                            field: Some(name.clone()),
-                            message: format!(
-                                "'{s}' is not an allowed enum value for '{name}' (allowed: {})",
-                                attr.enum_values.join(", ")
-                            ),
-                            suggested_fix: Some("use one of the allowed enum values".into()),
-                        });
-                    }
-                }
+    core_schema::validate_payload(schema, obj, true)
+        .into_iter()
+        .map(|e| {
+            let code = e.code;
+            let field = e.field;
+            ValidationIssue {
+                field: Some(field.clone()),
+                message: e.message,
+                suggested_fix: Some(format!(
+                    "fix field '{}' ({}) and retry the import",
+                    field, code
+                )),
             }
-        }
-    }
-
-    issues
-}
-
-fn type_issue(ft: FieldType, name: &str, v: &JsonValue) -> Option<ValidationIssue> {
-    match ft {
-        FieldType::Integer | FieldType::Biginteger | FieldType::Decimal | FieldType::Float => {
-            let ok = v.is_number()
-                || v.as_str()
-                    .map(|s| s.trim().parse::<f64>().is_ok())
-                    .unwrap_or(false);
-            if !ok {
-                return Some(ValidationIssue {
-                    field: Some(name.to_string()),
-                    message: format!("field '{name}' expects a number, got {}", v),
-                    suggested_fix: Some("apply the Number transformation".into()),
-                });
-            }
-        }
-        FieldType::Boolean => {
-            let ok = v.is_boolean()
-                || v.as_str()
-                    .map(|s| {
-                        matches!(
-                            s.trim().to_lowercase().as_str(),
-                            "true" | "false" | "1" | "0" | "yes" | "no"
-                        )
-                    })
-                    .unwrap_or(false);
-            if !ok {
-                return Some(ValidationIssue {
-                    field: Some(name.to_string()),
-                    message: format!("field '{name}' expects a boolean, got {}", v),
-                    suggested_fix: Some("apply the Boolean transformation".into()),
-                });
-            }
-        }
-        _ => {}
-    }
-    None
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_domain::{ContentTypeKind, Uid};
+    use core_domain::{ContentTypeKind, FieldType, Uid};
     use core_schema::{Attribute, SchemaInfo};
 
     fn schema(required: &[&str], enum_field: Option<(&str, Vec<&str>)>) -> Schema {
@@ -164,5 +99,28 @@ mod tests {
         let obj = serde_json::json!({"status":"archived"});
         let issues = validate_record(&s, obj.as_object().unwrap());
         assert!(issues.iter().any(|i| i.field.as_deref() == Some("status")));
+    }
+
+    #[test]
+    fn flags_min_max_and_pattern() {
+        let mut qty = Attribute::new(FieldType::Integer);
+        qty.min = Some(serde_json::json!(1));
+        qty.max = Some(serde_json::json!(100));
+        let mut sku = Attribute::new(FieldType::String);
+        sku.regex = Some("^[A-Z]{2}[0-9]{3}$".into());
+        let mut s = schema(&[], None);
+        s.attributes.insert("qty".to_string(), qty);
+        s.attributes.insert("sku".to_string(), sku);
+
+        let ok = validate_record(&s, serde_json::json!({"qty": 50, "sku": "AB123"}).as_object().unwrap());
+        assert!(ok.is_empty(), "valid record should pass, got {ok:?}");
+
+        let low = validate_record(&s, serde_json::json!({"qty": 0, "sku": "AB123"}).as_object().unwrap());
+        assert!(low.iter().any(|i| i.field.as_deref() == Some("qty")));
+        assert!(low.iter().any(|i| i.message.contains(">=")));
+
+        let bad = validate_record(&s, serde_json::json!({"qty": 50, "sku": "nope"}).as_object().unwrap());
+        assert!(bad.iter().any(|i| i.field.as_deref() == Some("sku")));
+        assert!(bad.iter().any(|i| i.message.contains("pattern")));
     }
 }

@@ -8,6 +8,8 @@ pub enum StoreError {
     Db(#[from] DbErr),
     #[error("invalid value for {field}: {reason}")]
     BadValue { field: String, reason: String },
+    #[error("validation error")]
+    Validation(Vec<core_schema::PayloadError>),
     #[error("unsupported operation: {0}")]
     Unsupported(String),
     #[error("not found: {0}")]

@@ -4,7 +4,7 @@
 //! All data access goes through `dynamic-store` (SeaQuery) because tables
 //! are runtime-defined.
 
-use crate::{AppContext, ServiceError};
+use crate::{AppContext, ServiceError, ValidationErrorItem};
 use api_types::{EntryResponse, ListResponse, Pagination, QueryParams};
 use core_domain::{ContentTypeKind, Uid};
 use core_schema::Schema;
@@ -95,6 +95,10 @@ pub async fn cm_create(
     let schema = load_schema(ctx, uid)?;
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
 
+    // Validate the payload against the schema's required / min / max / pattern
+    // constraints before it is handled.
+    validate_payload_or_err(&schema, data, true)?;
+
     crate::rbac::enforce_action(
         &ctx.db,
         ctx.current_user.as_ref(),
@@ -127,6 +131,10 @@ pub async fn cm_update(
 ) -> Result<EntryResponse<JsonValue>, ServiceError> {
     let schema = load_schema(ctx, uid)?;
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
+
+    // Validate the provided fields' value constraints (required is not enforced
+    // on partial updates) before the payload is handled.
+    validate_payload_or_err(&schema, data, false)?;
 
     crate::rbac::enforce_action(
         &ctx.db,
@@ -377,4 +385,25 @@ fn ensure_collection(schema: &Schema) -> Result<(), ServiceError> {
         ));
     }
     Ok(())
+}
+
+/// Validate a JSON payload against a schema's field constraints before it is
+/// handled, mapping any failure to a `ServiceError::Validation`.
+fn validate_payload_or_err(
+    schema: &Schema,
+    data: &JsonValue,
+    enforce_required: bool,
+) -> Result<(), ServiceError> {
+    let obj = data
+        .as_object()
+        .ok_or_else(|| ServiceError::bad_payload("payload must be a JSON object"))?;
+    let errors = core_schema::validate_payload(schema, obj, enforce_required);
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let items = errors
+        .into_iter()
+        .map(|e| ValidationErrorItem::new(vec![e.field], e.message, e.code))
+        .collect();
+    Err(ServiceError::validation("payload is invalid", items))
 }

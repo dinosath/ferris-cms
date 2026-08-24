@@ -3,8 +3,10 @@
 
 mod diff;
 mod model;
+mod payload;
 mod validation;
 
 pub use diff::*;
 pub use model::*;
+pub use payload::*;
 pub use validation::*;

@@ -629,6 +629,13 @@ pub async fn insert_one<C: ConnectionTrait>(
         .as_object()
         .ok_or_else(|| StoreError::bad_value("data", "expected JSON object"))?;
 
+    // Defense in depth: validate the payload against the schema's field
+    // constraints (required, min/max, length, patterns) before writing.
+    let payload_errors = core_schema::validate_payload(schema, obj, true);
+    if !payload_errors.is_empty() {
+        return Err(StoreError::Validation(payload_errors));
+    }
+
     let doc_id = obj
         .get("documentId")
         .and_then(|v| v.as_str())
@@ -699,6 +706,13 @@ pub async fn update_one<C: ConnectionTrait>(
     let obj = data
         .as_object()
         .ok_or_else(|| StoreError::bad_value("data", "expected JSON object"))?;
+
+    // Validate the provided field values' constraints (required is not enforced
+    // on partial updates) before writing.
+    let payload_errors = core_schema::validate_payload(schema, obj, false);
+    if !payload_errors.is_empty() {
+        return Err(StoreError::Validation(payload_errors));
+    }
 
     let now = chrono::Utc::now().to_rfc3339();
     let mut values = vec![("updated_at".to_string(), Value::String(Some(now)))];

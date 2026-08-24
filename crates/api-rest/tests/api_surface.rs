@@ -441,10 +441,8 @@ async fn validation_and_bad_requests() {
     let bad_json = body_json(bad_resp).await;
     assert_eq!(bad_json["error"]["name"], "ValidationError");
 
-    // Required field missing on create. The API layer does not yet perform
-    // entry-level required-field validation, so the DB NOT NULL constraint
-    // surfaces as a server error rather than a 400. Assert the request fails
-    // (never 200) to lock in current behavior without overfitting the code.
+    // Required field missing on create: the API layer validates the payload
+    // before it is handled, returning a 400 ValidationError.
     let missing = router
         .clone()
         .oneshot(json_request(
@@ -455,10 +453,19 @@ async fn validation_and_bad_requests() {
         ))
         .await
         .unwrap();
-    assert_ne!(
+    assert_eq!(
         missing.status(),
-        StatusCode::OK,
-        "missing required should not succeed"
+        StatusCode::BAD_REQUEST,
+        "missing required should return 400"
+    );
+    let missing_json = body_json(missing).await;
+    assert_eq!(missing_json["error"]["name"], "ValidationError");
+    let details = missing_json["error"]["details"]["errors"]
+        .as_array()
+        .unwrap();
+    assert!(
+        details.iter().any(|e| e["path"] == serde_json::json!(["title"])),
+        "missing required should target the title field, got {details:?}"
     );
 
     // Duplicate UID create -> 409 Conflict.
@@ -535,3 +542,159 @@ async fn spa_fallback_and_upload_errors() {
     let up_json = body_json(empty_upload).await;
     assert_eq!(up_json["error"]["name"], "ValidationError");
 }
+
+/// Create a content type with required/min/max/pattern constraints and verify
+/// the API validates payloads before they are handled.
+async fn create_product(router: &axum::Router, token: &str) -> String {
+    let ct = serde_json::json!({
+        "uid": "api::product.product",
+        "kind": "collectionType",
+        "info": {"singularName":"product","pluralName":"products","displayName":"Product"},
+        "options": {"draftAndPublish": true},
+        "attributes": {
+            "title": {"type": "string", "required": true},
+            "qty":   {"type": "integer", "required": true, "min": 1, "max": 100},
+            "sku":   {"type": "string", "regex": "^[A-Z]{2}[0-9]{3}$"},
+            "state": {"type": "enumeration", "enum": ["draft", "published"]}
+        }
+    });
+    let resp = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/schema",
+            serde_json::json!({"schemas":[ct]}),
+            Some(token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "create product content type");
+    "api::product.product".to_string()
+}
+
+#[tokio::test]
+async fn payload_constraints_are_enforced_before_handling() {
+    let (router, _state) = setup().await;
+    let token = register_admin(&router).await;
+    let uid = create_product(&router, &token).await;
+    let base = format!("/admin/content-manager/collection-types/{uid}");
+
+    async fn post(
+        router: &axum::Router,
+        uri: &str,
+        body: serde_json::Value,
+        token: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let resp = router
+            .clone()
+            .oneshot(json_request("POST", uri, body, Some(token)))
+            .await
+            .unwrap();
+        let status = resp.status();
+        let json = body_json(resp).await;
+        (status, json)
+    }
+
+    // Valid payload -> 200.
+    let (status, body) = post(
+        &router,
+        &base,
+        serde_json::json!({"data":{"title":"Ferris","qty":5,"sku":"AB123","state":"draft"}}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "valid payload accepted");
+    let doc_id = body["data"]["documentId"].as_str().unwrap().to_string();
+
+    // Out-of-range qty -> 400 min.
+    let (status, body) = post(
+        &router,
+        &base,
+        serde_json::json!({"data":{"title":"Ferris","qty":0,"sku":"AB123","state":"draft"}}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "below min rejected");
+    assert_eq!(body["error"]["name"], "ValidationError");
+    let details = body["error"]["details"]["errors"].as_array().unwrap();
+    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["qty"])));
+
+    // Above max -> 400 max.
+    let (status, body) = post(
+        &router,
+        &base,
+        serde_json::json!({"data":{"title":"Ferris","qty":101,"sku":"AB123","state":"draft"}}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "above max rejected");
+    let details = body["error"]["details"]["errors"].as_array().unwrap();
+    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["qty"])));
+
+    // Pattern violation -> 400 regex.
+    let (status, body) = post(
+        &router,
+        &base,
+        serde_json::json!({"data":{"title":"Ferris","qty":5,"sku":"nope","state":"draft"}}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "pattern violation rejected");
+    let details = body["error"]["details"]["errors"].as_array().unwrap();
+    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["sku"])));
+
+    // Bad enum -> 400 enum.
+    let (status, body) = post(
+        &router,
+        &base,
+        serde_json::json!({"data":{"title":"Ferris","qty":5,"sku":"AB123","state":"archived"}}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "bad enum rejected");
+    let details = body["error"]["details"]["errors"].as_array().unwrap();
+    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["state"])));
+
+    // No record was created by the rejected requests.
+    let list = router
+        .clone()
+        .oneshot(json_request("GET", &base, serde_json::json!({}), Some(&token)))
+        .await
+        .unwrap();
+    let list_json = body_json(list).await;
+    let data = list_json["data"].as_array().unwrap();
+    assert_eq!(
+        data.len(),
+        1,
+        "only the valid record should exist after rejected writes"
+    );
+
+    // Update: partial payload with a violating provided field -> 400, but a
+    // partial payload with valid provided fields succeeds.
+    let put = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("{base}/{doc_id}"),
+            serde_json::json!({"data":{"qty":200}}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::BAD_REQUEST, "update above max rejected");
+
+    let put_ok = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("{base}/{doc_id}"),
+            serde_json::json!({"data":{"qty":7}}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(put_ok.status(), StatusCode::OK, "partial valid update accepted");
+    let updated = body_json(put_ok).await;
+    assert_eq!(updated["data"]["qty"], serde_json::json!(7));
+}
+

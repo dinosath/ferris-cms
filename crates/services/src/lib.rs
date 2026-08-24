@@ -89,6 +89,14 @@ impl ServiceError {
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::Internal(msg.into())
     }
+
+    pub fn bad_payload(msg: impl Into<String>) -> Self {
+        Self::Validation(vec![ValidationErrorItem {
+            path: vec!["data".into()],
+            message: msg.into(),
+            name: "ValidationError".into(),
+        }])
+    }
 }
 
 /// One validation error item, compatible with Strapi's error-details format.

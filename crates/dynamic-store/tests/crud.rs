@@ -377,3 +377,103 @@ async fn alter_adds_column() {
         .unwrap();
     assert_eq!(row["subtitle"], json!("y"));
 }
+
+#[tokio::test]
+async fn insert_one_rejects_invalid_payload() {
+    let (db, _schemas) = setup().await;
+
+    // Build a constrained content type: required title, bounded qty, patterned sku.
+    let mut title = Attribute::new(FieldType::String);
+    title.required = true;
+    let mut qty = Attribute::new(FieldType::Integer);
+    qty.min = Some(json!(1));
+    qty.max = Some(json!(100));
+    let mut sku = Attribute::new(FieldType::String);
+    sku.regex = Some("^[A-Z]{2}[0-9]{3}$".into());
+    let s = schema(
+        "api::product.product",
+        "product",
+        "products",
+        vec![
+            ("title", title),
+            ("qty", qty),
+            ("sku", sku),
+        ],
+    );
+    let d = diff(None, &s);
+    ddl::apply_schema_diff(&db, DbBackend::Sqlite, &d, &[s.clone()])
+        .await
+        .unwrap();
+
+    // Missing required field -> validation error.
+    let err = dml::insert_one(&db, &s, &json!({"qty": 5}), None)
+        .await
+        .unwrap_err();
+    match err {
+        dynamic_store::StoreError::Validation(e) => {
+            assert!(e.iter().any(|e| e.field == "title" && e.code == "required"));
+        }
+        other => panic!("expected Validation error, got {other:?}"),
+    }
+
+    // Out-of-range value -> validation error.
+    let err = dml::insert_one(
+        &db,
+        &s,
+        &json!({"title": "T", "qty": 0, "sku": "AB123"}),
+        None,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        dynamic_store::StoreError::Validation(e) => {
+            assert!(e.iter().any(|e| e.field == "qty" && e.code == "min"));
+        }
+        other => panic!("expected Validation error, got {other:?}"),
+    }
+
+    // Pattern violation -> validation error.
+    let err = dml::insert_one(
+        &db,
+        &s,
+        &json!({"title": "T", "qty": 5, "sku": "nope"}),
+        None,
+    )
+    .await
+    .unwrap_err();
+    match err {
+        dynamic_store::StoreError::Validation(e) => {
+            assert!(e.iter().any(|e| e.field == "sku" && e.code == "regex"));
+        }
+        other => panic!("expected Validation error, got {other:?}"),
+    }
+
+    // Valid payload -> inserted.
+    let row = dml::insert_one(
+        &db,
+        &s,
+        &json!({"title": "T", "qty": 5, "sku": "AB123"}),
+        None,
+    )
+    .await
+    .expect("valid payload inserts");
+    let doc_id = row["documentId"].as_str().unwrap().to_string();
+
+    // Partial update rejecting a bad value (required not enforced on update).
+    let err = dml::update_one(&db, &s, &doc_id, &json!({"qty": 999}), None)
+        .await
+        .unwrap_err();
+    match err {
+        dynamic_store::StoreError::Validation(e) => {
+            assert!(e.iter().any(|e| e.field == "qty" && e.code == "max"));
+        }
+        other => panic!("expected Validation error, got {other:?}"),
+    }
+
+    // Partial update with only valid provided fields succeeds even though
+    // `sku`/`title` required constraints are not part of the payload.
+    let updated = dml::update_one(&db, &s, &doc_id, &json!({"qty": 7}), None)
+        .await
+        .expect("partial update succeeds");
+    assert_eq!(updated["qty"], json!(7));
+}
