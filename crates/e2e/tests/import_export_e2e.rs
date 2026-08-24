@@ -571,3 +571,98 @@ async fn invalid_uid_returns_error() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Regression: the read path must return schema ATTRIBUTE names (preserving
+/// casing) rather than the physical (lowercased) column names, so content types
+/// with capitalized fields (e.g. Name/Price) display their imported values and
+/// required-field validation still rejects records missing those fields.
+#[tokio::test(flavor = "multi_thread")]
+async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Result<()> {
+    let harness = E2eHarness::start().await?;
+    let base = harness.server_url();
+    let (client, token) = setup(&harness).await?;
+    let uid = "api::stock.stock";
+
+    // Create a content type with CAPITALIZED attributes, Name/Price required.
+    let ct = json!({
+        "uid": uid,
+        "kind": "collectionType",
+        "info": {"singularName":"stock","pluralName":"stocks","displayName":"Stock"},
+        "options": {"draftAndPublish": true},
+        "attributes": {
+            "Name": {"type":"string", "required": true},
+            "Price": {"type":"float", "required": true},
+            "Quantity": {"type":"integer"}
+        }
+    });
+    let apply = client
+        .post(format!("{base}/content-type-builder/schema"))
+        .bearer_auth(&token)
+        .json(&json!({"schemas":[ct]}))
+        .send()
+        .await?;
+    anyhow::ensure!(apply.status().is_success(), "create stock failed");
+
+    // Analyze a JSON with lowercase keys; preferUid must detect the content type
+    // and suggest correct mappings to the capitalized target fields.
+    let content = r#"[{"name":"Widget","price":9.99,"quantity":3},{"name":"Gadget","price":4.5,"quantity":7}]"#;
+    let analyze: Value = client
+        .post(format!("{base}/admin/import-export/analyze"))
+        .bearer_auth(&token)
+        .json(&json!({"files":[{"filename":"s.json","content":content}],"preferUid":uid}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let detected = analyze["data"]["datasets"][0]["detectedContentType"]["uid"].as_str().unwrap_or("");
+    assert_eq!(detected, uid, "preferUid should win");
+    let mapping: Vec<Value> = analyze["data"]["datasets"][0]["suggestedMapping"].as_array().cloned().unwrap_or_default();
+    let target_map: Vec<String> = mapping.iter().filter_map(|m| m["targetField"].as_str().map(|s| s.to_string())).collect();
+    for t in ["Name", "Price", "Quantity"] {
+        assert!(target_map.contains(&t.to_string()), "mapping should target '{t}', got {target_map:?}");
+    }
+
+    // Import with the suggested mapping.
+    let imp: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files":[{"filename":"s.json","dataset":"data","content":content,"uid":uid,"mapping":mapping,"mode":"createOnly","importState":"draft","locale":"en"}]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(imp["data"]["created"], 2, "both valid records created");
+    assert_eq!(imp["data"]["failed"], 0, "no failures for valid records");
+
+    // The read must expose values under the capitalized attribute names.
+    let list: Value = client
+        .get(format!("{base}/admin/content-manager/collection-types/{uid}"))
+        .bearer_auth(&token)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let row = list["data"][0].clone();
+    assert!(row["Name"].as_str().is_some(), "Name present under capital key");
+    assert!(row["Price"].is_number(), "Price present under capital key");
+    // Lowercase keys must NOT be how the API exposes the data anymore.
+    assert!(row.get("name").is_none(), "no lowercase 'name' key leaked");
+
+    // Required-field validation: a record missing Name/Price must be rejected.
+    let bad_content = r#"[{"quantity":5}]"#;
+    let bad_mapping: Vec<Value> = serde_json::from_str(r#"[{"sourceField":"quantity","targetField":"Quantity","transform":"none","status":"autoMapped"}]"#)?;
+    let bad: Value = client
+        .post(format!("{base}/admin/import-export/import"))
+        .bearer_auth(&token)
+        .json(&json!({"files":[{"filename":"bad.json","dataset":"data","content":bad_content,"uid":uid,"mapping":bad_mapping,"mode":"createOnly","importState":"draft","locale":"en"}]}))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(bad["data"]["created"], 0, "no entry created for missing required fields");
+    assert_eq!(bad["data"]["failed"], 1, "record missing required fields rejected");
+    let msg = bad["data"]["errors"][0]["message"].as_str().unwrap_or("");
+    assert!(msg.contains("required field 'Name'"), "reports missing required Name, got: {msg}");
+
+    Ok(())
+}

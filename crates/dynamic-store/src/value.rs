@@ -300,18 +300,22 @@ fn normalize_datetime_str(s: &str) -> String {
 }
 
 /// Fetch all rows of a statement and map each with `f`.
+///
+/// `columns` carries `(physical_column, output_key, family)` — the output key is
+/// the schema attribute name for content fields (so reads round-trip whatever
+/// casing the user chose) and the Strapi-style camelCase key for system columns.
 pub async fn query_rows<C: ConnectionTrait, S: sea_orm::StatementBuilder + Sync>(
     db: &C,
     stmt: &S,
-    columns: &[(String, SqlFamily)],
+    columns: &[(String, String, SqlFamily)],
     backend: DbBackend,
 ) -> Result<Vec<serde_json::Map<String, JsonValue>>, StoreError> {
     let rows = db.query_all(stmt).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         let mut obj = serde_json::Map::with_capacity(columns.len());
-        for (col, family) in columns {
-            obj.insert(api_key(col), column_to_json(row, col, *family, backend));
+        for (col, key, family) in columns {
+            obj.insert(key.clone(), column_to_json(row, col, *family, backend));
         }
         out.push(obj);
     }

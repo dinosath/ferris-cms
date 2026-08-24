@@ -4,7 +4,7 @@
 use crate::base_columns as base;
 use crate::error::StoreError;
 use crate::value::{
-    attr_to_value, base_column_family, coerce_filter_value, query_rows as raw_query_rows,
+    api_key, attr_to_value, base_column_family, coerce_filter_value, query_rows as raw_query_rows,
 };
 use api_types::{Filter, FilterOp, QueryParams, SortField};
 use core_domain::{column_name, fk_column, FieldType, PublicationState};
@@ -200,8 +200,11 @@ pub struct SelectSpec<'a> {
 }
 
 /// All columns selected for a content row: base + schema scalars/FKs.
-pub fn select_columns(schema: &Schema) -> Vec<(String, SqlFamily)> {
-    let mut cols: Vec<(String, SqlFamily)> = [
+/// Returns `(physical_column, output_key, family)`; `output_key` is the schema
+/// attribute name for content fields and the Strapi camelCase key for system
+/// columns (see `value::api_key`).
+pub fn select_columns(schema: &Schema) -> Vec<(String, String, SqlFamily)> {
+    let mut cols: Vec<(String, String, SqlFamily)> = [
         base::ID,
         base::DOCUMENT_ID,
         base::LOCALE,
@@ -216,10 +219,10 @@ pub fn select_columns(schema: &Schema) -> Vec<(String, SqlFamily)> {
         base::DELETED_AT,
     ]
     .into_iter()
-    .map(|c| (c.to_string(), base_column_family(c)))
+    .map(|c| (c.to_string(), api_key(c), base_column_family(c)))
     .collect();
-    for (_, col, family) in column_map(schema) {
-        cols.push((col, family));
+    for (attr, col, family) in column_map(schema) {
+        cols.push((col, attr, family));
     }
     cols
 }
@@ -300,7 +303,7 @@ pub async fn select<C: ConnectionTrait>(
     let mut sel = Query::select();
     sel.from(Alias::new(&table));
     let cols = select_columns(schema);
-    for (col, _) in &cols {
+    for (col, _, _) in &cols {
         sel.column(Alias::new(col));
     }
     sel.cond_where(where_cond.clone());
@@ -349,7 +352,7 @@ pub async fn find_by_document_id<C: ConnectionTrait>(
     let cols = select_columns(schema);
     let mut sel = Query::select();
     sel.from(Alias::new(&table));
-    for (col, _) in &cols {
+    for (col, _, _) in &cols {
         sel.column(Alias::new(col));
     }
     sel.cond_where(cond).limit(1);
@@ -368,7 +371,7 @@ pub async fn find_by_id<C: ConnectionTrait>(
     let cols = select_columns(schema);
     let mut sel = Query::select();
     sel.from(Alias::new(&table));
-    for (col, _) in &cols {
+    for (col, _, _) in &cols {
         sel.column(Alias::new(col));
     }
     sel.cond_where(Condition::all().add(Expr::col(Alias::new(base::ID)).eq(id)))
@@ -529,7 +532,7 @@ pub async fn fetch_link_rows<C: ConnectionTrait>(
     if let Some(ob) = order_by {
         sel.order_by(Alias::new(ob), Order::Asc);
     }
-    let cols: Vec<(String, SqlFamily)> = columns
+    let cols: Vec<(String, String, SqlFamily)> = columns
         .iter()
         .map(|c| {
             let family = match *c {
@@ -537,7 +540,7 @@ pub async fn fetch_link_rows<C: ConnectionTrait>(
                 "component_uid" | "field" => SqlFamily::VarChar,
                 _ => SqlFamily::BigInt,
             };
-            (c.to_string(), family)
+            (c.to_string(), c.to_string(), family)
         })
         .collect();
     raw_query_rows(db, &sel, &cols, backend).await
@@ -786,5 +789,39 @@ mod tests {
         let vals = build_write_values(&s, &data, false).unwrap();
         assert_eq!(vals.len(), 1);
         assert_eq!(vals[0].0, "title");
+    }
+
+    #[test]
+    fn select_columns_use_attribute_names_for_content_fields() {
+        // A content type with capitalized attribute names.
+        let mut attrs = IndexMap::new();
+        let mut name = Attribute::new(FieldType::String);
+        name.required = true;
+        attrs.insert("Name".to_string(), name);
+        let mut price = Attribute::new(FieldType::Float);
+        price.required = true;
+        attrs.insert("Price".to_string(), price);
+        attrs.insert("Quantity".to_string(), Attribute::new(FieldType::Integer));
+        let mut s = article();
+        s.attributes = attrs;
+
+        let cols = select_columns(&s);
+        // Attribute fields must expose the schema attribute name as the output key.
+        let attr_keys: Vec<&str> = cols
+            .iter()
+            .filter(|(_, key, _)| key == "Name" || key == "Price" || key == "Quantity")
+            .map(|(_, key, _)| key.as_str())
+            .collect();
+        assert_eq!(attr_keys, vec!["Name", "Price", "Quantity"]);
+        // Physical columns stay lowercase.
+        let phys: Vec<&str> = cols
+            .iter()
+            .filter(|(_, key, _)| key == "Name" || key == "Price" || key == "Quantity")
+            .map(|(col, _, _)| col.as_str())
+            .collect();
+        assert_eq!(phys, vec!["name", "price", "quantity"]);
+        // System columns keep the Strapi camelCase keys.
+        assert!(cols.iter().any(|(_, key, _)| key == "documentId"));
+        assert!(cols.iter().any(|(_, key, _)| key == "publicationState"));
     }
 }
