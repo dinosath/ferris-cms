@@ -17,6 +17,51 @@ const PROVIDER_KINDS: &[(&str, &str)] = &[
     ("gemini", "Google Gemini"),
 ];
 
+/// localStorage key holding the last active assistant conversation so history
+/// is restored across reloads (web only).
+#[allow(dead_code)]
+const CONV_STORAGE_KEY: &str = "ferriscms_last_ai_conversation";
+
+/// Read the persisted last conversation id (web only). `None` on non-wasm.
+#[allow(dead_code)]
+fn load_last_conversation() -> Option<i64> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(CONV_STORAGE_KEY).ok().flatten())
+            .and_then(|v| v.parse::<i64>().ok())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
+/// Persist (or clear) the last conversation id (web only). No-op off-wasm.
+#[allow(dead_code)]
+fn save_last_conversation(id: Option<i64>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(w) = web_sys::window() {
+            if let Ok(Some(storage)) = w.local_storage() {
+                match id {
+                    Some(id) => {
+                        let _ = storage.set_item(CONV_STORAGE_KEY, &id.to_string());
+                    }
+                    None => {
+                        let _ = storage.remove_item(CONV_STORAGE_KEY);
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = id;
+    }
+}
+
 // ===========================================================================
 // AI Settings
 // ===========================================================================
@@ -490,16 +535,26 @@ pub fn AiAssistant() -> Element {
     let mut confirm_req = use_signal(|| false);
     let mut delete_req: Signal<Option<i64>> = use_signal(|| None);
 
-    // Load conversations + models.
+    // Load conversations + models. If a previous conversation was active,
+    // restore it so its persisted history is shown again.
     use_effect({
         let client = client.clone();
         move || {
             let client = client.clone();
             let mut cs = conversations;
             let mut ms = models;
+            let mut sel = selected;
             spawn(async move {
                 if let Ok(v) = client.ai_conversations().await {
-                    cs.set(v["data"].as_array().cloned().unwrap_or_default());
+                    let arr = v["data"].as_array().cloned().unwrap_or_default();
+                    cs.set(arr.clone());
+                    if sel().is_none() {
+                        if let Some(stored) = load_last_conversation() {
+                            if arr.iter().any(|c| c["id"].as_i64() == Some(stored)) {
+                                sel.set(Some(stored));
+                            }
+                        }
+                    }
                 }
                 if let Ok(v) = client.ai_models(None).await {
                     ms.set(v["data"].as_array().cloned().unwrap_or_default());
@@ -589,12 +644,11 @@ pub fn AiAssistant() -> Element {
                     match client.ai_send_message(id, &text).await {
                         Ok(v) => {
                             let d = v["data"].clone();
-                            let mut m = msgs();
-                            let content = d["content"].as_str().unwrap_or("").to_string();
-                            if !content.is_empty() {
-                                m.push(serde_json::json!({ "role": "assistant", "content": content }));
+                            // Reload the persisted history so the UI always
+                            // reflects what is stored server-side.
+                            if let Ok(ms) = client.ai_messages(id).await {
+                                msgs.set(ms["data"].as_array().cloned().unwrap_or_default());
                             }
-                            msgs.set(m);
                             let confirm = d["confirmationRequired"].as_array().cloned();
                             if let Some(arr) = confirm {
                                 if !arr.is_empty() {
@@ -642,12 +696,11 @@ pub fn AiAssistant() -> Element {
                         })
                         .unwrap_or_default();
                     match client.ai_confirm_tool_calls(id, calls).await {
-                        Ok(v) => {
-                            let content = v["data"]["content"].as_str().unwrap_or("").to_string();
-                            if !content.is_empty() {
-                                let mut m = msgs();
-                                m.push(serde_json::json!({ "role": "assistant", "content": content }));
-                                msgs.set(m);
+                        Ok(_) => {
+                            // Reload the persisted history to reflect the
+                            // confirmed tool results and final assistant answer.
+                            if let Ok(ms) = client.ai_messages(id).await {
+                                msgs.set(ms["data"].as_array().cloned().unwrap_or_default());
                             }
                             pend.set(None);
                             g.toast("Action confirmed and applied", "success");
@@ -679,6 +732,7 @@ pub fn AiAssistant() -> Element {
                             }
                             if selected() == Some(id) {
                                 sel.set(None);
+                                save_last_conversation(None);
                             }
                             g.toast("Conversation deleted", "success");
                         }
@@ -713,7 +767,7 @@ pub fn AiAssistant() -> Element {
                 format!("padding:10px 12px; border-radius:6px; cursor:pointer; font-size:13px; color:{neutral800};", neutral800 = color::NEUTRAL_800)
             };
             rsx! {
-                div { key: "{id}", style: "{style}", onclick: move |_| selected.set(Some(id)),
+                div { key: "{id}", style: "{style}", onclick: move |_| { selected.set(Some(id)); save_last_conversation(Some(id)); },
                     span { "{name}" }
                     Button { label: "×".to_string(), variant: "danger".to_string(), size: "sm".to_string(), on_click: move |_| delete_req.set(Some(id)) }
                 }
