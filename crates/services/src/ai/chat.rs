@@ -174,25 +174,38 @@ async fn insert_message(
 
 /// Build the provider message history from a conversation's persisted messages.
 fn history_messages(rows: &[ai_message::Model]) -> Vec<AiMessage> {
-    rows.iter()
-        .map(|m| {
-            let tool_calls = m
-                .tool_calls_json
-                .as_ref()
-                .and_then(|j| serde_json::from_value::<Vec<AiToolCall>>(j.clone()).ok());
-            AiMessage {
-                role: match m.role.as_str() {
-                    "assistant" => ai::AiMessageRole::Assistant,
-                    "tool" => ai::AiMessageRole::Tool,
-                    _ => ai::AiMessageRole::User,
-                },
-                content: m.content.clone(),
-                tool_calls,
-                tool_call_id: m.tool_call_id.clone(),
-                name: m.tool_name.clone(),
+    let mut out: Vec<AiMessage> = Vec::new();
+    for m in rows {
+        let tool_calls = m
+            .tool_calls_json
+            .as_ref()
+            .and_then(|j| serde_json::from_value::<Vec<AiToolCall>>(j.clone()).ok());
+        let role = match m.role.as_str() {
+            "assistant" => ai::AiMessageRole::Assistant,
+            "tool" => ai::AiMessageRole::Tool,
+            _ => ai::AiMessageRole::User,
+        };
+        // A provider rejects a `tool` message that doesn't immediately follow an
+        // assistant `tool_calls` turn. Skip orphaned tool results so the
+        // reconstructed history is always valid.
+        if role == ai::AiMessageRole::Tool {
+            let preceded = out
+                .last()
+                .map(|p| p.role == ai::AiMessageRole::Assistant && p.tool_calls.is_some())
+                .unwrap_or(false);
+            if !preceded {
+                continue;
             }
-        })
-        .collect()
+        }
+        out.push(AiMessage {
+            role,
+            content: m.content.clone(),
+            tool_calls,
+            tool_call_id: m.tool_call_id.clone(),
+            name: m.tool_name.clone(),
+        });
+    }
+    out
 }
 
 /// Send a user message to the assistant and run the tool-calling loop.
