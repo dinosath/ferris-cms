@@ -645,6 +645,11 @@ async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Res
     let row = list["data"][0].clone();
     assert!(row["Name"].as_str().is_some(), "Name present under capital key");
     assert!(row["Price"].is_number(), "Price present under capital key");
+    assert!(
+        row["Quantity"].is_number(),
+        "integer field Quantity must decode (Postgres INT4 -> i32), got {:?}",
+        row["Quantity"]
+    );
     // Lowercase keys must NOT be how the API exposes the data anymore.
     assert!(row.get("name").is_none(), "no lowercase 'name' key leaked");
 

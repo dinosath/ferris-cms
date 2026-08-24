@@ -204,10 +204,18 @@ pub fn column_to_json(
     }
     match family {
         SqlFamily::VarChar | SqlFamily::Text => get!(String).into(),
-        SqlFamily::Integer | SqlFamily::BigInt => match get!(i64) {
-            Some(i) => i.into(),
-            None => JsonValue::Null,
-        },
+        SqlFamily::Integer | SqlFamily::BigInt => {
+            if let Some(i) = get!(i64) {
+                i.into()
+            } else if let Some(i) = get!(i32) {
+                // Postgres INT4 decodes as i32, not i64.
+                i.into()
+            } else if let Some(i) = get!(i16) {
+                i.into()
+            } else {
+                JsonValue::Null
+            }
+        }
         SqlFamily::Decimal | SqlFamily::Double => {
             if let Some(f) = get!(f64) {
                 serde_json::Number::from_f64(f).into()
