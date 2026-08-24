@@ -30,6 +30,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/admin/ai/providers/{id}",
             get(get_provider).put(update_provider).delete(delete_provider),
         )
+        .route("/admin/ai/providers/test-connection", post(test_connection))
         .route("/admin/ai/providers/{id}/models", get(list_provider_models))
         // Models
         .route("/admin/ai/models", get(list_models).post(create_model))
@@ -128,6 +129,25 @@ async fn delete_provider(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let r = ai::delete_provider(&admin.0, id).await.map(|_| serde_json::json!({ "deleted": true }));
     wrap(r)
+}
+
+/// Probe a provider configuration (connectivity + discovered models) without
+/// saving it. Used by the UI to verify a provider before adding/editing.
+async fn test_connection(
+    admin: AdminCtx,
+    Json(req): Json<AiProviderCreate>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    match ai::test_provider_connection(
+        &req.kind,
+        req.base_url.as_deref(),
+        req.api_key.as_deref(),
+        req.organization.as_deref(),
+    )
+    .await
+    {
+        Ok(models) => Ok(Json(serde_json::json!({ "data": { "ok": true, "models": models } }))),
+        Err(e) => Err(AppError::from(e)),
+    }
 }
 
 async fn list_provider_models(

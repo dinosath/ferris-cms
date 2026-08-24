@@ -919,6 +919,16 @@ impl Client {
             .await
     }
 
+    /// Probe a provider config for connectivity + discovered models.
+    pub async fn ai_test_connection(
+        &self,
+        req: &api_types::AiProviderCreate,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/ai/providers/test-connection", &serde_json::to_value(req)?)
+            .await
+    }
+
     pub async fn ai_provider_update(
         &self,
         id: i64,

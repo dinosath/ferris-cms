@@ -7,7 +7,7 @@
 //! to the matching Rig client.
 
 use async_trait::async_trait;
-use rig::client::CompletionClient;
+use rig::client::{CompletionClient, ModelListingClient};
 use rig::completion::message::{
     AssistantContent, Message, ProviderCallId, Text as RigText, ToolCall as RigToolCall,
     ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
@@ -31,6 +31,45 @@ pub enum RigClient {
     Gemini(gemini::Client),
 }
 
+/// Build a Rig provider client for a neutral config.
+fn build_rig_client(config: &AiProviderConfig) -> Result<RigClient, AiError> {
+    let api_key = || config.api_key.clone().unwrap_or_default();
+    match config.kind {
+        AiProviderKind::OpenAiCompatible => {
+            let c = openai::client::CompletionsClient::builder()
+                .api_key(rig::client::BearerAuth::from(api_key()))
+                .base_url(&config.base_url)
+                .build()
+                .map_err(|e| AiError::Request(format!("rig openai client: {e}")))?;
+            Ok(RigClient::OpenAi(c))
+        }
+        AiProviderKind::Ollama => {
+            let c = ollama::Client::builder()
+                .api_key(ollama::OllamaApiKey::from(api_key()))
+                .base_url(&config.base_url)
+                .build()
+                .map_err(|e| AiError::Request(format!("rig ollama client: {e}")))?;
+            Ok(RigClient::Ollama(c))
+        }
+        AiProviderKind::Anthropic => {
+            let c = anthropic::Client::builder()
+                .api_key(anthropic::client::AnthropicKey::from(api_key()))
+                .base_url(&config.base_url)
+                .build()
+                .map_err(|e| AiError::Request(format!("rig anthropic client: {e}")))?;
+            Ok(RigClient::Anthropic(c))
+        }
+        AiProviderKind::Gemini => {
+            let c = gemini::Client::builder()
+                .api_key(gemini::client::GeminiApiKey::from(api_key()))
+                .base_url(&config.base_url)
+                .build()
+                .map_err(|e| AiError::Request(format!("rig gemini client: {e}")))?;
+            Ok(RigClient::Gemini(c))
+        }
+    }
+}
+
 /// A provider that runs completions through Rig.
 pub struct RigProvider {
     client: RigClient,
@@ -39,43 +78,32 @@ pub struct RigProvider {
 impl RigProvider {
     /// Build a Rig-backed provider for a neutral config.
     pub fn new(config: &AiProviderConfig) -> Result<Self, AiError> {
-        let api_key = || config.api_key.clone().unwrap_or_default();
-        let client = match config.kind {
-            AiProviderKind::OpenAiCompatible => {
-                let c = openai::client::CompletionsClient::builder()
-                    .api_key(rig::client::BearerAuth::from(api_key()))
-                    .base_url(&config.base_url)
-                    .build()
-                    .map_err(|e| AiError::Request(format!("rig openai client: {e}")))?;
-                RigClient::OpenAi(c)
-            }
-            AiProviderKind::Ollama => {
-                let c = ollama::Client::builder()
-                    .api_key(ollama::OllamaApiKey::from(api_key()))
-                    .base_url(&config.base_url)
-                    .build()
-                    .map_err(|e| AiError::Request(format!("rig ollama client: {e}")))?;
-                RigClient::Ollama(c)
-            }
-            AiProviderKind::Anthropic => {
-                let c = anthropic::Client::builder()
-                    .api_key(anthropic::client::AnthropicKey::from(api_key()))
-                    .base_url(&config.base_url)
-                    .build()
-                    .map_err(|e| AiError::Request(format!("rig anthropic client: {e}")))?;
-                RigClient::Anthropic(c)
-            }
-            AiProviderKind::Gemini => {
-                let c = gemini::Client::builder()
-                    .api_key(gemini::client::GeminiApiKey::from(api_key()))
-                    .base_url(&config.base_url)
-                    .build()
-                    .map_err(|e| AiError::Request(format!("rig gemini client: {e}")))?;
-                RigClient::Gemini(c)
-            }
-        };
-        Ok(Self { client })
+        Ok(Self {
+            client: build_rig_client(config)?,
+        })
     }
+
+    /// Test connectivity and list the models a provider advertises.
+    ///
+    /// This both verifies the provider is reachable (returns `Err` on failure)
+    /// and, when it can, returns the model identifiers so the CMS can
+    /// auto-populate models instead of requiring manual entry.
+    pub async fn list_models(config: &AiProviderConfig) -> Result<Vec<String>, AiError> {
+        let client = build_rig_client(config)?;
+        let models = match &client {
+            RigClient::OpenAi(c) => c.list_models().await,
+            RigClient::Ollama(c) => c.list_models().await,
+            RigClient::Anthropic(c) => c.list_models().await,
+            RigClient::Gemini(c) => c.list_models().await,
+        }
+        .map_err(|e| AiError::Request(format!("failed to connect / list models: {e}")))?;
+        Ok(models.iter().map(|m| m.id.clone()).collect())
+    }
+}
+
+/// Test connectivity and list the models a provider advertises.
+pub async fn list_provider_models(config: &AiProviderConfig) -> Result<Vec<String>, AiError> {
+    RigProvider::list_models(config).await
 }
 
 #[async_trait]

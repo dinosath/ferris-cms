@@ -37,6 +37,11 @@ pub async fn get_provider(ctx: &AppContext, id: i64) -> Result<serde_json::Value
 }
 
 /// Create a provider. `api_key` may be empty for local providers (Ollama).
+///
+/// Connectivity is probed and, when reachable, the provider's advertised models
+/// are fetched and auto-created instead of requiring manual entry. If the probe
+/// fails (provider unreachable / no listing support) a sensible default model
+/// is created so the provider is still usable and can be managed manually.
 pub async fn create_provider(
     ctx: &AppContext,
     name: String,
@@ -47,9 +52,15 @@ pub async fn create_provider(
     enabled: bool,
     sort_order: Option<i64>,
 ) -> Result<serde_json::Value, ServiceError> {
-    kind_from_str(&kind)?;
-    let api_key_encrypted = api_key
-        .filter(|k| !k.trim().is_empty())
+    let kind_enum = kind_from_str(&kind)?;
+    let plain_key = api_key.clone().filter(|k| !k.trim().is_empty());
+    let probe_config = AiProviderConfig {
+        kind: kind_enum,
+        base_url: base_url.clone().unwrap_or_default(),
+        api_key: plain_key.clone(),
+        organization: organization.clone(),
+    };
+    let api_key_encrypted = plain_key
         .map(|k| encrypt_value(&ctx.config.jwt_secret, &serde_json::json!(k)))
         .transpose()?;
 
@@ -69,27 +80,53 @@ pub async fn create_provider(
     .insert(&ctx.db)
     .await?;
 
-    // Auto-create a sensible default model so the new provider is immediately
-    // usable (and appears in the assistant model picker) without a separate
-    // model-creation step.
     let provider_id = row.id;
-    let (model_name, supports_tools) = default_model_for(&row.kind);
-    let _ = create_model(
-        ctx,
-        provider_id,
-        model_name.clone(),
-        Some(model_name),
-        Some("Default model for this provider".to_string()),
-        true,
-        supports_tools,
-        false,
-        None,
-        None,
-        true,
-    )
-    .await;
+    let kind_str = row.kind.clone();
+
+    // Try to connect and fetch the provider's models; fall back to a default.
+    let fetched = match ai::list_provider_models(&probe_config).await {
+        Ok(ids) if !ids.is_empty() => ids,
+        _ => vec![default_model_for(&kind_str).0],
+    };
+    for model_name in fetched {
+        let _ = create_model(
+            ctx,
+            provider_id,
+            model_name.clone(),
+            Some(model_name),
+            Some("Model discovered from provider".to_string()),
+            true,
+            true,
+            false,
+            None,
+            None,
+            true,
+        )
+        .await;
+    }
 
     Ok(provider_dto(row))
+}
+
+/// Probe a provider configuration: test connectivity and list its models.
+///
+/// Used to verify a provider "works" before it is saved/updated and to discover
+/// models so they can be added automatically.
+pub async fn test_provider_connection(
+    kind: &str,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+    organization: Option<&str>,
+) -> Result<Vec<String>, ServiceError> {
+    let config = AiProviderConfig {
+        kind: kind_from_str(kind)?,
+        base_url: base_url.unwrap_or_default().to_string(),
+        api_key: api_key.map(|k| k.to_string()),
+        organization: organization.map(|o| o.to_string()),
+    };
+    ai::list_provider_models(&config)
+        .await
+        .map_err(|e| ServiceError::internal(format!("provider connection test failed: {e}")))
 }
 
 /// A sensible default model name + tool support for a freshly created provider.
@@ -104,6 +141,9 @@ fn default_model_for(kind: &str) -> (String, bool) {
 
 /// Update a provider. `api_key` is optional: when supplied it replaces the
 /// stored key; when omitted (None) the existing key is retained.
+///
+/// Before persisting, the provider is re-verified against the updated config so
+/// a change is never saved unless the provider is reachable.
 pub async fn update_provider(
     ctx: &AppContext,
     id: i64,
@@ -115,11 +155,36 @@ pub async fn update_provider(
     enabled: bool,
     sort_order: Option<i64>,
 ) -> Result<serde_json::Value, ServiceError> {
-    kind_from_str(&kind)?;
+    let kind_enum = kind_from_str(&kind)?;
     let existing = ai_provider::Entity::find_by_id(id)
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::NotFound(format!("ai provider {id}")))?;
+
+    // Resolve the effective API key (new value, or the stored one if unchanged)
+    // and verify the updated configuration connects before saving.
+    let effective_key = match api_key.as_deref().map(str::trim) {
+        Some(k) if !k.is_empty() => Some(k.to_string()),
+        _ => existing
+            .api_key_encrypted
+            .as_ref()
+            .and_then(|blob| decrypt_value(&ctx.config.jwt_secret, blob).ok())
+            .and_then(|v| v.as_str().map(|s| s.to_string())),
+    };
+    let probe_config = AiProviderConfig {
+        kind: kind_enum,
+        base_url: base_url.clone().unwrap_or_default(),
+        api_key: effective_key,
+        organization: organization.clone(),
+    };
+    ai::list_provider_models(&probe_config)
+        .await
+        .map_err(|e| {
+            ServiceError::internal(format!(
+                "cannot update provider: connection test failed ({e}). Verify the provider is reachable and the key is correct."
+            ))
+        })?;
+
     let mut am: ai_provider::ActiveModel = existing.clone().into();
     am.name = Set(name);
     am.kind = Set(kind);

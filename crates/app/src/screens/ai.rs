@@ -36,6 +36,11 @@ pub fn AiSettings() -> Element {
     let mut base_url = use_signal(|| String::new());
     let mut api_key = use_signal(|| String::new());
     let mut provider_enabled = use_signal(|| true);
+    // Provider connection test state.
+    let mut conn_status: Signal<Option<(bool, String)>> = use_signal(|| None);
+    let mut discovered_models: Signal<Vec<String>> = use_signal(|| Vec::new());
+    let mut conn_busy = use_signal(|| false);
+    let mut test_req: Signal<Option<api_types::AiProviderCreate>> = use_signal(|| None);
 
     let mut show_model = use_signal(|| false);
     let mut model_provider = use_signal(|| 0i64);
@@ -195,6 +200,38 @@ pub fn AiSettings() -> Element {
         }
     });
 
+    // Test a provider connection (connectivity + discovered models).
+    use_effect({
+        let client = client.clone();
+        move || {
+            if let Some(body) = test_req() {
+                test_req.set(None);
+                let client = client.clone();
+                let mut st = conn_status;
+                let mut dm = discovered_models;
+                let mut busy = conn_busy;
+                busy.set(true);
+                spawn(async move {
+                    match client.ai_test_connection(&body).await {
+                        Ok(v) => {
+                            let models: Vec<String> = v["data"]["models"]
+                                .as_array()
+                                .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+                                .unwrap_or_default();
+                            dm.set(models);
+                            st.set(Some((true, "Connected".to_string())));
+                        }
+                        Err(e) => {
+                            dm.set(Vec::new());
+                            st.set(Some((false, format!("Connection failed: {e}"))));
+                        }
+                    }
+                    busy.set(false);
+                });
+            }
+        }
+    });
+
     let provider_rows: Vec<Vec<String>> = providers()
         .iter()
         .map(|p| {
@@ -257,6 +294,12 @@ pub fn AiSettings() -> Element {
         })
         .collect();
 
+    let provider_conn_color = match conn_status() {
+        Some((true, _)) => color::SUCCESS_600.to_string(),
+        Some((false, _)) => color::DANGER_600.to_string(),
+        None => "inherit".to_string(),
+    };
+
     rsx! {
         div { style: "padding:32px; max-width:1100px; display:flex; flex-direction:column; gap:24px;",
             div { style: "display:flex; flex-direction:column; gap:2px;",
@@ -307,23 +350,12 @@ pub fn AiSettings() -> Element {
 
             // Models
             Card { header: "AI models".to_string(),
-                div { style: "display:flex; gap:12px; align-items:flex-end; margin-bottom:12px; flex-wrap:wrap;",
-                    Dropdown {
-                        label: "Provider".to_string(),
-                        value: model_provider().to_string(),
-                        options: providers().iter().map(|p| (p["id"].as_i64().unwrap_or(0).to_string(), p["name"].as_str().unwrap_or("").to_string())).collect(),
-                        onchange: move |v: String| { if let Ok(n) = v.parse::<i64>() { model_provider.set(n); } }
-                    }
-                    TextField { value: model_name(), label: "Model name".to_string(), placeholder: "e.g. gpt-4o-mini".to_string(), oninput: move |v| model_name.set(v) }
-                    label { style: "display:flex; align-items:center; gap:6px; font-size:13px; color:{color::NEUTRAL_700};",
-                        input { r#type: "checkbox", checked: model_tools(), onchange: move |e| model_tools.set(e.checked()) }
-                        span { "Supports tools" }
-                    }
+                div { style: "display:flex; justify-content:flex-end; margin-bottom:12px;",
                     Button { label: "+ Add model".to_string(), on_click: move |_| {
-                        let pid = model_provider();
-                        let name = model_name();
-                        let tools = model_tools();
-                        model_req.set(Some((pid, name, tools)));
+                        model_provider.set(providers().first().and_then(|p| p["id"].as_i64()).unwrap_or(0));
+                        model_name.set(String::new());
+                        model_tools.set(true);
+                        show_model.set(true);
                     } }
                 }
                 if model_rows.is_empty() {
@@ -344,7 +376,7 @@ pub fn AiSettings() -> Element {
             }
 
             if show_provider() {
-                Modal { title: "New provider".to_string(), width: 560, on_close: move |_| show_provider.set(false),
+                Modal { title: "New provider".to_string(), width: 600, on_close: move |_| show_provider.set(false),
                     div { style: "display:grid; grid-template-columns:1fr 1fr; gap:16px;",
                         TextField { value: provider_name(), label: "Name".to_string(), placeholder: "OpenAI".to_string(), oninput: move |v| provider_name.set(v) }
                         Dropdown {
@@ -356,11 +388,66 @@ pub fn AiSettings() -> Element {
                         TextField { value: base_url(), label: "Base URL".to_string(), placeholder: "https://api.openai.com/v1".to_string(), oninput: move |v| base_url.set(v) }
                         TextField { value: api_key(), label: "API key".to_string(), placeholder: "sk-...".to_string(), oninput: move |v| api_key.set(v) }
                     }
+                    div { style: "display:flex; align-items:center; gap:12px; margin-top:16px;",
+                        Button { label: "Test connection".to_string(), loading: conn_busy(), variant: "secondary".to_string(), on_click: move |_| {
+                            conn_status.set(None);
+                            discovered_models.set(Vec::new());
+                            test_req.set(Some(api_types::AiProviderCreate {
+                                name: provider_name(),
+                                kind: provider_kind(),
+                                base_url: if base_url().is_empty() { None } else { Some(base_url()) },
+                                api_key: if api_key().is_empty() { None } else { Some(api_key()) },
+                                organization: None,
+                                enabled: true,
+                                sort_order: None,
+                            }));
+                        } }
+                        if let Some((_, msg)) = conn_status() {
+                            span { style: "font-size:13px; color:{provider_conn_color};",
+                                "{msg}"
+                            }
+                        }
+                    }
+                    if !discovered_models().is_empty() {
+                        div { style: "margin-top:14px;",
+                            span { style: "font-size:12px; font-weight:600; color:{color::NEUTRAL_500};", "Discovered models" }
+                            div { style: "display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;",
+                                for m in discovered_models().iter() {
+                                    Badge { text: m.clone(), kind: "neutral".to_string() }
+                                }
+                            }
+                        }
+                    }
                     div { style: "display:flex; justify-content:flex-end; gap:12px; margin-top:20px;",
                         Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_provider.set(false) }
                         Button { label: "Save".to_string(), on_click: move |_| {
                             provider_req.set(Some((provider_name(), provider_kind(), base_url(), api_key(), provider_enabled())));
                             show_provider.set(false);
+                        } }
+                    }
+                }
+            }
+
+            if show_model() {
+                Modal { title: "New model".to_string(), width: 480, on_close: move |_| show_model.set(false),
+                    div { style: "display:flex; flex-direction:column; gap:16px;",
+                        Dropdown {
+                            label: "Provider".to_string(),
+                            value: model_provider().to_string(),
+                            options: providers().iter().map(|p| (p["id"].as_i64().unwrap_or(0).to_string(), p["name"].as_str().unwrap_or("").to_string())).collect(),
+                            onchange: move |v: String| { if let Ok(n) = v.parse::<i64>() { model_provider.set(n); } }
+                        }
+                        TextField { value: model_name(), label: "Model name".to_string(), placeholder: "e.g. gpt-4o-mini".to_string(), oninput: move |v| model_name.set(v) }
+                        label { style: "display:flex; align-items:center; gap:6px; font-size:13px; color:{color::NEUTRAL_700};",
+                            input { r#type: "checkbox", checked: model_tools(), onchange: move |e| model_tools.set(e.checked()) }
+                            span { "Supports tools" }
+                        }
+                    }
+                    div { style: "display:flex; justify-content:flex-end; gap:12px; margin-top:20px;",
+                        Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_model.set(false) }
+                        Button { label: "Save".to_string(), on_click: move |_| {
+                            model_req.set(Some((model_provider(), model_name(), model_tools())));
+                            show_model.set(false);
                         } }
                     }
                 }
