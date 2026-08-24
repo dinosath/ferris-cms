@@ -110,10 +110,15 @@ implements execution (DB access, HTTP, CMS integration), triggers
 (content-created/updated/webhook), credentials, and executions.
 
 ### AI subsystem (`ai` crate + `services::ai`)
-Provider abstraction (OpenAI-compatible, Ollama, Anthropic, Gemini), a
-persisted provider/model registry with encrypted keys, a chat/tool-calling
-loop, an RBAC-aware tool registry, content/schema/media generation, usage
-accounting, and a prompt-injection guard. See [`FEATURES.md`](FEATURES.md).
+All LLM calls run through **[Rig](https://rig.rs)** (`rig` crate) — Rig's
+provider clients and completion models replace hand-rolled HTTP. The `ai`
+crate keeps its neutral `AiRequest`/`AiResponse`/`AiProvider` seam and adapts
+to Rig's `CompletionRequest`/`CompletionResponse`, dispatching each provider
+kind (OpenAI-compatible, Ollama, Anthropic, Gemini) to the matching Rig client.
+On top of that: a persisted provider/model registry with encrypted keys, a
+chat/tool-calling loop, an RBAC-aware tool registry, content/schema/media
+generation, usage accounting, and a prompt-injection guard. See
+[`FEATURES.md`](FEATURES.md).
 
 ## Testing
 

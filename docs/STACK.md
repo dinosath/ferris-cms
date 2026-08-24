@@ -73,7 +73,7 @@ sea-orm (sqlx-sqlite, sqlx-postgres, runtime-tokio-rustls, macros,
 sea-orm-migration, sea-query, axum (multipart, macros),
 tower, tower-http (cors, fs, trace, limit),
 jsonwebtoken (rust_crypto), argon2, sha2, rand,
-playwright-rs (e2e only)
+rig (AI/LLM provider clients + completion), playwright-rs (e2e only)
 ```
 
 See [`TECHNOLOGIES.md`](TECHNOLOGIES.md) for a deeper look at each technology.
