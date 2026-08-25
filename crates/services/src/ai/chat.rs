@@ -19,7 +19,7 @@ use crate::ai::tools::{definitions, execute_tool};
 use crate::ai::usage::log_usage;
 use crate::{AppContext, ServiceError};
 
-const MAX_TOOL_ITERATIONS: usize = 5;
+const MAX_TOOL_ITERATIONS: usize = 8;
 
 // ---------------------------------------------------------------------------
 // Conversations
@@ -175,6 +175,11 @@ async fn insert_message(
 /// Build the provider message history from a conversation's persisted messages.
 fn history_messages(rows: &[ai_message::Model]) -> Vec<AiMessage> {
     let mut out: Vec<AiMessage> = Vec::new();
+    // Tracks whether we are inside the tool-response block that follows an
+    // assistant `tool_calls` turn. A `tool` message is only valid there;
+    // otherwise it is an orphaned tool result and is skipped so providers
+    // don't reject the reconstructed history.
+    let mut awaiting_tools = false;
     for m in rows {
         let tool_calls = m
             .tool_calls_json
@@ -185,16 +190,20 @@ fn history_messages(rows: &[ai_message::Model]) -> Vec<AiMessage> {
             "tool" => ai::AiMessageRole::Tool,
             _ => ai::AiMessageRole::User,
         };
-        // A provider rejects a `tool` message that doesn't immediately follow an
-        // assistant `tool_calls` turn. Skip orphaned tool results so the
-        // reconstructed history is always valid.
-        if role == ai::AiMessageRole::Tool {
-            let preceded = out
-                .last()
-                .map(|p| p.role == ai::AiMessageRole::Assistant && p.tool_calls.is_some())
-                .unwrap_or(false);
-            if !preceded {
-                continue;
+        match role {
+            ai::AiMessageRole::Assistant => {
+                awaiting_tools = tool_calls.is_some();
+            }
+            ai::AiMessageRole::Tool => {
+                if !awaiting_tools {
+                    continue;
+                }
+            }
+            ai::AiMessageRole::User => {
+                awaiting_tools = false;
+            }
+            ai::AiMessageRole::System => {
+                awaiting_tools = false;
             }
         }
         out.push(AiMessage {
@@ -391,14 +400,22 @@ pub async fn send_message(
             }
         }
         if !mutating.is_empty() {
-            // Persist tool result placeholders so history stays coherent; the
-            // pending mutating calls await confirmation.
+            // Execute safe calls and persist their results.
             for c in &safe {
                 let r = execute_tool(ctx, c, Some(&model)).await?;
                 insert_message(ctx, conversation_id, "tool", &r.content, None, Some(&r.call_id), Some(&r.name), None, None).await?;
                 executed.push(json!({ "name": r.name, "ok": true }));
             }
+            // Persist a placeholder tool result for each mutating call so every
+            // tool_call_id on the assistant message is answered — providers
+            // reject a tool_calls message that isn't fully followed by tool
+            // messages. The real result is written on confirmation.
             for c in &mutating {
+                insert_message(
+                    ctx, conversation_id, "tool",
+                    "{\"ok\":false,\"pendingConfirmation\":true}", None,
+                    Some(&c.id), Some(&c.name), None, None,
+                ).await?;
                 executed.push(json!({ "name": c.name, "pendingConfirmation": true }));
             }
             pending_confirmation = Some(mutating);
@@ -445,6 +462,16 @@ pub async fn confirm_tool_calls(
 
     let mut executed: Vec<Value> = Vec::new();
     let mut messages = Vec::<AiMessage>::new();
+    // Replace the pending-confirmation placeholder tool messages with the real
+    // results, so the history doesn't accumulate duplicates for one call_id.
+    for c in &calls {
+        ai_message::Entity::delete_many()
+            .filter(ai_message::Column::ConversationId.eq(conversation_id))
+            .filter(ai_message::Column::Role.eq("tool"))
+            .filter(ai_message::Column::ToolCallId.eq(c.id.clone()))
+            .exec(&ctx.db)
+            .await?;
+    }
     for c in &calls {
         let r = execute_tool(ctx, c, Some(&model)).await?;
         insert_message(ctx, conversation_id, "tool", &r.content, None, Some(&r.call_id), Some(&r.name), None, None).await?;

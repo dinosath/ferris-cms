@@ -231,7 +231,17 @@ fn map_response(r: CompletionResponse, fallback_model: &str) -> AiResponse {
                     arguments: tc.function.arguments.clone(),
                 });
             }
-            AssistantContent::Reasoning(_) | AssistantContent::Image(_) => {}
+            AssistantContent::Reasoning(r) => {
+                for rc in r.content {
+                    if let rig::completion::message::ReasoningContent::Text { text, .. } = rc {
+                        if !content.is_empty() {
+                            content.push('\n');
+                        }
+                        content.push_str(&text);
+                    }
+                }
+            }
+            AssistantContent::Image(_) => {}
         }
     }
     AiResponse {
