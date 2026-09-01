@@ -15,3 +15,4 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 once_cell = { workspace = true }
 regex = { workspace = true }
+serverless_workflow_core = { git = "https://github.com/open-workflow-specification/sdk-rust", rev = "12d7c5b2ef76bc5186f949e3a3d649db6a3f3ba5" }

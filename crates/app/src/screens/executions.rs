@@ -182,8 +182,8 @@ pub fn ExecutionDetail(execution_id: i64) -> Element {
         exec_error = execution["error"].as_str().unwrap_or("").to_string();
         let runs = d["nodeRuns"].as_array().cloned().unwrap_or_default();
         for run in runs.iter() {
-            let node_name = run["nodeName"].as_str().unwrap_or("-").to_string();
-            let node_type = run["nodeType"].as_str().unwrap_or("").to_string();
+            let node_name = run["taskName"].as_str().unwrap_or("-").to_string();
+            let node_type = run["taskType"].as_str().unwrap_or("").to_string();
             let status = run["status"].as_str().unwrap_or("notExecuted").to_string();
             let dur = run["durationMs"].as_i64().map(|x| format!("{x} ms")).unwrap_or_else(|| "-".to_string());
             let err = run["error"].as_str().unwrap_or("").to_string();

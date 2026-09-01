@@ -17,7 +17,7 @@ use crate::workflow::{
     workflow_set_active,
 };
 use crate::{AppContext, ServiceError};
-use ::workflow::Workflow as WorkflowModel;
+use ::workflow::model::OwsDocument;
 
 /// The set of tools the assistant may request.
 pub fn definitions() -> Vec<AiTool> {
@@ -457,7 +457,7 @@ async fn execute_workflow_create(ctx: &AppContext, args: &Value) -> Result<Strin
     let def = args
         .get("definition")
         .map(|d| {
-            serde_json::from_value::<WorkflowModel>(d.clone())
+            serde_json::from_value::<OwsDocument>(d.clone())
                 .map_err(|e| ServiceError::internal(format!("invalid workflow definition: {e}")))
         })
         .transpose()?;
@@ -469,13 +469,13 @@ async fn execute_workflow_update(ctx: &AppContext, args: &Value) -> Result<Strin
     let id = arg_i64(args, "id").ok_or_else(|| ServiceError::validation("id required", vec![]))?;
     let mut wf = workflow_get(ctx, id).await?;
     if let Some(name) = args.get("name").and_then(|v| v.as_str()) {
-        wf.name = name.to_string();
+        wf.definition.document.name = name.to_string();
     }
     if let Some(desc) = args.get("description").and_then(|v| v.as_str()) {
-        wf.description = Some(desc.to_string());
+        wf.definition.document.summary = Some(desc.to_string());
     }
     if let Some(def) = args.get("definition") {
-        wf = serde_json::from_value::<WorkflowModel>(def.clone())
+        wf = serde_json::from_value::<OwsDocument>(def.clone())
             .map_err(|e| ServiceError::internal(format!("invalid workflow definition: {e}")))?;
         wf.id = id;
     }

@@ -1,217 +1,134 @@
-//! Workflow domain model (workflow domain layer).
+//! OWS — the Open Workflow Specification (canonical workflow model).
 //!
-//! Pure, serializable types describing workflows, their nodes, connections,
-//! executions, node runs and credentials. This is the stable wire + storage
-//! format: the frontend canvas is *not* the source of truth — these types are.
+//! This module defines the sole, canonical representation of a workflow in
+//! FerrisCMS. It is a wrapper around the official
+//! [`serverless_workflow_core`](https://github.com/open-workflow-specification/sdk-rust)
+//! [`WorkflowDefinition`], which implements the CNCF **Open Workflow DSL** (the
+//! Serverless Workflow specification).
 //!
-//! Node *metadata* (definitions) lives in `crate::node`; the actual runtime
-//! execution (running node logic against the database) lives in `services`.
-//! This file only describes *state*.
+//! The legacy "custom workflow" model (flat `nodes`/`connections` with ad-hoc
+//! trigger nodes) has been removed. In OWS:
+//!
+//! - **Tasks** are the executable units, declared as a named, ordered map in
+//!   `definition.do` (`call`, `set`, `switch`, `for`, `fork`, `do`, `wait`,
+//!   `try`, `emit`, `listen`, `raise`, `run`).
+//! - **Flow** is expressed with `then` transitions instead of visual edges.
+//! - **Triggers / event routing** are OWS events (`schedule.on`, `listen`).
+//! - **Functions** (reusable callables) live in `definition.use.functions`.
+//! - **Credentials / secrets** are declared in `definition.use.secrets` and
+//!   referenced by functions via OWS `authentication` policies.
+//! - **Error handling** is `try`/`catch` tasks and `errors`/`retries`.
+//!
+//! Static task/function *metadata* (definitions for the editor) lives in
+//! `crate::node`; the runtime execution lives in `services`. This file only
+//! describes *state* and wraps the SDK definition with app-level metadata.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
+use serverless_workflow_core::models::workflow::WorkflowDefinition;
 
-/// How a node should react when it fails.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum OnError {
-    /// Abort the whole execution immediately.
-    #[default]
-    Stop,
-    /// Log the error but continue executing downstream nodes.
-    Continue,
-    /// Send the error to a dedicated error-output port/connection.
-    Route,
+/// The OWS event types understood by the CMS trigger dispatcher
+/// (values of `EventFilterDefinition::with.type` / `data.type`).
+pub const OWS_TRIGGER_EVENTS: &[&str] = &[
+    "content.created",
+    "content.updated",
+    "content.published",
+    "content.deleted",
+    "media.uploaded",
+    "user.created",
+    "webhook",
+    "manual",
+    "schedule",
+    "workflow",
+];
+
+/// Whether an OWS event `type` is a known CMS trigger event.
+pub fn is_trigger_event(event_type: &str) -> bool {
+    OWS_TRIGGER_EVENTS.contains(&event_type)
 }
 
-/// A position on the infinite canvas.
-#[derive(Clone, Copy, Debug, PartialEq, Default, Serialize, Deserialize)]
-pub struct Position {
-    pub x: f64,
-    pub y: f64,
-}
-
-/// A reference from a node to a saved credential.
+/// A complete, persisted OWS workflow: app-level metadata plus the canonical
+/// Open Workflow DSL definition.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NodeCredentialRef {
-    /// The credential input name this node expects (e.g. `httpApi`).
-    pub name: String,
-    /// The saved credential entity id.
-    pub credential_id: i64,
-}
-
-/// A node in a workflow graph.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowNode {
-    /// Unique id within the workflow (uuid).
-    pub id: String,
-    /// Node type key, e.g. `manualTrigger`, `httpRequest`, `if`, `getContent`.
-    pub node_type: String,
-    /// Display name shown on the canvas.
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub position: Position,
-    /// Node configuration (values for the node's config schema).
-    #[serde(default)]
-    pub parameters: IndexMap<String, serde_json::Value>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub disabled: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub notes: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub credentials: Vec<NodeCredentialRef>,
-    #[serde(default)]
-    pub on_error: OnError,
-    /// Output port name to route errors to when `on_error == Route`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub error_output: Option<String>,
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
-impl WorkflowNode {
-    /// Read a string parameter with an optional default.
-    pub fn param_str(&self, key: &str) -> Option<String> {
-        self.parameters
-            .get(key)
-            .and_then(|v| match v {
-                serde_json::Value::String(s) => Some(s.clone()),
-                serde_json::Value::Number(n) => Some(n.to_string()),
-                serde_json::Value::Bool(b) => Some(b.to_string()),
-                _ => None,
-            })
-    }
-
-    pub fn param_bool(&self, key: &str) -> Option<bool> {
-        self.parameters.get(key).and_then(|v| v.as_bool())
-    }
-
-    pub fn param_i64(&self, key: &str) -> Option<i64> {
-        self.parameters
-            .get(key)
-            .and_then(|v| v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
-    }
-}
-
-/// A directed edge between two node ports.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Connection {
-    /// Unique id within the workflow.
-    pub id: String,
-    /// Source node id.
-    pub from: String,
-    /// Source node output port name (`main`, `true`, `false`, ...).
-    pub from_output: String,
-    /// Target node id.
-    pub to: String,
-    /// Target node input port name (`main`, `error`, ...).
-    pub to_input: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-}
-
-impl Connection {
-    /// The canonical key used for graph adjacency.
-    pub fn source_key(&self) -> (String, String) {
-        (self.from.clone(), self.from_output.clone())
-    }
-}
-
-/// Execution ordering policy (n8n `v1`/`v2`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ExecutionOrder {
-    #[default]
-    V1,
-    V2,
-}
-
-/// Workflow-level settings.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkflowSettings {
-    #[serde(default)]
-    pub execution_order: ExecutionOrder,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout_secs: Option<u64>,
-    #[serde(default)]
-    pub save_execution_progress: bool,
-}
-
-impl Default for WorkflowSettings {
-    fn default() -> Self {
-        Self {
-            execution_order: ExecutionOrder::default(),
-            timeout_secs: None,
-            save_execution_progress: true,
-        }
-    }
-}
-
-/// A complete, persisted workflow definition.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Workflow {
+pub struct OwsDocument {
     pub id: i64,
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    pub version: i64,
     pub active: bool,
-    #[serde(default)]
-    pub nodes: Vec<WorkflowNode>,
-    #[serde(default)]
-    pub connections: Vec<Connection>,
-    #[serde(default)]
-    pub settings: WorkflowSettings,
-    /// Workflow-level variables available to expressions (`$workflow.variables.x`).
-    #[serde(default)]
-    pub variables: IndexMap<String, serde_json::Value>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<String>,
-    /// Kubernetes-style object metadata (namespace, labels, annotations).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<core_domain::Metadata>,
+    pub version: i64,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// The canonical OWS definition (Open Workflow DSL).
+    pub definition: WorkflowDefinition,
 }
 
-impl Workflow {
-    pub fn node(&self, id: &str) -> Option<&WorkflowNode> {
-        self.nodes.iter().find(|n| n.id == id)
+impl OwsDocument {
+    pub fn name(&self) -> &str {
+        &self.definition.document.name
     }
 
-    pub fn trigger_nodes(&self) -> Vec<&WorkflowNode> {
-        self.nodes.iter().filter(|n| is_trigger_type(&n.node_type)).collect()
+    pub fn title(&self) -> Option<&str> {
+        self.definition.document.title.as_deref()
     }
 
-    /// All connections leaving a node's output port.
-    pub fn outgoing(&self, node_id: &str, port: &str) -> Vec<&Connection> {
-        self.connections
+    pub fn summary(&self) -> Option<&str> {
+        self.definition.document.summary.as_deref()
+    }
+
+    pub fn description(&self) -> Option<String> {
+        self.definition
+            .document
+            .summary
+            .clone()
+            .or_else(|| self.definition.document.title.clone())
+    }
+
+    pub fn tags(&self) -> Vec<String> {
+        self.definition
+            .document
+            .tags
+            .as_ref()
+            .map(|t| t.keys().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// The number of top-level tasks in the workflow.
+    pub fn task_count(&self) -> usize {
+        self.definition.do_.entries.len()
+    }
+
+    /// Names of the top-level tasks, in declaration order.
+    pub fn task_names(&self) -> Vec<String> {
+        self.definition
+            .do_
+            .entries
             .iter()
-            .filter(|c| c.from == node_id && c.from_output == port)
+            .filter_map(|e| e.keys().next().cloned())
             .collect()
     }
 
-    /// All connections entering a node's input port.
-    pub fn incoming(&self, node_id: &str) -> Vec<&Connection> {
-        self.connections
-            .iter()
-            .filter(|c| c.to == node_id)
-            .collect()
+    /// Whether the workflow is scheduled (`schedule.every`/`cron`/`after`).
+    pub fn is_scheduled(&self) -> bool {
+        self.definition
+            .schedule
+            .as_ref()
+            .map(|s| s.every.is_some() || s.cron.is_some() || s.after.is_some())
+            .unwrap_or(false)
+    }
+
+    /// Cron expression, if any.
+    pub fn cron(&self) -> Option<String> {
+        self.definition.schedule.as_ref().and_then(|s| s.cron.clone())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Execution status & logs (OWS runtime)
+// ---------------------------------------------------------------------------
 
 /// Execution status (persisted + shown in the UI).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ExecutionStatus {
+pub enum OwsExecutionStatus {
     Running,
     Success,
     Failed,
@@ -219,7 +136,7 @@ pub enum ExecutionStatus {
     Cancelled,
 }
 
-impl ExecutionStatus {
+impl OwsExecutionStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Running => "running",
@@ -235,10 +152,10 @@ impl ExecutionStatus {
     }
 }
 
-/// Per-node run status (overlaid on the canvas).
+/// Per-task run status (overlaid on the inspector).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum NodeRunStatus {
+pub enum OwsTaskRunStatus {
     NotExecuted,
     Running,
     Success,
@@ -247,7 +164,7 @@ pub enum NodeRunStatus {
     Waiting,
 }
 
-impl NodeRunStatus {
+impl OwsTaskRunStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::NotExecuted => "notExecuted",
@@ -260,16 +177,16 @@ impl NodeRunStatus {
     }
 }
 
-/// The public execution view. Stored as a row + node-run rows in `services`.
+/// The public execution view. Stored as a row + task-run rows in `services`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Execution {
+pub struct OwsExecution {
     pub id: i64,
     pub workflow_id: i64,
-    pub status: ExecutionStatus,
+    pub status: OwsExecutionStatus,
     /// manual | trigger | schedule | webhook
     pub mode: String,
-    /// The trigger that started it (event name / node name).
+    /// The trigger that started it (event name / task name).
     pub trigger: String,
     pub started_at: chrono::DateTime<chrono::Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -280,16 +197,15 @@ pub struct Execution {
     pub error: Option<String>,
 }
 
-/// One node run within an execution.
+/// One task run within an execution.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NodeRun {
+pub struct OwsTaskRun {
     pub id: i64,
     pub execution_id: i64,
-    pub node_id: String,
-    pub node_name: String,
-    pub node_type: String,
-    pub status: NodeRunStatus,
+    pub task_name: String,
+    pub task_type: String,
+    pub status: OwsTaskRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,14 +221,14 @@ pub struct NodeRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     pub attempts: i64,
-    /// Deterministic topological execution order index.
+    /// Deterministic execution order index.
     pub order: i64,
 }
 
 /// A saved credential (an encrypted blob is stored in `services`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Credential {
+pub struct OwsCredential {
     pub id: i64,
     pub name: String,
     /// Credential type key, e.g. `httpBasicAuth`, `httpHeaderAuth`, `postgres`.
@@ -321,122 +237,188 @@ pub struct Credential {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-/// Validation result for a workflow.
+/// Validation result for an OWS document.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WorkflowValidation {
+pub struct OwsValidation {
     pub valid: bool,
     #[serde(default)]
-    pub errors: Vec<ValidationIssue>,
+    pub errors: Vec<OwsValidationIssue>,
 }
 
 /// A single validation issue.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ValidationIssue {
+pub struct OwsValidationIssue {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub node_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub node_name: Option<String>,
-    /// e.g. `missing_trigger`, `unconnected_node`, `unknown_node_type`,
-    /// `missing_required_param`, `unknown_connection_target`.
+    pub task_name: Option<String>,
+    /// e.g. `missing_trigger`, `unknown_task_reference`, `unknown_function`,
+    /// `missing_required_config`, `unknown_event`.
     pub code: String,
     pub message: String,
 }
 
-/// Check whether a node type is a trigger (has no `main` input).
-pub fn is_trigger_type(node_type: &str) -> bool {
-    matches!(
-        node_type,
-        "manualTrigger"
-            | "scheduleTrigger"
-            | "webhookTrigger"
-            | "httpTrigger"
-            | "contentCreated"
-            | "contentUpdated"
-            | "contentPublished"
-            | "contentDeleted"
-            | "mediaUploaded"
-            | "userCreated"
-            | "workflowTrigger"
+/// OWS task type names (for the executor + editor).
+pub mod task_type {
+    pub const CALL: &str = "call";
+    pub const DO: &str = "do";
+    pub const EMIT: &str = "emit";
+    pub const FOR: &str = "for";
+    pub const FORK: &str = "fork";
+    pub const LISTEN: &str = "listen";
+    pub const RAISE: &str = "raise";
+    pub const RUN: &str = "run";
+    pub const SET: &str = "set";
+    pub const SWITCH: &str = "switch";
+    pub const TRY: &str = "try";
+    pub const WAIT: &str = "wait";
+}
+
+/// OWS function names (values of `CallTaskDefinition::call`) understood by the
+/// FerrisCMS runtime. These map to the executor implementations in `services`.
+pub mod function {
+    // CMS content / media functions.
+    pub const GET_CONTENT: &str = "cms.getContent";
+    pub const FIND_CONTENT: &str = "cms.findContent";
+    pub const QUERY_CONTENT: &str = "cms.queryContent";
+    pub const CREATE_CONTENT: &str = "cms.createContent";
+    pub const UPDATE_CONTENT: &str = "cms.updateContent";
+    pub const DELETE_CONTENT: &str = "cms.deleteContent";
+    pub const PUBLISH_CONTENT: &str = "cms.publishContent";
+    pub const UNPUBLISH_CONTENT: &str = "cms.unpublishContent";
+    pub const GET_MEDIA: &str = "cms.getMedia";
+    pub const UPLOAD_MEDIA: &str = "cms.uploadMedia";
+
+    // Data transformation functions.
+    pub const TRANSFORM_DATA: &str = "cms.transformData";
+    pub const JSON: &str = "data.json";
+    pub const CSV: &str = "data.csv";
+    pub const TRANSFORM: &str = "core.transform";
+    pub const CODE: &str = "core.code";
+    pub const EDIT_FIELDS: &str = "core.editFields";
+
+    // Integration functions.
+    pub const HTTP_REQUEST: &str = "http.request";
+    pub const WEBHOOK: &str = "http.webhook";
+    pub const GRAPHQL: &str = "http.graphql";
+    pub const REST_API: &str = "http.rest";
+    pub const DB_QUERY: &str = "db.query";
+    pub const POSTGRES: &str = "db.postgres";
+    pub const REDIS: &str = "db.redis";
+
+    /// All functions the FerrisCMS runtime can execute.
+    pub const ALL: &[&str] = &[
+        GET_CONTENT,
+        FIND_CONTENT,
+        QUERY_CONTENT,
+        CREATE_CONTENT,
+        UPDATE_CONTENT,
+        DELETE_CONTENT,
+        PUBLISH_CONTENT,
+        UNPUBLISH_CONTENT,
+        GET_MEDIA,
+        UPLOAD_MEDIA,
+        TRANSFORM_DATA,
+        JSON,
+        CSV,
+        TRANSFORM,
+        CODE,
+        EDIT_FIELDS,
+        HTTP_REQUEST,
+        WEBHOOK,
+        GRAPHQL,
+        REST_API,
+        DB_QUERY,
+        POSTGRES,
+        REDIS,
+    ];
+
+    pub fn is_known(name: &str) -> bool {
+        ALL.contains(&name)
+    }
+}
+
+/// Workflow-level variables used to seed the runtime context (`$context`).
+pub fn default_context(definition: &WorkflowDefinition) -> serde_json::Value {
+    serde_json::Value::Object(
+        definition
+            .metadata
+            .clone()
+            .map(|m| m.into_iter().collect())
+            .unwrap_or_default(),
     )
+}
+
+/// An ordered view of the workflow's named tasks.
+pub fn task_entries(
+    definition: &WorkflowDefinition,
+) -> Vec<(String, &serverless_workflow_core::models::task::TaskDefinition)> {
+    definition
+        .do_
+        .entries
+        .iter()
+        .filter_map(|e| {
+            e.iter()
+                .next()
+                .map(|(name, task)| (name.clone(), task))
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serverless_workflow_core::models::workflow::WorkflowDefinitionMetadata;
 
     #[test]
-    fn workflow_helpers() {
-        let now = chrono::Utc::now();
-        let mut wf = Workflow {
+    fn wraps_definition_and_helpers() {
+        let metadata = WorkflowDefinitionMetadata::new(
+            "default",
+            "demo",
+            "1.0.0",
+            Some("Demo".to_string()),
+            Some("A demo".to_string()),
+            None,
+        );
+        let mut definition = WorkflowDefinition::new(metadata);
+        definition.do_.add(
+            "first".to_string(),
+            serverless_workflow_core::models::task::TaskDefinition::Set(
+                serverless_workflow_core::models::task::SetTaskDefinition::new(),
+            ),
+        );
+
+        let doc = OwsDocument {
             id: 1,
-            name: "Demo".into(),
-            description: None,
-            version: 1,
             active: false,
-            nodes: vec![
-                WorkflowNode {
-                    id: "a".into(),
-                    node_type: "manualTrigger".into(),
-                    name: "Manual".into(),
-                    description: None,
-                    position: Position { x: 0.0, y: 0.0 },
-                    parameters: IndexMap::new(),
-                    disabled: false,
-                    notes: None,
-                    credentials: vec![],
-                    on_error: OnError::default(),
-                    error_output: None,
-                },
-                WorkflowNode {
-                    id: "b".into(),
-                    node_type: "noop".into(),
-                    name: "Noop".into(),
-                    description: None,
-                    position: Position { x: 200.0, y: 0.0 },
-                    parameters: IndexMap::new(),
-                    disabled: false,
-                    notes: None,
-                    credentials: vec![],
-                    on_error: OnError::default(),
-                    error_output: None,
-                },
-            ],
-            connections: vec![Connection {
-                id: "c1".into(),
-                from: "a".into(),
-                from_output: "main".into(),
-                to: "b".into(),
-                to_input: "main".into(),
-                label: None,
-            }],
-            settings: WorkflowSettings::default(),
-            variables: IndexMap::new(),
-            tags: vec![],
-            created_at: now,
-            updated_at: now,
+            version: 1,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            definition,
         };
+        assert_eq!(doc.name(), "demo");
+        assert_eq!(doc.title(), Some("Demo"));
+        assert_eq!(doc.task_count(), 1);
+        assert_eq!(doc.task_names(), vec!["first".to_string()]);
+        assert!(!doc.is_scheduled());
+        assert!(is_trigger_event("content.created"));
+        assert!(!is_trigger_event("core.set"));
+        assert!(function::is_known(function::HTTP_REQUEST));
+        assert!(!function::is_known("nope"));
 
-        assert_eq!(wf.trigger_nodes().len(), 1);
-        assert_eq!(wf.node("b").unwrap().name, "Noop");
-        assert_eq!(wf.outgoing("a", "main").len(), 1);
-        assert_eq!(wf.incoming("b").len(), 1);
-        assert!(is_trigger_type("manualTrigger"));
-        assert!(!is_trigger_type("noop"));
-
-        // JSON round-trip preserves structure (stable format).
-        let v = serde_json::to_value(&wf).unwrap();
-        let back: Workflow = serde_json::from_value(v).unwrap();
-        assert_eq!(wf, back);
+        // JSON round-trip preserves the OWS document.
+        let v = serde_json::to_value(&doc).unwrap();
+        assert_eq!(v["definition"]["document"]["name"], "demo");
+        let back: OwsDocument = serde_json::from_value(v).unwrap();
+        assert_eq!(doc, back);
     }
 
     #[test]
     fn status_helpers() {
-        assert_eq!(ExecutionStatus::Running.as_str(), "running");
-        assert!(ExecutionStatus::Success.is_terminal());
-        assert!(ExecutionStatus::Failed.is_terminal());
-        assert!(ExecutionStatus::Cancelled.is_terminal());
-        assert!(!ExecutionStatus::Waiting.is_terminal());
-        assert_eq!(NodeRunStatus::Skipped.as_str(), "skipped");
+        assert_eq!(OwsExecutionStatus::Running.as_str(), "running");
+        assert!(OwsExecutionStatus::Success.is_terminal());
+        assert!(OwsExecutionStatus::Failed.is_terminal());
+        assert!(OwsExecutionStatus::Cancelled.is_terminal());
+        assert!(!OwsExecutionStatus::Waiting.is_terminal());
+        assert_eq!(OwsTaskRunStatus::Skipped.as_str(), "skipped");
     }
 }

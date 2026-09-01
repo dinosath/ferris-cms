@@ -11,13 +11,13 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use services::workflow::engine::{RunOptions, execution_cancel, execution_get, execution_list, execution_retry};
 use services::workflow::{
     action, credential_create, credential_delete, credential_get, credential_list, credential_types,
     credential_update, workflow_create, workflow_delete, workflow_duplicate, workflow_export,
-    workflow_get, workflow_import, workflow_list, workflow_save, workflow_set_active,
-    workflow_validate_definition,
+    workflow_export_yaml, workflow_get, workflow_import, workflow_list, workflow_save,
+    workflow_set_active, workflow_validate_definition,
 };
 use std::sync::Arc;
 
@@ -39,7 +39,7 @@ pub struct CreateWorkflowBody {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub definition: Option<::workflow::model::Workflow>,
+    pub definition: Option<::workflow::model::OwsDocument>,
 }
 
 #[derive(Deserialize)]
@@ -89,7 +89,7 @@ pub async fn create_workflow(
 pub async fn save_workflow(
     admin: AdminCtx,
     Path(id): Path<i64>,
-    Json(wf): Json<::workflow::model::Workflow>,
+    Json(wf): Json<::workflow::model::OwsDocument>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let saved = workflow_save(&admin.0, Some(id), &wf).await?;
     Ok(Json(serde_json::json!({ "data": saved })))
@@ -135,12 +135,29 @@ pub async fn validate_workflow(
     Ok(Json(serde_json::json!({ "data": v })))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportWorkflowParams {
+    /// `json` (default) or `yaml`.
+    #[serde(default)]
+    pub format: Option<String>,
+}
+
 pub async fn export_workflow(
     admin: AdminCtx,
     Path(id): Path<i64>,
+    Query(params): Query<ExportWorkflowParams>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let v = workflow_export(&admin.0, id).await?;
-    Ok(Json(v))
+    match params.format.as_deref().unwrap_or("json") {
+        "yaml" | "yml" => {
+            let yaml = workflow_export_yaml(&admin.0, id).await?;
+            Ok(Json(serde_json::json!({ "format": "yaml", "data": yaml })))
+        }
+        _ => {
+            let v = workflow_export(&admin.0, id).await?;
+            Ok(Json(v))
+        }
+    }
 }
 
 pub async fn import_workflow(

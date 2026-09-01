@@ -1,23 +1,23 @@
-//! Workflow execution engine (execution layer).
+//! OWS workflow execution engine (execution layer).
 //!
-//! Loads a workflow definition, validates it, computes a deterministic
-//! topological execution order, runs each node against the CMS database and
-//! external services, passes structured items between nodes (including through
-//! branches), records per-node input/output, and persists the execution and
-//! its node runs. Long-running executions run asynchronously (spawned on the
+//! Loads an `OwsDocument`, validates it, resolves a deterministic task order,
+//! and runs each OWS task against the CMS database and external services,
+//! passing the workflow context between tasks and following `then`
+//! transitions. Records per-task input/output and persists the execution and
+//! its task runs. Long-running executions run asynchronously (spawned on the
 //! Tokio runtime) so the HTTP request lifecycle is never blocked.
 
 use crate::{AppContext, ServiceError};
 use db::entities::{workflow_execution, workflow_node_run};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use std::collections::HashMap;
+use std::sync::Arc;
 use ::workflow::model::{
-    Execution, ExecutionStatus, NodeRun, NodeRunStatus, Workflow as WorkflowModel, WorkflowNode,
+    OwsExecution, OwsExecutionStatus, OwsDocument, OwsTaskRun, OwsTaskRunStatus,
 };
+use serverless_workflow_core::models::task::{TaskDefinition, TaskDefinition as Task};
 
-use super::executors::{self, NodeRunContext};
+use super::executors::{self, FunctionRunContext};
 
 /// Options for running a workflow.
 #[derive(Clone)]
@@ -25,7 +25,7 @@ pub struct RunOptions {
     pub mode: String,
     pub trigger: String,
     pub input: serde_json::Value,
-    /// Max attempts per node (retry on transient failure). Default 1.
+    /// Max attempts per task (retry on transient failure). Default 1.
     pub max_attempts: i64,
 }
 
@@ -46,13 +46,13 @@ impl Default for RunOptions {
 
 async fn create_execution(
     ctx: &AppContext,
-    workflow: &WorkflowModel,
+    workflow: &OwsDocument,
     opts: &RunOptions,
 ) -> Result<i64, ServiceError> {
     let now = chrono::Utc::now();
     let row = workflow_execution::ActiveModel {
         workflow_id: Set(workflow.id),
-        status: Set(ExecutionStatus::Running.as_str().to_string()),
+        status: Set(OwsExecutionStatus::Running.as_str().to_string()),
         mode: Set(opts.mode.clone()),
         trigger: Set(opts.trigger.clone()),
         started_at: Set(now),
@@ -66,24 +66,15 @@ async fn create_execution(
     .await?;
     let exec_id = row.id;
 
-    // Pre-create node-run placeholders (status = notExecuted).
-    let mut order_map: HashMap<String, usize> = HashMap::new();
-    if let Ok(order) = ::workflow::graph::topological_order(workflow) {
-        for (i, id) in order.into_iter().enumerate() {
-            order_map.insert(id, i);
-        }
-    }
-    for node in &workflow.nodes {
-        let order = order_map
-            .get(&node.id)
-            .copied()
-            .unwrap_or(usize::MAX);
+    // Pre-create task-run placeholders in declaration order.
+    for (i, (name, task)) in ::workflow::model::task_entries(&workflow.definition).into_iter().enumerate()
+    {
         let _ = workflow_node_run::ActiveModel {
             execution_id: Set(exec_id),
-            node_id: Set(node.id.clone()),
-            node_name: Set(node.name.clone()),
-            node_type: Set(node.node_type.clone()),
-            status: Set(NodeRunStatus::NotExecuted.as_str().to_string()),
+            node_id: Set(name.clone()),
+            node_name: Set(name.clone()),
+            node_type: Set(task_type_label(task)),
+            status: Set(OwsTaskRunStatus::NotExecuted.as_str().to_string()),
             started_at: Set(None),
             finished_at: Set(None),
             duration_ms: Set(None),
@@ -91,7 +82,7 @@ async fn create_execution(
             output_json: Set(None),
             error: Set(None),
             attempts: Set(0),
-            order: Set(order as i64),
+            order: Set(i as i64),
             ..Default::default()
         }
         .insert(&ctx.db)
@@ -100,10 +91,28 @@ async fn create_execution(
     Ok(exec_id)
 }
 
+fn task_type_label(task: &TaskDefinition) -> String {
+    use serverless_workflow_core::models::task::TaskDefinition as T;
+    match task {
+        T::Call(_) => "call".into(),
+        T::Do(_) => "do".into(),
+        T::Emit(_) => "emit".into(),
+        T::For(_) => "for".into(),
+        T::Fork(_) => "fork".into(),
+        T::Listen(_) => "listen".into(),
+        T::Raise(_) => "raise".into(),
+        T::Run(_) => "run".into(),
+        T::Set(_) => "set".into(),
+        T::Switch(_) => "switch".into(),
+        T::Try(_) => "try".into(),
+        T::Wait(_) => "wait".into(),
+    }
+}
+
 async fn update_execution(
     ctx: &AppContext,
     exec_id: i64,
-    status: ExecutionStatus,
+    status: OwsExecutionStatus,
     error: Option<String>,
 ) -> Result<(), ServiceError> {
     let row = workflow_execution::Entity::find_by_id(exec_id)
@@ -121,93 +130,19 @@ async fn update_execution(
     Ok(())
 }
 
-async fn save_node_run(
-    ctx: &AppContext,
-    exec_id: i64,
-    node_id: &str,
-    status: NodeRunStatus,
-    started_at: chrono::DateTime<chrono::Utc>,
-    finished_at: chrono::DateTime<chrono::Utc>,
-    input: &serde_json::Value,
-    output: &serde_json::Value,
-    error: Option<String>,
-    attempts: i64,
-) -> Result<(), ServiceError> {
-    let existing = workflow_node_run::Entity::find()
-        .filter(workflow_node_run::Column::ExecutionId.eq(exec_id))
-        .filter(workflow_node_run::Column::NodeId.eq(node_id))
-        .one(&ctx.db)
-        .await?;
-    let duration_ms = (finished_at - started_at).num_milliseconds();
-    if let Some(existing) = existing {
-        let mut am: workflow_node_run::ActiveModel = existing.into();
-        am.status = Set(status.as_str().to_string());
-        am.started_at = Set(Some(started_at));
-        am.finished_at = Set(Some(finished_at));
-        am.duration_ms = Set(Some(duration_ms));
-        am.input_json = Set(Some(input.clone()));
-        am.output_json = Set(Some(output.clone()));
-        am.error = Set(error);
-        am.attempts = Set(attempts);
-        am.update(&ctx.db).await?;
-    } else {
-        let _ = workflow_node_run::ActiveModel {
-            execution_id: Set(exec_id),
-            node_id: Set(node_id.to_string()),
-            node_name: Set(String::new()),
-            node_type: Set(String::new()),
-            status: Set(status.as_str().to_string()),
-            started_at: Set(Some(started_at)),
-            finished_at: Set(Some(finished_at)),
-            duration_ms: Set(Some(duration_ms)),
-            input_json: Set(Some(input.clone())),
-            output_json: Set(Some(output.clone())),
-            error: Set(error),
-            attempts: Set(attempts),
-            order: Set(0),
-            ..Default::default()
-        }
-        .insert(&ctx.db)
-        .await?;
-    }
-    Ok(())
-}
-
-async fn mark_skipped(
-    ctx: &AppContext,
-    exec_id: i64,
-    node: &WorkflowNode,
-) -> Result<(), ServiceError> {
-    let now = chrono::Utc::now();
-    let existing = workflow_node_run::Entity::find()
-        .filter(workflow_node_run::Column::ExecutionId.eq(exec_id))
-        .filter(workflow_node_run::Column::NodeId.eq(&node.id))
-        .one(&ctx.db)
-        .await?;
-    if let Some(e) = existing {
-        let mut am: workflow_node_run::ActiveModel = e.into();
-        am.status = Set(NodeRunStatus::Skipped.as_str().to_string());
-        am.finished_at = Set(Some(now));
-        am.attempts = Set(0);
-        am.update(&ctx.db).await?;
-    }
-    Ok(())
-}
 
 // ---------------------------------------------------------------------------
 // Public engine API
 // ---------------------------------------------------------------------------
 
 /// Validate a workflow and start an async execution. Returns the execution id.
-/// The execution runs in the background (Tokio spawn), so long-running
-/// workflows never block the calling HTTP request.
 pub async fn execute_workflow(
     ctx: &AppContext,
     workflow_id: i64,
     opts: RunOptions,
 ) -> Result<i64, ServiceError> {
     let workflow = super::workflow_load(ctx, workflow_id).await?;
-    let validation = ::workflow::validate(&workflow, ::workflow::registry());
+    let validation = ::workflow::validate_workflow(&workflow);
     if !validation.valid {
         return Err(ServiceError::Validation(
             validation
@@ -220,11 +155,6 @@ pub async fn execute_workflow(
     let exec_id = create_execution(ctx, &workflow, &opts).await?;
     let ctx = ctx.clone();
     let workflow = workflow.clone();
-    // Run the execution on a dedicated worker thread with its own Tokio
-    // runtime. This keeps long-running workflows off the request thread and
-    // lets CMS triggers (which are themselves async) dispatch without blocking.
-    // A dedicated thread also avoids stack recursion for workflow-triggered
-    // workflows (each trigger spawns a fresh execution).
     std::thread::Builder::new()
         .name("workflow-exec".into())
         .spawn(move || {
@@ -240,7 +170,7 @@ pub async fn execute_workflow(
             };
             let result = rt.block_on(async {
                 if let Err(e) = run_execution(&ctx, &workflow, exec_id, &opts).await {
-                    update_execution(&ctx, exec_id, ExecutionStatus::Failed, Some(e.to_string()))
+                    update_execution(&ctx, exec_id, OwsExecutionStatus::Failed, Some(e.to_string()))
                         .await
                 } else {
                     Ok(())
@@ -253,213 +183,99 @@ pub async fn execute_workflow(
         .map_err(|e| ServiceError::internal(format!("failed to spawn workflow worker: {e}")))?;
     Ok(exec_id)
 }
-/// Run a workflow synchronously (used by tests and the async task). Resolves
-/// the execution to `Success` or `Failed`.
+
+/// Run a workflow synchronously using the `ows-runtime` execution engine.
 pub async fn run_execution(
     ctx: &AppContext,
-    workflow: &WorkflowModel,
+    workflow: &OwsDocument,
     exec_id: i64,
     opts: &RunOptions,
 ) -> Result<(), ServiceError> {
-    let order = ::workflow::graph::topological_order(workflow)
-        .map_err(|e| ServiceError::internal(format!("workflow is not executable: {e}")))?;
+    let names = workflow.task_names();
+    if names.is_empty() {
+        update_execution(ctx, exec_id, OwsExecutionStatus::Success, None).await?;
+        return Ok(());
+    }
 
-    // `(node_id, port) -> items` produced so far.
-    let mut results: HashMap<(String, String), Vec<serde_json::Value>> = HashMap::new();
-    // `node name -> output object` for expression context.
-    let mut node_outputs: HashMap<String, serde_json::Value> = HashMap::new();
+    // Build an OWS runtime with the FerrisCMS functions registered.
+    let invoker: Arc<dyn ows_runtime::service::FunctionInvoker> =
+        Arc::new(super::runtime_fn::CmsFunctionInvoker {
+            app: Arc::new(ctx.clone()),
+        });
+    let mut builder = ows_runtime::Runtime::builder();
+    for name in ::workflow::model::function::ALL {
+        builder = builder.register_function(name, invoker.clone());
+    }
+    let runtime = builder
+        .build()
+        .map_err(|e| ServiceError::internal(format!("failed to build OWS runtime: {e}")))?;
+    let compiled = runtime
+        .register_definition(&workflow.definition)
+        .map_err(|e| ServiceError::internal(format!("failed to compile workflow: {e}")))?;
 
-    // Seed the execution metadata for expressions.
-    let execution_json = serde_json::json!({
-        "id": exec_id,
-        "mode": opts.mode,
-        "trigger": opts.trigger,
-        "startedAt": chrono::Utc::now().to_rfc3339(),
-    });
-    let workflow_json = serde_json::to_value(workflow).unwrap_or(serde_json::json!({}));
-    let env: HashMap<String, String> = HashMap::new();
-    let mut has_error = false;
-    let mut stop = false;
+    let result = runtime
+        .run(compiled, opts.input.clone())
+        .await;
+    let task_order = runtime.take_task_order();
 
-    for node_id in &order {
-        if stop {
-            break;
+    match result {
+        Ok(output) => {
+            persist_task_runs(ctx, exec_id, workflow, &task_order, false).await?;
+            update_execution(ctx, exec_id, OwsExecutionStatus::Success, None).await?;
+            let _ = output;
         }
-        let Some(node) = workflow.node(node_id) else { continue };
-
-        // Triggers: emit the execution input as their output items.
-        if ::workflow::model::is_trigger_type(&node.node_type) {
-            let items = trigger_items(opts);
-            results.insert((node.id.clone(), "main".to_string()), items.clone());
-            node_outputs.insert(
-                node.name.clone(),
-                output_object(&items),
-            );
-            let now = chrono::Utc::now();
-            let _ = save_node_run(
+        Err(err) => {
+            persist_task_runs(ctx, exec_id, workflow, &task_order, true).await?;
+            update_execution(
                 ctx,
                 exec_id,
-                &node.id,
-                NodeRunStatus::Success,
-                now,
-                now,
-                &serde_json::json!({}),
-                &serde_json::json!({ "items": items }),
-                None,
-                1,
+                OwsExecutionStatus::Failed,
+                Some(err.to_string()),
             )
-            .await;
-            continue;
+            .await?;
         }
+    }
+    Ok(())
+}
 
-        if node.disabled {
-            mark_skipped(ctx, exec_id, node).await?;
-            continue;
-        }
-
-        // Gather input items from all incoming connections.
-        let mut input_items: Vec<serde_json::Value> = Vec::new();
-        for conn in workflow.incoming(&node.id) {
-            if let Some(items) = results.get(&conn.source_key()) {
-                for it in items {
-                    input_items.push(it.clone());
-                }
-            }
-        }
-        let had_connections = !workflow.incoming(&node.id).is_empty();
-        if !had_connections {
-            // Unreachable node (no trigger path) → skipped.
-            mark_skipped(ctx, exec_id, node).await?;
-            continue;
-        }
-        // A node that receives no items is skipped (e.g. the inactive branch
-        // of an If/Switch).
-        if input_items.is_empty() {
-            mark_skipped(ctx, exec_id, node).await?;
-            continue;
-        }
-
-        // Build the runtime context.
-        let run_ctx = NodeRunContext {
-            app: ctx,
-            workflow,
-            node,
-            node_outputs: &node_outputs,
-            env: &env,
-            execution_id: exec_id,
-            workflow_json: workflow_json.clone(),
-            execution_json: execution_json.clone(),
+/// Mark the executed tasks (per the runtime's recorded task order) as
+/// `success` (or `failed` when the run errored) and leave the rest as-is.
+async fn persist_task_runs(
+    ctx: &AppContext,
+    exec_id: i64,
+    workflow: &OwsDocument,
+    executed: &[String],
+    failed: bool,
+) -> Result<(), ServiceError> {
+    let now = chrono::Utc::now();
+    for (i, name) in executed.iter().enumerate() {
+        let status = if failed && i == executed.len() - 1 {
+            OwsTaskRunStatus::Failed
+        } else {
+            OwsTaskRunStatus::Success
         };
-
-        // Execute with retry on transient failure.
-        let started = chrono::Utc::now();
-        let mut last_err: Option<String> = None;
-        let mut result: Option<executors::NodeResult> = None;
-        let mut attempts = 0i64;
-        for attempt in 1..=opts.max_attempts {
-            attempts = attempt;
-            match executors::execute_node(&run_ctx, &node.node_type, &input_items).await {
-                Ok(r) => {
-                    result = Some(r);
-                    last_err = None;
-                    break;
-                }
-                Err(e) => {
-                    last_err = Some(e);
-                    if attempt < opts.max_attempts {
-                        tokio::time::sleep(std::time::Duration::from_millis(100 * attempt as u64))
-                            .await;
-                    }
-                }
-            }
-        }
-
-        let finished = chrono::Utc::now();
-        match result {
-            Some(res) => {
-                for (port, items) in &res {
-                    results.insert((node.id.clone(), port.clone()), items.clone());
-                }
-                node_outputs.insert(
-                    node.name.clone(),
-                    output_object(&res.get("main").cloned().unwrap_or_default()),
-                );
-                let _ = save_node_run(
-                    ctx,
-                    exec_id,
-                    &node.id,
-                    NodeRunStatus::Success,
-                    started,
-                    finished,
-                    &serde_json::json!({ "items": input_items }),
-                    &serde_json::to_value(&res).unwrap_or(serde_json::json!({})),
-                    None,
-                    attempts,
-                )
-                .await;
-            }
-            None => {
-                has_error = true;
-                let err = last_err.unwrap_or_else(|| "node failed".to_string());
-                let _ = save_node_run(
-                    ctx,
-                    exec_id,
-                    &node.id,
-                    NodeRunStatus::Failed,
-                    started,
-                    finished,
-                    &serde_json::json!({ "items": input_items }),
-                    &serde_json::json!({}),
-                    Some(err.clone()),
-                    attempts,
-                )
-                .await;
-                match node.on_error {
-                    ::workflow::model::OnError::Stop => {
-                        stop = true;
-                    }
-                    ::workflow::model::OnError::Continue => {}
-                    ::workflow::model::OnError::Route => {
-                        // Route error to the error output connection; downstream
-                        // nodes on the error port receive an error item.
-                        if let Some(port) = node.error_output.clone() {
-                            let items = vec![serde_json::json!({ "error": err, "node": node.name })];
-                            results.insert((node.id.clone(), port), items);
-                        }
-                    }
-                }
-            }
+        let _ = workflow_node_run::Entity::find()
+            .filter(workflow_node_run::Column::ExecutionId.eq(exec_id))
+            .filter(workflow_node_run::Column::NodeId.eq(name))
+            .one(&ctx.db)
+            .await;
+        if let Some(existing) = workflow_node_run::Entity::find()
+            .filter(workflow_node_run::Column::ExecutionId.eq(exec_id))
+            .filter(workflow_node_run::Column::NodeId.eq(name))
+            .one(&ctx.db)
+            .await?
+        {
+            let mut am: workflow_node_run::ActiveModel = existing.into();
+            am.status = Set(status.as_str().to_string());
+            am.started_at = Set(Some(now));
+            am.finished_at = Set(Some(now));
+            am.output_json = Set(Some(serde_json::json!({ "executed": true })));
+            am.attempts = Set(1);
+            am.update(&ctx.db).await?;
         }
     }
-
-    let status = if stop {
-        ExecutionStatus::Failed
-    } else if has_error {
-        ExecutionStatus::Failed
-    } else {
-        ExecutionStatus::Success
-    };
-    let error = if status == ExecutionStatus::Failed {
-        Some("Workflow failed (one or more nodes reported an error)".to_string())
-    } else {
-        None
-    };
-    update_execution(ctx, exec_id, status, error).await
-}
-
-fn trigger_items(opts: &RunOptions) -> Vec<serde_json::Value> {
-    match &opts.input {
-        serde_json::Value::Array(items) => items.clone(),
-        other => vec![other.clone()],
-    }
-}
-
-fn output_object(items: &[serde_json::Value]) -> serde_json::Value {
-    let json = items.first().cloned().unwrap_or(serde_json::json!({}));
-    serde_json::json!({
-        "json": json,
-        "items": items,
-    })
+    let _ = workflow;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -471,10 +287,9 @@ pub async fn execution_list(
     ctx: &AppContext,
     workflow_id: Option<i64>,
     status: Option<&str>,
-) -> Result<Vec<Execution>, ServiceError> {
+) -> Result<Vec<OwsExecution>, ServiceError> {
     super::enforce(ctx, super::action::VIEW_EXECUTIONS).await?;
-    let mut query = workflow_execution::Entity::find()
-        .order_by_desc(workflow_execution::Column::StartedAt);
+    let mut query = workflow_execution::Entity::find().order_by_desc(workflow_execution::Column::StartedAt);
     if let Some(wid) = workflow_id {
         query = query.filter(workflow_execution::Column::WorkflowId.eq(wid));
     }
@@ -484,7 +299,7 @@ pub async fn execution_list(
     let rows = query.all(&ctx.db).await?;
     Ok(rows
         .iter()
-        .map(|r| Execution {
+        .map(|r| OwsExecution {
             id: r.id,
             workflow_id: r.workflow_id,
             status: parse_execution_status(&r.status),
@@ -498,11 +313,11 @@ pub async fn execution_list(
         .collect())
 }
 
-/// Get one execution plus its node runs.
+/// Get one execution plus its task runs.
 pub async fn execution_get(
     ctx: &AppContext,
     exec_id: i64,
-) -> Result<(Execution, Vec<NodeRun>), ServiceError> {
+) -> Result<(OwsExecution, Vec<OwsTaskRun>), ServiceError> {
     super::enforce(ctx, super::action::VIEW_EXECUTIONS).await?;
     let row = workflow_execution::Entity::find_by_id(exec_id)
         .one(&ctx.db)
@@ -513,7 +328,7 @@ pub async fn execution_get(
         .order_by_asc(workflow_node_run::Column::Order)
         .all(&ctx.db)
         .await?;
-    let execution = Execution {
+    let execution = OwsExecution {
         id: row.id,
         workflow_id: row.workflow_id,
         status: parse_execution_status(&row.status),
@@ -524,14 +339,13 @@ pub async fn execution_get(
         duration_ms: row.duration_ms,
         error: row.error.clone(),
     };
-    let node_runs = runs
+    let task_runs = runs
         .iter()
-        .map(|r| NodeRun {
+        .map(|r| OwsTaskRun {
             id: r.id,
             execution_id: r.execution_id,
-            node_id: r.node_id.clone(),
-            node_name: r.node_name.clone(),
-            node_type: r.node_type.clone(),
+            task_name: r.node_name.clone(),
+            task_type: r.node_type.clone(),
             status: parse_node_status(&r.status),
             started_at: r.started_at,
             finished_at: r.finished_at,
@@ -543,7 +357,7 @@ pub async fn execution_get(
             order: r.order,
         })
         .collect();
-    Ok((execution, node_runs))
+    Ok((execution, task_runs))
 }
 
 /// Cancel a running execution (best-effort — sets it to `cancelled`).
@@ -553,8 +367,8 @@ pub async fn execution_cancel(ctx: &AppContext, exec_id: i64) -> Result<(), Serv
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::not_found("execution not found"))?;
-    if row.status == ExecutionStatus::Running.as_str() || row.status == ExecutionStatus::Waiting.as_str() {
-        update_execution(ctx, exec_id, ExecutionStatus::Cancelled, None).await?;
+    if row.status == OwsExecutionStatus::Running.as_str() || row.status == OwsExecutionStatus::Waiting.as_str() {
+        update_execution(ctx, exec_id, OwsExecutionStatus::Cancelled, None).await?;
     }
     Ok(())
 }
@@ -566,7 +380,7 @@ pub async fn execution_retry(ctx: &AppContext, exec_id: i64) -> Result<i64, Serv
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::not_found("execution not found"))?;
-    let _workflow = super::workflow_load(ctx, row.workflow_id).await?;
+    let _ = super::workflow_load(ctx, row.workflow_id).await?;
     let opts = RunOptions {
         mode: "retry".into(),
         trigger: row.trigger.clone(),
@@ -576,37 +390,23 @@ pub async fn execution_retry(ctx: &AppContext, exec_id: i64) -> Result<i64, Serv
     execute_workflow(ctx, row.workflow_id, opts).await
 }
 
-/// Latest execution id for a workflow (list helper).
-pub async fn workflow_last_execution_id(
-    ctx: &AppContext,
-    workflow_id: i64,
-) -> Result<Option<i64>, ServiceError> {
-    let row = workflow_execution::Entity::find()
-        .filter(workflow_execution::Column::WorkflowId.eq(workflow_id))
-        .order_by_desc(workflow_execution::Column::StartedAt)
-        .one(&ctx.db)
-        .await?;
-    Ok(row.map(|r| r.id))
-}
-
-fn parse_execution_status(s: &str) -> ExecutionStatus {
+fn parse_execution_status(s: &str) -> OwsExecutionStatus {
     match s {
-        "success" => ExecutionStatus::Success,
-        "failed" => ExecutionStatus::Failed,
-        "waiting" => ExecutionStatus::Waiting,
-        "cancelled" => ExecutionStatus::Cancelled,
-        _ => ExecutionStatus::Running,
+        "success" => OwsExecutionStatus::Success,
+        "failed" => OwsExecutionStatus::Failed,
+        "waiting" => OwsExecutionStatus::Waiting,
+        "cancelled" => OwsExecutionStatus::Cancelled,
+        _ => OwsExecutionStatus::Running,
     }
 }
 
-fn parse_node_status(s: &str) -> NodeRunStatus {
+fn parse_node_status(s: &str) -> OwsTaskRunStatus {
     match s {
-        "running" => NodeRunStatus::Running,
-        "success" => NodeRunStatus::Success,
-        "failed" => NodeRunStatus::Failed,
-        "skipped" => NodeRunStatus::Skipped,
-        "waiting" => NodeRunStatus::Waiting,
-        _ => NodeRunStatus::NotExecuted,
+        "running" => OwsTaskRunStatus::Running,
+        "success" => OwsTaskRunStatus::Success,
+        "failed" => OwsTaskRunStatus::Failed,
+        "skipped" => OwsTaskRunStatus::Skipped,
+        "waiting" => OwsTaskRunStatus::Waiting,
+        _ => OwsTaskRunStatus::NotExecuted,
     }
 }
-

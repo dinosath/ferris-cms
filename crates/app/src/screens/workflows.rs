@@ -186,7 +186,7 @@ pub fn Workflows() -> Element {
             continue;
         }
         let trigger = item["trigger"].as_str().unwrap_or("-").to_string();
-        let nodes = item["nodeCount"].as_i64().unwrap_or(0);
+        let nodes = item["taskCount"].as_i64().unwrap_or(0);
         let runs = item["executionCount"].as_i64().unwrap_or(0);
         let last = item["lastExecution"]["status"].as_str().unwrap_or("-").to_string();
         let mut open_editor = route;

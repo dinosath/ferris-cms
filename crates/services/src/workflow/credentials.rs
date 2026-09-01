@@ -15,7 +15,7 @@ use sea_orm::{
     ActiveModelTrait, EntityTrait, PaginatorTrait, QueryOrder, Set,
 };
 use sha2::{Digest, Sha256};
-use ::workflow::model::Credential;
+use ::workflow::model::OwsCredential;
 
 /// Credential type keys recognized by the engine.
 pub const CRED_HTTP_API: &str = "httpApi";
@@ -77,8 +77,8 @@ pub fn decrypt_value(secret: &str, blob: &str) -> Result<serde_json::Value, Serv
         .map_err(|e| ServiceError::internal(format!("credential deserialization: {e}")))
 }
 
-fn to_dto(m: &workflow_credential::Model) -> Credential {
-    Credential {
+fn to_dto(m: &workflow_credential::Model) -> OwsCredential {
+    OwsCredential {
         id: m.id,
         name: m.name.clone(),
         credential_type: m.credential_type.clone(),
@@ -88,7 +88,7 @@ fn to_dto(m: &workflow_credential::Model) -> Credential {
 }
 
 /// List credentials (metadata only, never decrypted data).
-pub async fn credential_list(ctx: &AppContext) -> Result<Vec<Credential>, ServiceError> {
+pub async fn credential_list(ctx: &AppContext) -> Result<Vec<OwsCredential>, ServiceError> {
     crate::rbac::enforce_action(
         &ctx.db,
         ctx.current_user.as_ref(),
@@ -116,7 +116,7 @@ pub async fn credential_get_data(
 }
 
 /// Get one credential's metadata.
-pub async fn credential_get(ctx: &AppContext, id: i64) -> Result<Credential, ServiceError> {
+pub async fn credential_get(ctx: &AppContext, id: i64) -> Result<OwsCredential, ServiceError> {
     crate::rbac::enforce_action(
         &ctx.db,
         ctx.current_user.as_ref(),
@@ -138,7 +138,7 @@ pub async fn credential_create(
     name: &str,
     credential_type: &str,
     data: &serde_json::Value,
-) -> Result<Credential, ServiceError> {
+) -> Result<OwsCredential, ServiceError> {
     crate::rbac::enforce_action(
         &ctx.db,
         ctx.current_user.as_ref(),
@@ -168,7 +168,7 @@ pub async fn credential_update(
     name: Option<&str>,
     credential_type: Option<&str>,
     data: Option<&serde_json::Value>,
-) -> Result<Credential, ServiceError> {
+) -> Result<OwsCredential, ServiceError> {
     crate::rbac::enforce_action(
         &ctx.db,
         ctx.current_user.as_ref(),

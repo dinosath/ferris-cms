@@ -1,175 +1,221 @@
-//! Graph helpers: deterministic topological ordering used by the executor.
+//! Graph helpers: deterministic task ordering used by the executor.
 //!
-//! The executor runs nodes in topological order (Kahn's algorithm over the
-//! workflow's connections), so a node always runs after everything it depends
-//! on. Branching is handled at runtime: a node only processes items it
-//! actually receives, and nodes with no incoming data are skipped.
+//! In the Open Workflow DSL, the executable units are named **tasks** declared
+//! as an ordered map (`definition.do`). Execution starts at the first task and
+//! follows each task's `then` transition (defaulting to the next declaration).
+//! This module resolves a deterministic execution sequence and detects cycles.
 
-use crate::model::Workflow;
-use std::collections::{HashMap, VecDeque};
+use crate::model::{OwsDocument, task_entries};
+use serverless_workflow_core::models::task::TaskDefinition;
+use std::collections::HashSet;
 
-/// Compute a deterministic topological order of node ids.
+/// Directive values a task's `then` may use instead of a task name.
+pub const DIRECTIVE_EXIT: &str = "exit";
+pub const DIRECTIVE_END: &str = "end";
+pub const DIRECTIVE_CONTINUE: &str = "continue";
+
+fn is_directive(s: &str) -> bool {
+    matches!(s, DIRECTIVE_EXIT | DIRECTIVE_END | DIRECTIVE_CONTINUE)
+}
+
+/// Resolve the deterministic execution order of task names, starting at the
+/// first declared task and following `then` transitions.
 ///
-/// Returns `Err` if the graph contains a cycle (the workflow is not executable).
-pub fn topological_order(workflow: &Workflow) -> Result<Vec<String>, String> {
-    // Node id -> list of downstream node ids (via any output port).
-    let mut adjacency: HashMap<&str, Vec<&str>> = HashMap::new();
-    let mut indegree: HashMap<&str, usize> = HashMap::new();
-    for node in &workflow.nodes {
-        indegree.entry(node.id.as_str()).or_insert(0);
-        adjacency.entry(node.id.as_str()).or_default();
-    }
-    for conn in &workflow.connections {
-        if conn.from == conn.to {
-            return Err("self-loop connection".into());
-        }
-        adjacency
-            .entry(conn.from.as_str())
-            .or_default()
-            .push(conn.to.as_str());
-        *indegree.entry(conn.to.as_str()).or_insert(0) += 1;
+/// Returns `Err` if the flow contains a cycle.
+pub fn execution_sequence(doc: &OwsDocument) -> Result<Vec<String>, String> {
+    let names = doc.task_names();
+    let by_name: std::collections::HashMap<&str, usize> = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i))
+        .collect();
+    if names.is_empty() {
+        return Ok(vec![]);
     }
 
     let mut order: Vec<String> = Vec::new();
-    let mut queue: VecDeque<&str> = VecDeque::new();
-    for (&id, &deg) in &indegree {
-        if deg == 0 {
-            queue.push_back(id);
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut stack: HashSet<String> = HashSet::new();
+
+    // Start at the first declared task.
+    let mut current: Option<String> = Some(names[0].clone());
+    while let Some(name) = current.take() {
+        if visited.contains(&name) {
+            // Already emitted → stop (a completed task is not re-entered).
+            break;
         }
-    }
-    // Deterministic: process in sorted order for stable execution.
-    let mut ready: Vec<&str> = queue.into_iter().collect();
-    ready.sort_unstable();
-    while let Some(id) = ready.first().copied() {
-        ready.remove(0);
-        order.push(id.to_string());
-        let mut downstream: Vec<&str> = adjacency.get(id).cloned().unwrap_or_default();
-        downstream.sort_unstable();
-        for next in downstream {
-            let e = indegree.get_mut(next).unwrap();
-            *e -= 1;
-            if *e == 0 {
-                ready.push(next);
-                ready.sort_unstable();
+        if stack.contains(&name) {
+            return Err(format!("workflow flow contains a cycle at task '{name}'"));
+        }
+        stack.insert(name.clone());
+        order.push(name.clone());
+
+        // Determine the next task from this task's `then`.
+        let next = next_task(&doc, &name, &names, &by_name);
+        match next {
+            Next::Name(n) => {
+                stack.remove(&name);
+                visited.insert(name);
+                current = Some(n);
+            }
+            Next::Directive(_) | Next::EndOfList => {
+                stack.remove(&name);
+                visited.insert(name);
+                break;
             }
         }
     }
 
-    if order.len() != workflow.nodes.len() {
-        return Err("workflow graph contains a cycle".into());
+    // Tasks not reached via the flow are still executed if the flow ever
+    // reaches them via a switch/dynamic `then`; include any remaining declared
+    // tasks so all rows are pre-created deterministically.
+    for n in names {
+        if !order.contains(&n) {
+            order.push(n);
+        }
     }
     Ok(order)
 }
 
-/// The nodes reachable from a given set of trigger node ids following `main`
-/// (and branch) connections — used to detect unreachable/isolated subgraphs.
-pub fn reachable_from(workflow: &Workflow, roots: &[&str]) -> std::collections::HashSet<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut stack: Vec<String> = roots.iter().map(|s| s.to_string()).collect();
-    while let Some(id) = stack.pop() {
-        if !seen.insert(id.clone()) {
-            continue;
-        }
-        for conn in workflow.connections.iter() {
-            if conn.from == id {
-                stack.push(conn.to.clone());
+/// The next task a given task flows to.
+enum Next {
+    Name(String),
+    Directive(String),
+    EndOfList,
+}
+
+fn next_task(
+    doc: &OwsDocument,
+    name: &str,
+    names: &[String],
+    by_name: &std::collections::HashMap<&str, usize>,
+) -> Next {
+    if let Some(task) = find_task(&doc.definition, name) {
+        if let Some(then) = task_common(task).and_then(|c| c.then.clone()) {
+            if is_directive(&then) {
+                return Next::Directive(then);
             }
+            if by_name.contains_key(then.as_str()) {
+                return Next::Name(then);
+            }
+            // Unknown `then` → treat as end of the declared flow.
+            return Next::EndOfList;
         }
     }
-    seen
+    // Default: next in declaration order.
+    if let Some(&idx) = by_name.get(name) {
+        if idx + 1 < names.len() {
+            return Next::Name(names[idx + 1].clone());
+        }
+    }
+    Next::EndOfList
+}
+
+fn find_task<'a>(
+    definition: &'a serverless_workflow_core::models::workflow::WorkflowDefinition,
+    name: &str,
+) -> Option<&'a TaskDefinition> {
+    task_entries(definition)
+        .into_iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, t)| t)
+}
+
+fn task_common(task: &TaskDefinition) -> Option<&serverless_workflow_core::models::task::TaskDefinitionFields> {
+    use serverless_workflow_core::models::task::TaskDefinition as T;
+    match task {
+        T::Call(t) => Some(&t.common),
+        T::Do(t) => Some(&t.common),
+        T::Emit(t) => Some(&t.common),
+        T::For(t) => Some(&t.common),
+        T::Fork(t) => Some(&t.common),
+        T::Listen(t) => Some(&t.common),
+        T::Raise(t) => Some(&t.common),
+        T::Run(t) => Some(&t.common),
+        T::Set(t) => Some(&t.common),
+        T::Switch(t) => Some(&t.common),
+        T::Try(t) => Some(&t.common),
+        T::Wait(t) => Some(&t.common),
+    }
+}
+
+/// All task names referenced by `then` transitions (for validation).
+pub fn referenced_tasks(doc: &OwsDocument) -> Vec<String> {
+    let mut out = Vec::new();
+    for (name, task) in task_entries(&doc.definition) {
+        if let Some(then) = task_common(task).and_then(|c| c.then.clone()) {
+            if !is_directive(&then) {
+                out.push(then);
+            }
+        }
+        // Switch cases may also transition.
+        if let TaskDefinition::Switch(sw) = task {
+            for e in &sw.switch.entries {
+                if let Some(case) = e.values().next() {
+                    if let Some(then) = case.then.clone() {
+                        if !is_directive(&then) {
+                            out.push(then);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = name;
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Connection, Position, WorkflowNode};
+    use crate::model::OwsDocument;
+    use serverless_workflow_core::models::task::{CallTaskDefinition, TaskDefinition, WaitTaskDefinition};
+    use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
 
-    fn node(id: &str) -> WorkflowNode {
-        WorkflowNode {
-            id: id.into(),
-            node_type: "noop".into(),
-            name: id.into(),
-            description: None,
-            position: Position { x: 0.0, y: 0.0 },
-            parameters: Default::default(),
-            disabled: false,
-            notes: None,
-            credentials: vec![],
-            on_error: crate::model::OnError::default(),
-            error_output: None,
+    fn doc_with(tasks: Vec<(String, TaskDefinition)>) -> OwsDocument {
+        let metadata = WorkflowDefinitionMetadata::new("default", "g", "1.0.0", None, None, None);
+        let mut definition = WorkflowDefinition::new(metadata);
+        for (n, t) in tasks {
+            definition.do_.add(n, t);
         }
-    }
-    fn conn(from: &str, to: &str) -> Connection {
-        Connection {
-            id: format!("{from}->{to}"),
-            from: from.into(),
-            from_output: "main".into(),
-            to: to.into(),
-            to_input: "main".into(),
-            label: None,
-        }
-    }
-    fn wf(nodes: Vec<WorkflowNode>, conns: Vec<Connection>) -> Workflow {
-        let now = chrono::Utc::now();
-        Workflow {
+        OwsDocument {
             id: 1,
-            name: "g".into(),
-            description: None,
-            version: 1,
             active: false,
-            nodes,
-            connections: conns,
-            settings: Default::default(),
-            variables: Default::default(),
-            tags: vec![],
-            created_at: now,
-            updated_at: now,
+            version: 1,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            definition,
         }
     }
 
-    #[test]
-    fn linear_order() {
-        let wf = wf(
-            vec![node("a"), node("b"), node("c")],
-            vec![conn("a", "b"), conn("b", "c")],
-        );
-        let order = topological_order(&wf).unwrap();
-        assert!(order.iter().position(|x| x == "a").unwrap()
-            < order.iter().position(|x| x == "b").unwrap());
-        assert!(order.iter().position(|x| x == "b").unwrap()
-            < order.iter().position(|x| x == "c").unwrap());
+    fn call(name: &str) -> TaskDefinition {
+        TaskDefinition::Call(CallTaskDefinition::new(name, None, None))
     }
 
     #[test]
-    fn diamond_order() {
-        let wf = wf(
-            vec![node("start"), node("l"), node("r"), node("end")],
-            vec![conn("start", "l"), conn("start", "r"), conn("l", "end"), conn("r", "end")],
-        );
-        let order = topological_order(&wf).unwrap();
-        let end = order.iter().position(|x| x == "end").unwrap();
-        assert!(order.iter().position(|x| x == "l").unwrap() < end);
-        assert!(order.iter().position(|x| x == "r").unwrap() < end);
+    fn sequence_follows_declaration() {
+        let doc = doc_with(vec![
+            ("a".to_string(), call("core.noop")),
+            ("b".to_string(), call("core.noop")),
+            ("c".to_string(), call("core.noop")),
+        ]);
+        let order = execution_sequence(&doc).unwrap();
+        assert_eq!(order, vec!["a", "b", "c"]);
     }
 
     #[test]
-    fn cycle_is_err() {
-        let wf = wf(
-            vec![node("a"), node("b")],
-            vec![conn("a", "b"), conn("b", "a")],
-        );
-        assert!(topological_order(&wf).is_err());
-    }
-
-    #[test]
-    fn reachability() {
-        let wf = wf(
-            vec![node("t"), node("a"), node("b")],
-            vec![conn("t", "a"), conn("b", "b")], // b isolated
-        );
-        let reach = reachable_from(&wf, &["t"]);
-        assert!(reach.contains("t"));
-        assert!(reach.contains("a"));
-        assert!(!reach.contains("b"));
+    fn sequence_follows_then() {
+        let mut a = call("core.noop");
+        if let TaskDefinition::Call(c) = &mut a {
+            c.common.then = Some("c".to_string());
+        }
+        let doc = doc_with(vec![
+            ("a".to_string(), a),
+            ("b".to_string(), call("core.noop")),
+            ("c".to_string(), call("core.noop")),
+        ]);
+        let order = execution_sequence(&doc).unwrap();
+        assert_eq!(order.first().unwrap(), "a");
+        assert_eq!(order[1], "c");
     }
 }

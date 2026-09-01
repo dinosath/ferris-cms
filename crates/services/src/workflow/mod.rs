@@ -1,18 +1,21 @@
-//! Workflow services (persistence, activation, import/export, execution).
+//! Workflow services (OWS persistence, activation, import/export, execution).
 //!
-//! This is the `services` layer for the workflow automation engine. It depends
-//! on the pure `workflow` crate for the domain model, node definitions,
-//! expression engine and validation, and wires them to the database, the CMS
-//! (`dynamic-store`/content services) and external HTTP integrations.
+//! This is the `services` layer for the OWS workflow automation engine. It
+//! depends on the pure `workflow` crate for the canonical OWS domain model
+//! (the Open Workflow DSL), the function catalog, expression engine and
+//! validation, and wires them to the database, the CMS (`dynamic-store` /
+//! content services) and external HTTP integrations.
 
 pub mod credentials;
 pub mod engine;
 pub mod executors;
+pub mod runtime_fn;
 pub mod triggers;
 
 pub use credentials::*;
 pub use engine::*;
 pub use executors::*;
+pub use runtime_fn::*;
 pub use triggers::*;
 
 use crate::{AppContext, ServiceError};
@@ -21,7 +24,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 use serde::Serialize;
-use ::workflow::model::Workflow as WorkflowModel;
+use ::workflow::model::OwsDocument;
 
 /// Workflow permission actions (integrated into the existing RBAC matrix).
 pub mod action {
@@ -37,7 +40,6 @@ pub mod action {
 
     pub const SUBJECT_WORKFLOW: &str = "plugin::workflow.workflow";
 
-    /// All workflow actions (used by the settings UI + seeding).
     pub const ALL: &[&str] = &[
         VIEW,
         CREATE,
@@ -89,7 +91,7 @@ pub struct WorkflowSummary {
     pub description: Option<String>,
     pub version: i64,
     pub active: bool,
-    pub node_count: usize,
+    pub task_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trigger: Option<String>,
     pub execution_count: u64,
@@ -99,16 +101,68 @@ pub struct WorkflowSummary {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
-fn model_to_workflow(m: &workflow::Model) -> Result<WorkflowModel, ServiceError> {
+fn model_to_workflow(m: &workflow::Model) -> Result<OwsDocument, ServiceError> {
     serde_json::from_value(m.definition_json.clone())
-        .map_err(|e| ServiceError::internal(format!("corrupt workflow definition: {e}")))
+        .map_err(|e| ServiceError::internal(format!("corrupt OWS definition: {e}")))
+}
+
+/// Build a fresh, empty OWS document for a new workflow.
+pub fn new_empty_document(
+    name: &str,
+    description: Option<&str>,
+    version: i64,
+    active: bool,
+) -> OwsDocument {
+    use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+    let now = chrono::Utc::now();
+    let metadata = WorkflowDefinitionMetadata::new(
+        "default",
+        name,
+        &version.to_string(),
+        None,
+        description.map(|s| s.to_string()),
+        None,
+    );
+    OwsDocument {
+        id: 0,
+        active,
+        version,
+        created_at: now,
+        updated_at: now,
+        definition: WorkflowDefinition::new(metadata),
+    }
+}
+
+/// A human-readable trigger label for a workflow (first schedule event type,
+/// else "manual").
+pub fn trigger_label(doc: &OwsDocument) -> Option<String> {
+    use ::workflow::model::is_trigger_event;
+    let mut labels = Vec::new();
+    if let Some(schedule) = &doc.definition.schedule {
+        if let Some(on) = &schedule.on {
+            for f in on
+                .all
+                .iter()
+                .flat_map(|v| v.iter())
+                .chain(on.any.iter().flat_map(|v| v.iter()))
+                .chain(on.one.iter())
+            {
+                if let Some(ty) = f.with.as_ref().and_then(|w| w.get("type")).and_then(|v| v.as_str()) {
+                    if is_trigger_event(ty) {
+                        labels.push(ty.to_string());
+                    }
+                }
+            }
+        }
+    }
+    if labels.is_empty() {
+        labels.push("manual".to_string());
+    }
+    Some(labels.join(", "))
 }
 
 /// Enforce a workflow permission for the current user.
-pub async fn enforce(
-    ctx: &AppContext,
-    perm: &str,
-) -> Result<(), ServiceError> {
+pub async fn enforce(ctx: &AppContext, perm: &str) -> Result<(), ServiceError> {
     crate::rbac::enforce_action(&ctx.db, ctx.current_user.as_ref(), perm, action::SUBJECT_WORKFLOW)
         .await
 }
@@ -145,15 +199,12 @@ pub async fn workflow_list(
             .await?;
         result.push(WorkflowSummary {
             id: row.id,
-            name: row.name.clone(),
-            description: row.description.clone(),
+            name: def.name().to_string(),
+            description: def.description(),
             version: row.version,
             active: row.active,
-            node_count: def.nodes.len(),
-            trigger: def
-                .trigger_nodes()
-                .first()
-                .map(|t| t.name.clone()),
+            task_count: def.task_count(),
+            trigger: trigger_label(&def),
             execution_count,
             last_execution: last.as_ref().map(ExecutionSummary::from),
             created_at: row.created_at,
@@ -163,8 +214,8 @@ pub async fn workflow_list(
     Ok(result)
 }
 
-/// Get a full workflow definition by id.
-pub async fn workflow_get(ctx: &AppContext, id: i64) -> Result<WorkflowModel, ServiceError> {
+/// Get a full OWS workflow definition by id.
+pub async fn workflow_get(ctx: &AppContext, id: i64) -> Result<OwsDocument, ServiceError> {
     enforce(ctx, action::VIEW).await?;
     let row = workflow::Entity::find_by_id(id)
         .one(&ctx.db)
@@ -174,7 +225,7 @@ pub async fn workflow_get(ctx: &AppContext, id: i64) -> Result<WorkflowModel, Se
 }
 
 /// Load a workflow definition without permission checks (executor path).
-pub async fn workflow_load(ctx: &AppContext, id: i64) -> Result<WorkflowModel, ServiceError> {
+pub async fn workflow_load(ctx: &AppContext, id: i64) -> Result<OwsDocument, ServiceError> {
     let row = workflow::Entity::find_by_id(id)
         .one(&ctx.db)
         .await?
@@ -182,45 +233,33 @@ pub async fn workflow_load(ctx: &AppContext, id: i64) -> Result<WorkflowModel, S
     model_to_workflow(&row)
 }
 
-/// Create a new workflow from a definition. `id`/timestamps in the definition
-/// are normalized to the created row.
+/// Create a new workflow from a definition.
 pub async fn workflow_create(
     ctx: &AppContext,
     name: &str,
     description: Option<&str>,
-    def: Option<&WorkflowModel>,
-) -> Result<WorkflowModel, ServiceError> {
+    def: Option<&OwsDocument>,
+) -> Result<OwsDocument, ServiceError> {
     enforce(ctx, action::CREATE).await?;
     let now = chrono::Utc::now();
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
     let mut workflow = def
         .cloned()
-        .unwrap_or_else(|| WorkflowModel {
-            id: 0,
-            name: name.to_string(),
-            description: description.map(|s| s.to_string()),
-            version: 1,
-            active: false,
-            nodes: vec![],
-            connections: vec![],
-            settings: Default::default(),
-            variables: Default::default(),
-            tags: vec![],
-            metadata: None,
-            created_at: now,
-            updated_at: now,
-        });
+        .unwrap_or_else(|| new_empty_document(name, description, 1, false));
     workflow.id = 0;
-    workflow.name = name.to_string();
-    if description.is_some() {
-        workflow.description = description.map(|s| s.to_string());
-    }
+    workflow.version = 1;
+    workflow.active = false;
     workflow.created_at = now;
     workflow.updated_at = now;
+    // Ensure the OWS document name matches.
+    workflow.definition.document.name = name.to_string();
+    if description.is_some() {
+        workflow.definition.document.summary = description.map(|s| s.to_string());
+    }
 
     let row = workflow::ActiveModel {
-        name: Set(workflow.name.clone()),
-        description: Set(workflow.description.clone()),
+        name: Set(name.to_string()),
+        description: Set(workflow.definition.document.summary.clone()),
         version: Set(workflow.version),
         active: Set(workflow.active),
         definition_json: Set(
@@ -239,12 +278,12 @@ pub async fn workflow_create(
     Ok(workflow)
 }
 
-/// Save (create or update) a workflow definition, bumping its version.
+/// Save (create or update) an OWS workflow definition, bumping its version.
 pub async fn workflow_save(
     ctx: &AppContext,
     id: Option<i64>,
-    def: &WorkflowModel,
-) -> Result<WorkflowModel, ServiceError> {
+    def: &OwsDocument,
+) -> Result<OwsDocument, ServiceError> {
     let now = chrono::Utc::now();
     let user_id = ctx.current_user.as_ref().map(|u| u.id);
 
@@ -261,8 +300,8 @@ pub async fn workflow_save(
             new_def.id = id;
             new_def.version = version;
             new_def.updated_at = now;
-            am.name = Set(new_def.name.clone());
-            am.description = Set(new_def.description.clone());
+            am.name = Set(new_def.name().to_string());
+            am.description = Set(new_def.definition.document.summary.clone());
             am.version = Set(version);
             am.active = Set(new_def.active);
             am.definition_json = Set(
@@ -281,8 +320,8 @@ pub async fn workflow_save(
             new_def.created_at = now;
             new_def.updated_at = now;
             workflow::ActiveModel {
-                name: Set(new_def.name.clone()),
-                description: Set(new_def.description.clone()),
+                name: Set(new_def.name().to_string()),
+                description: Set(new_def.definition.document.summary.clone()),
                 version: Set(new_def.version),
                 active: Set(new_def.active),
                 definition_json: Set(
@@ -313,7 +352,6 @@ pub async fn workflow_delete(ctx: &AppContext, id: i64) -> Result<(), ServiceErr
         .ok_or_else(|| ServiceError::not_found("workflow not found"))?;
     let am: workflow::ActiveModel = row.into();
     am.delete(&ctx.db).await?;
-    // Remove executions of this workflow.
     workflow_execution::Entity::delete_many()
         .filter(workflow_execution::Column::WorkflowId.eq(id))
         .exec(&ctx.db)
@@ -326,18 +364,17 @@ pub async fn workflow_set_active(
     ctx: &AppContext,
     id: i64,
     active: bool,
-) -> Result<WorkflowModel, ServiceError> {
+) -> Result<OwsDocument, ServiceError> {
     enforce(ctx, action::ACTIVATE).await?;
     let row = workflow::Entity::find_by_id(id)
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::not_found("workflow not found"))?;
 
-    // Keep the embedded definition's `active` in sync with the column.
     let mut def = model_to_workflow(&row)?;
     def.active = active;
     if active {
-        let validation = ::workflow::validate(&def, ::workflow::registry());
+        let validation = ::workflow::validate_workflow(&def);
         if !validation.valid {
             return Err(ServiceError::Validation(
                 validation
@@ -365,57 +402,87 @@ pub async fn workflow_duplicate(
     ctx: &AppContext,
     id: i64,
     new_name: Option<&str>,
-) -> Result<WorkflowModel, ServiceError> {
+) -> Result<OwsDocument, ServiceError> {
     enforce(ctx, action::CREATE).await?;
     let def = workflow_get(ctx, id).await?;
     let mut copy = def.clone();
     copy.id = 0;
-    copy.name = new_name
+    copy.definition.document.name = new_name
         .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{} (copy)", def.name));
+        .unwrap_or_else(|| format!("{} (copy)", def.name()));
     copy.active = false;
     copy.version = 1;
     let now = chrono::Utc::now();
     copy.created_at = now;
     copy.updated_at = now;
-    // Re-assign unique node ids for the copy.
-    for node in copy.nodes.iter_mut() {
-        node.id = uuid::Uuid::new_v4().to_string();
-    }
-    for conn in copy.connections.iter_mut() {
-        conn.id = uuid::Uuid::new_v4().to_string();
-    }
     workflow_save(ctx, None, &copy).await
 }
 
-/// Validate a stored workflow against the registry.
+/// Validate a stored workflow against the catalog.
 pub async fn workflow_validate_definition(
     ctx: &AppContext,
     id: i64,
-) -> Result<::workflow::model::WorkflowValidation, ServiceError> {
+) -> Result<::workflow::model::OwsValidation, ServiceError> {
     let def = workflow_load(ctx, id).await?;
-    Ok(::workflow::validate(&def, ::workflow::registry()))
+    Ok(::workflow::validate_workflow(&def))
 }
 
-/// Export a workflow to a stable JSON document.
+/// Export a workflow to a stable OWS JSON document.
 pub async fn workflow_export(ctx: &AppContext, id: i64) -> Result<serde_json::Value, ServiceError> {
     let def = workflow_get(ctx, id).await?;
     Ok(serde_json::to_value(&def)
         .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?)
 }
 
-/// Import a workflow from a JSON document (validate before persisting).
+/// Export a workflow to a stable OWS YAML document (Open Workflow DSL uses
+/// YAML natively).
+pub async fn workflow_export_yaml(ctx: &AppContext, id: i64) -> Result<String, ServiceError> {
+    let def = workflow_get(ctx, id).await?;
+    serde_yaml::to_string(&def)
+        .map_err(|e| ServiceError::internal(format!("workflow yaml serialize: {e}")))
+}
+
+/// Parse an OWS document from a JSON value or a raw YAML/JSON text string.
+pub fn parse_ows_document(value: &serde_json::Value) -> Result<OwsDocument, ServiceError> {
+    // Direct JSON object.
+    if let Ok(def) = serde_json::from_value::<OwsDocument>(value.clone()) {
+        return Ok(def);
+    }
+    // A JSON/YAML text string.
+    if let Some(text) = value.as_str() {
+        let trimmed = text.trim();
+        if trimmed.starts_with('{') {
+            if let Ok(def) = serde_json::from_str::<OwsDocument>(trimmed) {
+                return Ok(def);
+            }
+        }
+        if let Ok(def) = serde_yaml::from_str::<OwsDocument>(trimmed) {
+            return Ok(def);
+        }
+    }
+    // YAML-parse the JSON value directly (JSON is a subset of YAML).
+    if let Ok(text) = serde_json::to_string(value) {
+        if let Ok(def) = serde_yaml::from_str::<OwsDocument>(&text) {
+            return Ok(def);
+        }
+    }
+    Err(ServiceError::validation(
+        "workflow",
+        vec![crate::ValidationErrorItem::new(
+            vec!["workflow".into()],
+            "invalid OWS workflow: expected a JSON or YAML definition".to_string(),
+            "ValidationError",
+        )],
+    ))
+}
+
+/// Import a workflow from a JSON/YAML document (validate before persisting).
 pub async fn workflow_import(
     ctx: &AppContext,
     value: &serde_json::Value,
-) -> Result<WorkflowModel, ServiceError> {
-    let mut def: WorkflowModel = serde_json::from_value(value.clone())
-        .map_err(|e| ServiceError::validation("workflow", vec![crate::ValidationErrorItem::new(
-            vec!["workflow".into()],
-            format!("invalid workflow JSON: {e}"),
-            "ValidationError",
-        )]))?;
-    let validation = ::workflow::validate(&def, ::workflow::registry());
+) -> Result<OwsDocument, ServiceError> {
+    let mut def = parse_ows_document(value)?;
+    let validation = ::workflow::validate_workflow(&def);
     if !validation.valid {
         return Err(ServiceError::Validation(
             validation
@@ -430,7 +497,6 @@ pub async fn workflow_import(
 }
 
 /// Seed demo workflows on first boot (idempotent — no-op when workflows exist).
-/// Gives the Workflows screen immediate, runnable examples.
 pub async fn seed_demo_workflows(ctx: &AppContext) -> Result<usize, ServiceError> {
     use sea_orm::PaginatorTrait;
     let count = workflow::Entity::find().count(&ctx.db).await?;
@@ -439,71 +505,102 @@ pub async fn seed_demo_workflows(ctx: &AppContext) -> Result<usize, ServiceError
     }
     let now = chrono::Utc::now();
 
-    fn node(id: &str, node_type: &str, name: &str, x: f64, y: f64, params: serde_json::Value) -> serde_json::Value {
-        serde_json::json!({
-            "id": id, "nodeType": node_type, "name": name,
-            "position": { "x": x, "y": y }, "parameters": params,
-            "disabled": false
-        })
-    }
-    fn conn(id: &str, from: &str, out: &str, to: &str) -> serde_json::Value {
-        serde_json::json!({ "id": id, "from": from, "fromOutput": out, "to": to, "toInput": "main" })
+    fn build(
+        name: &str,
+        tasks: serde_json::Value,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> OwsDocument {
+        use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+        let metadata = WorkflowDefinitionMetadata::new(
+            "default",
+            name,
+            "1.0.0",
+            None,
+            Some("Demo".to_string()),
+            None,
+        );
+        let mut def = WorkflowDefinition::new(metadata);
+        if let Ok(m) = serde_json::from_value::<serde_json::Map<String, serde_json::Value>>(tasks) {
+            for (k, v) in m {
+                if let Ok(t) = serde_json::from_value(v) {
+                    def.do_.add(k, t);
+                }
+            }
+        }
+        OwsDocument {
+            id: 0,
+            active: false,
+            version: 1,
+            created_at: now,
+            updated_at: now,
+            definition: def,
+        }
     }
 
-    let demos: Vec<serde_json::Value> = vec![
+    // Manual → Set (context) → no-op HTTP-less path.
+    let demo1 = build(
+        "Manual → Set → JSON",
         serde_json::json!({
-            "id": 0, "name": "Manual → Set → No-op",
-            "description": "A simple starter workflow triggered manually.",
-            "version": 1, "active": false,
-            "nodes": [
-                node("t", "manualTrigger", "Manual Trigger", 40.0, 60.0, serde_json::json!({})),
-                node("s", "set", "Set Field", 300.0, 60.0, serde_json::json!({ "field": "greeting", "value": "Hello from Ferris!" })),
-                node("n", "noop", "No-op", 560.0, 60.0, serde_json::json!({})),
-            ],
-            "connections": [ conn("c1", "t", "main", "s"), conn("c2", "s", "main", "n") ],
-            "settings": {}, "variables": {}, "tags": ["demo"],
-            "createdAt": now.to_rfc3339(), "updatedAt": now.to_rfc3339(),
+            "setGreeting": { "set": { "greeting": "Hello from Ferris!" } },
+            "output": { "call": "data.json", "with": { "json": { "greeting": "${ .greeting }" } } }
         }),
+        now,
+    );
+
+    // Webhook → Transform → HTTP Request.
+    let demo2 = build(
+        "Webhook → Transform → HTTP Request",
         serde_json::json!({
-            "id": 0, "name": "Webhook → Transform → HTTP Request",
-            "description": "Triggered by a webhook at /workflow-hooks/notify.",
-            "version": 1, "active": false,
-            "nodes": [
-                node("w", "webhookTrigger", "Webhook", 40.0, 60.0, serde_json::json!({ "path": "notify", "method": "POST" })),
-                node("tf", "transform", "Transform", 300.0, 60.0, serde_json::json!({ "transformExpression": "{{ $json }}" })),
-                node("h", "httpRequest", "HTTP Request", 560.0, 60.0, serde_json::json!({ "method": "GET", "url": "https://httpbin.org/get", "authentication": "none", "headers": {} })),
-            ],
-            "connections": [ conn("c1", "w", "main", "tf"), conn("c2", "tf", "main", "h") ],
-            "settings": {}, "variables": {}, "tags": ["demo", "webhook"],
-            "createdAt": now.to_rfc3339(), "updatedAt": now.to_rfc3339(),
+            "transform": { "call": "core.transform", "with": { "transformExpression": "${ . }" } },
+            "request": { "call": "http.request", "with": { "method": "GET", "url": "https://httpbin.org/get", "authentication": "none" } }
         }),
+        now,
+    );
+
+    // Content Created → Switch (featured?) → Create Draft.
+    let demo3 = build(
+        "Content Created → Switch → Create",
         serde_json::json!({
-            "id": 0, "name": "Content Created → If → Create",
-            "description": "On content creation, branch on a field and create related content.",
-            "version": 1, "active": false,
-            "nodes": [
-                node("cc", "contentCreated", "Content Created", 40.0, 60.0, serde_json::json!({ "contentType": "api::article.article" })),
-                node("if", "if", "If featured", 300.0, 40.0, serde_json::json!({ "operator": "true", "value1": "{{ $json.featured }}", "condition": "" })),
-                node("no", "noop", "No-op (false)", 560.0, 140.0, serde_json::json!({})),
-                node("cr", "createContent", "Create Draft", 560.0, -40.0, serde_json::json!({ "contentType": "api::article.article", "data": { "title": "Derived draft" } })),
-            ],
-            "connections": [
-                conn("c1", "cc", "main", "if"),
-                serde_json::json!({ "id": "c2", "from": "if", "fromOutput": "true", "to": "cr", "toInput": "main" }),
-                serde_json::json!({ "id": "c3", "from": "if", "fromOutput": "false", "to": "no", "toInput": "main" }),
-            ],
-            "settings": {}, "variables": {}, "tags": ["demo", "content"],
-            "createdAt": now.to_rfc3339(), "updatedAt": now.to_rfc3339(),
+            "branch": {
+                "switch": {
+                    "featured": { "when": "${ .featured }", "then": "createDraft" },
+                    "default": { "then": "noop" }
+                }
+            },
+            "createDraft": { "call": "cms.createContent", "with": { "contentType": "api::article.article", "data": { "title": "Derived draft" } } },
+            "noop": { "call": "data.json", "with": { "json": {} } }
         }),
-    ];
+        now,
+    );
+
+    // Content Created trigger via schedule.on event.
+    let mut demos: Vec<OwsDocument> = vec![demo1, demo2, demo3];
+    let mut with = std::collections::HashMap::new();
+    with.insert(
+        "type".to_string(),
+        serde_json::json!("content.created"),
+    );
+    with.insert("contentType".to_string(), serde_json::json!("api::article.article"));
+    demos[2].definition.schedule = Some(serverless_workflow_core::models::workflow::WorkflowScheduleDefinition {
+        every: None,
+        cron: None,
+        after: None,
+        on: Some(serverless_workflow_core::models::event::EventConsumptionStrategyDefinition {
+            all: None,
+            any: None,
+            one: Some(serverless_workflow_core::models::event::EventFilterDefinition {
+                with: Some(with),
+                correlate: None,
+            }),
+            until: None,
+        }),
+    });
 
     let mut created = 0;
-    for demo in demos {
-        let def: WorkflowModel = serde_json::from_value(demo)
-            .map_err(|e| ServiceError::internal(format!("demo workflow parse: {e}")))?;
+    for def in demos {
         let row = workflow::ActiveModel {
-            name: Set(def.name.clone()),
-            description: Set(def.description.clone()),
+            name: Set(def.name().to_string()),
+            description: Set(def.definition.document.summary.clone()),
             version: Set(1),
             active: Set(false),
             definition_json: Set(serde_json::to_value(&def).map_err(|e| ServiceError::internal(e.to_string()))?),

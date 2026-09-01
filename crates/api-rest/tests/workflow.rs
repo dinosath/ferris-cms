@@ -1,6 +1,6 @@
-//! End-to-end integration test for the workflow automation engine against the
-//! Axum router in-memory. Covers workflow CRUD, activation, manual execution,
-//! execution persistence (with node runs), import/export, webhook triggers,
+//! End-to-end integration test for the OWS workflow engine against the Axum
+//! router in-memory. Covers workflow CRUD, activation, manual execution,
+//! execution persistence (with task runs), import/export, webhook triggers,
 //! credentials, and permission enforcement.
 
 use api_rest::{build_router, AppState};
@@ -26,8 +26,6 @@ fn app_config() -> AppConfig {
 }
 
 async fn setup() -> (axum::Router, Arc<AppState>) {
-    // Use a temp FILE sqlite so the background worker thread (which runs on its
-    // own connection/runtime) shares the same database with the test thread.
     let base = std::env::temp_dir();
     std::fs::create_dir_all(&base).unwrap();
     let db_path = base.join(format!(
@@ -38,7 +36,6 @@ async fn setup() -> (axum::Router, Arc<AppState>) {
             .unwrap()
             .as_nanos()
     ));
-    // sea-orm's ConnectOptions does not auto-create the sqlite file.
     std::fs::write(&db_path, b"").unwrap();
     let db_url = format!("sqlite://{}", db_path.display());
     let db = db::connect(&db_url).await.unwrap();
@@ -85,28 +82,36 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
     serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
 }
 
-/// Build a workflow JSON with manualTrigger -> set -> noop.
+/// Build an OWS workflow document with Set → JSON output tasks.
 fn sample_workflow(id: i64) -> serde_json::Value {
     serde_json::json!({
         "id": id,
-        "name": "Demo Workflow",
-        "description": "A demo workflow",
-        "version": 1,
         "active": false,
-        "nodes": [
-            { "id": "t", "nodeType": "manualTrigger", "name": "Manual", "position": { "x": 0, "y": 0 }, "parameters": {} },
-            { "id": "s", "nodeType": "set", "name": "Set Field", "position": { "x": 200, "y": 0 }, "parameters": { "field": "greeting", "value": "Hello World" } },
-            { "id": "n", "nodeType": "noop", "name": "Noop", "position": { "x": 400, "y": 0 }, "parameters": {} }
-        ],
-        "connections": [
-            { "id": "c1", "from": "t", "fromOutput": "main", "to": "s", "toInput": "main" },
-            { "id": "c2", "from": "s", "fromOutput": "main", "to": "n", "toInput": "main" }
-        ],
-        "settings": { "executionOrder": "v1", "saveExecutionProgress": true },
-        "variables": {},
-        "tags": [],
+        "version": 1,
         "createdAt": "2026-01-01T00:00:00Z",
-        "updatedAt": "2026-01-01T00:00:00Z"
+        "updatedAt": "2026-01-01T00:00:00Z",
+        "definition": {
+            "document": {
+                "dsl": "1.0.0",
+                "namespace": "default",
+                "name": "Demo Workflow",
+                "version": "1.0.0",
+                "summary": "A demo workflow"
+            },
+            "do": [
+                { "setGreeting": { "set": { "greeting": "Hello World" } } },
+                { "output": { "call": "data.json", "with": { "json": { "greeting": "${ .greeting }" } } } }
+            ]
+        }
+    })
+}
+
+fn ows_header() -> serde_json::Value {
+    serde_json::json!({
+        "dsl": "1.0.0",
+        "namespace": "default",
+        "name": "w",
+        "version": "1.0.0"
     })
 }
 
@@ -131,7 +136,7 @@ async fn workflow_full_lifecycle() {
         .unwrap()
         .to_string();
 
-    // 1. Node library is available.
+    // 1. Node library is available (OWS function catalog).
     let lib = router
         .clone()
         .oneshot(empty_request("GET", "/admin/workflow-node-library", Some(&token)))
@@ -146,10 +151,9 @@ async fn workflow_full_lifecycle() {
         .iter()
         .filter_map(|n| n["nodeType"].as_str())
         .collect();
-    assert!(node_types.contains(&"manualTrigger"));
-    assert!(node_types.contains(&"httpRequest"));
-    assert!(node_types.contains(&"getContent"));
-    assert!(node_types.contains(&"if"));
+    assert!(node_types.contains(&"http.request"));
+    assert!(node_types.contains(&"cms.getContent"));
+    assert!(node_types.contains(&"set"));
 
     // 2. Create a workflow.
     let create = router
@@ -165,9 +169,9 @@ async fn workflow_full_lifecycle() {
     assert_eq!(create.status(), StatusCode::OK, "create workflow");
     let wf_json = body_json(create).await;
     let wf_id = wf_json["data"]["id"].as_i64().expect("workflow id");
-    assert_eq!(wf_json["data"]["name"], "Demo Workflow");
+    assert_eq!(wf_json["data"]["definition"]["document"]["name"], "Demo Workflow");
 
-    // 3. Save the full definition (nodes + connections).
+    // 3. Save the full OWS definition.
     let def = sample_workflow(wf_id);
     let save = router
         .clone()
@@ -182,7 +186,7 @@ async fn workflow_full_lifecycle() {
     assert_eq!(save.status(), StatusCode::OK, "save workflow");
     let saved = body_json(save).await;
     assert_eq!(saved["data"]["version"], 2, "version bumped on save");
-    assert_eq!(saved["data"]["nodes"].as_array().unwrap().len(), 3);
+    assert_eq!(saved["data"]["definition"]["do"].as_array().unwrap().len(), 2);
 
     // 4. Get the workflow back.
     let get = router
@@ -192,8 +196,8 @@ async fn workflow_full_lifecycle() {
         .unwrap();
     assert_eq!(get.status(), StatusCode::OK);
     let got = body_json(get).await;
-    assert_eq!(got["data"]["name"], "Demo Workflow");
-    assert_eq!(got["data"]["connections"].as_array().unwrap().len(), 2);
+    assert_eq!(got["data"]["definition"]["document"]["name"], "Demo Workflow");
+    assert_eq!(got["data"]["definition"]["do"].as_array().unwrap().len(), 2);
 
     // 5. List workflows.
     let list = router
@@ -204,7 +208,7 @@ async fn workflow_full_lifecycle() {
     assert_eq!(list.status(), StatusCode::OK);
     let list_json = body_json(list).await;
     assert_eq!(list_json["data"].as_array().unwrap().len(), 1);
-    assert_eq!(list_json["data"][0]["nodeCount"], 3);
+    assert_eq!(list_json["data"][0]["taskCount"], 2);
 
     // 6. Validate the workflow.
     let validate = router
@@ -252,17 +256,11 @@ async fn workflow_full_lifecycle() {
         }
     }
     assert_eq!(exec_detail["data"]["status"], "success", "execution succeeded");
-    let node_runs = exec_detail["nodeRuns"].as_array().unwrap();
-    assert_eq!(node_runs.len(), 3, "three node runs");
-    for run in node_runs {
+    let task_runs = exec_detail["nodeRuns"].as_array().unwrap();
+    assert_eq!(task_runs.len(), 2, "two task runs");
+    for run in task_runs {
         assert_eq!(run["status"], "success");
     }
-    // The "Set Field" node produced the greeting.
-    let set_run = node_runs
-        .iter()
-        .find(|r| r["nodeName"] == "Set Field")
-        .unwrap();
-    assert_eq!(set_run["status"], "success");
 
     // 8. List executions.
     let execs = router
@@ -309,7 +307,7 @@ async fn workflow_full_lifecycle() {
         .unwrap();
     assert_eq!(export.status(), StatusCode::OK);
     let exported = body_json(export).await;
-    assert_eq!(exported["name"], "Demo Workflow");
+    assert_eq!(exported["definition"]["document"]["name"], "Demo Workflow");
 
     let import = router
         .clone()
@@ -317,7 +315,10 @@ async fn workflow_full_lifecycle() {
         .await
         .unwrap();
     assert_eq!(import.status(), StatusCode::OK, "import workflow");
-    assert_eq!(body_json(import).await["data"]["nodes"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        body_json(import).await["data"]["definition"]["do"].as_array().unwrap().len(),
+        2
+    );
 
     // 12. Credentials CRUD.
     let cred_types = router
@@ -345,7 +346,6 @@ async fn workflow_full_lifecycle() {
     assert_eq!(cred_create.status(), StatusCode::OK, "create credential");
     let cred_json = body_json(cred_create).await;
     let cred_id = cred_json["data"]["id"].as_i64().unwrap();
-    // The credential value must never be returned.
     let cred_list = router
         .clone()
         .oneshot(empty_request("GET", "/admin/workflow-credentials", Some(&token)))
@@ -393,7 +393,6 @@ async fn workflow_full_lifecycle() {
 #[tokio::test]
 async fn workflow_permission_denied_for_unauthorized() {
     let (router, _state) = setup().await;
-    // Unauthenticated access to workflow endpoints is rejected.
     let res = router
         .clone()
         .oneshot(empty_request("GET", "/admin/workflows", None))
@@ -417,7 +416,6 @@ async fn webhook_trigger_executes_workflow() {
         .unwrap();
     let token = body_json(reg).await["data"]["token"].as_str().unwrap().to_string();
 
-    // Create + save a webhook workflow.
     let create = router
         .clone()
         .oneshot(json_request(
@@ -431,14 +429,15 @@ async fn webhook_trigger_executes_workflow() {
     let wf_id = body_json(create).await["data"]["id"].as_i64().unwrap();
 
     let wf = serde_json::json!({
-        "id": wf_id, "name": "Webhook WF", "version": 1, "active": false,
-        "nodes": [
-            { "id": "w", "nodeType": "webhookTrigger", "name": "Webhook", "position": {"x":0,"y":0}, "parameters": { "path": "/hook", "method": "POST" } },
-            { "id": "n", "nodeType": "noop", "name": "Noop", "position": {"x":200,"y":0}, "parameters": {} }
-        ],
-        "connections": [ { "id": "c", "from": "w", "fromOutput": "main", "to": "n", "toInput": "main" } ],
-        "settings": {}, "variables": {}, "tags": [],
-        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
+        "id": wf_id, "active": false, "version": 1,
+        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+        "definition": {
+            "document": ows_header(),
+            "schedule": { "on": { "one": { "with": { "type": "webhook", "path": "/hook" } } } },
+            "do": [
+                { "echo": { "call": "data.json", "with": { "json": { "ok": true } } } }
+            ]
+        }
     });
     router
         .clone()
@@ -451,7 +450,6 @@ async fn webhook_trigger_executes_workflow() {
         .await
         .unwrap();
 
-    // Activate it.
     router
         .clone()
         .oneshot(json_request(
@@ -463,7 +461,6 @@ async fn webhook_trigger_executes_workflow() {
         .await
         .unwrap();
 
-    // Fire the public webhook.
     let hook = router
         .clone()
         .oneshot(json_request(
@@ -477,7 +474,6 @@ async fn webhook_trigger_executes_workflow() {
     assert_eq!(hook.status(), StatusCode::OK, "webhook triggers workflow");
     let exec_id = body_json(hook).await["data"]["executionId"].as_i64().unwrap();
 
-    // Wait for completion.
     let mut status = String::new();
     for _ in 0..50 {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -495,6 +491,83 @@ async fn webhook_trigger_executes_workflow() {
 }
 
 #[tokio::test]
+async fn yaml_export_import_roundtrip() {
+    let (router, _state) = setup().await;
+    let reg = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/register-admin",
+            serde_json::json!({"email":"admin@test.dev","password":"StrongPass123!"}),
+            None,
+        ))
+        .await
+        .unwrap();
+    let token = body_json(reg).await["data"]["token"].as_str().unwrap().to_string();
+
+    // Create + save an OWS workflow.
+    let create = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/workflows",
+            serde_json::json!({ "name": "Yaml WF" }),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let wf_id = body_json(create).await["data"]["id"].as_i64().unwrap();
+
+    let wf = serde_json::json!({
+        "id": wf_id, "active": false, "version": 1,
+        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+        "definition": {
+            "document": ows_header(),
+            "do": [
+                { "setGreeting": { "set": { "greeting": "Hello from YAML" } } }
+            ]
+        }
+    });
+    router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &format!("/admin/workflows/{wf_id}"),
+            wf,
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+
+    // Export as YAML.
+    let export = router
+        .clone()
+        .oneshot(empty_request("GET", &format!("/admin/workflows/{wf_id}/export?format=yaml"), Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(export.status(), StatusCode::OK);
+    let exported = body_json(export).await;
+    assert_eq!(exported["format"], "yaml");
+    let yaml_text = exported["data"].as_str().unwrap().to_string();
+    assert!(yaml_text.contains("document:"), "exported YAML is well-formed");
+
+    // Import from YAML text (sent as a JSON string body).
+    let import = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/workflows/import",
+            serde_json::json!(yaml_text),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(import.status(), StatusCode::OK, "import YAML workflow");
+    let imported = body_json(import).await;
+    assert_eq!(imported["data"]["definition"]["do"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn cms_content_created_trigger_executes_workflow() {
     let (router, _state) = setup().await;
     let reg = router
@@ -509,7 +582,6 @@ async fn cms_content_created_trigger_executes_workflow() {
         .unwrap();
     let token = body_json(reg).await["data"]["token"].as_str().unwrap().to_string();
 
-    // Create an article content type so content triggers have a target.
     let ct = router
         .clone()
         .oneshot(json_request(
@@ -530,7 +602,6 @@ async fn cms_content_created_trigger_executes_workflow() {
         .unwrap();
     assert_eq!(ct.status(), StatusCode::OK, "create article content type");
 
-    // Build + activate a workflow triggered by content creation on article.
     let create = router
         .clone()
         .oneshot(json_request(
@@ -544,15 +615,15 @@ async fn cms_content_created_trigger_executes_workflow() {
     let wf_id = body_json(create).await["data"]["id"].as_i64().unwrap();
 
     let wf = serde_json::json!({
-        "id": wf_id, "name": "On Article Created", "version": 1, "active": false,
-        "nodes": [
-            { "id": "cc", "nodeType": "contentCreated", "name": "Content Created", "position": {"x":0,"y":0}, "parameters": { "contentType": "api::article.article" } },
-            { "id": "s", "nodeType": "set", "name": "Record title", "position": {"x":200,"y":0}, "parameters": { "field": "seenTitle", "value": "{{ $json.title }}" } },
-            { "id": "n", "nodeType": "noop", "name": "No-op", "position": {"x":400,"y":0}, "parameters": {} }
-        ],
-        "connections": [ { "id": "c1", "from": "cc", "fromOutput": "main", "to": "s", "toInput": "main" }, { "id": "c2", "from": "s", "fromOutput": "main", "to": "n", "toInput": "main" } ],
-        "settings": {}, "variables": {}, "tags": [],
-        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z"
+        "id": wf_id, "active": false, "version": 1,
+        "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-01T00:00:00Z",
+        "definition": {
+            "document": ows_header(),
+            "schedule": { "on": { "one": { "with": { "type": "content.created", "contentType": "api::article.article" } } } },
+            "do": [
+                { "record": { "call": "data.json", "with": { "json": { "seen": true } } } }
+            ]
+        }
     });
     router
         .clone()
@@ -576,7 +647,6 @@ async fn cms_content_created_trigger_executes_workflow() {
         .unwrap();
     assert_eq!(activate.status(), StatusCode::OK, "activate content workflow");
 
-    // Create an article entry -> should fire content.created -> run the workflow.
     let entry = router
         .clone()
         .oneshot(json_request(
@@ -589,7 +659,6 @@ async fn cms_content_created_trigger_executes_workflow() {
         .unwrap();
     assert_eq!(entry.status(), StatusCode::OK, "create article");
 
-    // Poll for an execution of the workflow.
     let mut found_success = false;
     for _ in 0..100 {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
