@@ -22,6 +22,11 @@ spec:
             - name: http
               containerPort: 1337
               protocol: TCP
+          # Admin bootstrap credentials (username + generated password) come
+          # from the admin ConfigMap and are injected as env vars.
+          envFrom:
+            - configMapRef:
+                name: {{ include "ferriscms.fullname" . }}-admin
           env:
             {{- range $key, $value := .Values.env }}
             - name: {{ $key | quote }}

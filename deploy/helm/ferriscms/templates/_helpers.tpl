@@ -37,3 +37,37 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
 {{- printf "%s:%s" .Values.image.repository $tag -}}
 {{- end -}}
+
+{{/* Resolved admin username (default "admin"). */}}
+{{- define "ferriscms.adminUsername" -}}
+{{- .Values.admin.username | default "admin" -}}
+{{- end -}}
+
+{{/* Resolved admin email: explicit value, else "<username>@ferriscms.local". */}}
+{{- define "ferriscms.adminEmail" -}}
+{{- $username := include "ferriscms.adminUsername" . -}}
+{{- .Values.admin.email | default (printf "%s@ferriscms.local" $username) -}}
+{{- end -}}
+
+{{/*
+Resolved admin password.
+
+Uses .Values.admin.password when provided. Otherwise, on an upgrade/render of an
+existing release, it reuses the password already stored in the chart's ConfigMap
+so credentials stay stable across `helm upgrade`; on a fresh install it generates
+a strong random password with `randAlphaNum`.
+*/}}
+{{- define "ferriscms.adminPassword" -}}
+{{- if .Values.admin.password -}}
+{{- .Values.admin.password -}}
+{{- else -}}
+{{- $cmName := printf "%s-admin" (include "ferriscms.fullname" .) -}}
+{{- $existing := (lookup "v1" "ConfigMap" .Release.Namespace $cmName).data -}}
+{{- if index ($existing | default dict) "ADMIN_PASSWORD" -}}
+{{- index $existing "ADMIN_PASSWORD" -}}
+{{- else -}}
+{{- randAlphaNum 24 -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+

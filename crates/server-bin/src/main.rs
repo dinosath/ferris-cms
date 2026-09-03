@@ -7,7 +7,7 @@
 use api_rest::{build_router, AppState};
 use db::{connect, seed, Migrator};
 use sea_orm_migration::MigratorTrait;
-use services::{load_schema_cache, AppConfig};
+use services::{bootstrap_admin, load_schema_cache, AppConfig};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
@@ -60,6 +60,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match state.ctx.init_rbac().await {
         Ok(()) => tracing::info!("RBAC engine initialized"),
         Err(e) => tracing::warn!("RBAC init skipped: {e}"),
+    }
+
+    // Provision the initial Super Admin from ADMIN_* env vars (if configured).
+    // The Helm chart injects a ConfigMap with a generated password, so this
+    // auto-creates `admin` on a fresh database instead of forcing a UI
+    // registration step.
+    match bootstrap_admin(&state.ctx).await {
+        Ok(Some(a)) => tracing::info!(
+            "provisioned initial Super Admin username={} email={} from environment (manual registration disabled)",
+            a.username,
+            a.email
+        ),
+        Ok(None) => {}
+        Err(e) => tracing::warn!("admin bootstrap skipped: {e}"),
     }
 
     let app = build_router(state);

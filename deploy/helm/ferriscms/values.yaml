@@ -13,6 +13,19 @@ service:
   type: ClusterIP
   port: 1337
 
+# Initial Super Admin that the server auto-provisions on first boot (when no
+# admin exists). The credentials are injected as ADMIN_USERNAME / ADMIN_PASSWORD
+# env vars from a ConfigMap. Username defaults to "admin"; the password is
+# generated randomly at install time when left empty and persisted in the chart's
+# ConfigMap (so it is stable across upgrades). Log in with the username (or the
+# derived ADMIN_EMAIL) plus ADMIN_PASSWORD.
+admin:
+  username: "admin"
+  # Leave empty to auto-generate a strong random password on install.
+  password: ""
+  # Optional email; defaults to "<username>@ferriscms.local".
+  email: ""
+
 # Environment variables passed to the server container.
 # The webserver uses PostgreSQL. Set DATABASE_URL to your database
 # (e.g. postgres://user:password@postgres:5432/ferriscms).

@@ -1,14 +1,28 @@
 ferriscms {{ .Chart.AppVersion }} has been installed.
 
-Getting started:
-  export SERVICE_NAME=$(kubectl get svc --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name=ferriscms,app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath='{.items[0].metadata.name}')
+The server auto-provisions an initial Super Admin from a ConfigMap on first boot
+(when the database has no admin yet).
 
-  # Port-forward to the admin/API locally:
+  Admin username : {{ include "ferriscms.adminUsername" . }}
+  Admin email    : {{ include "ferriscms.adminEmail" . }}
+  Admin password : stored in the "{{ include "ferriscms.fullname" . }}-admin" ConfigMap
+    (or set admin.password to a value of your choice)
+
+Retrieve the generated password:
+
+  kubectl --namespace {{ .Release.Namespace }} get configmap {{ include "ferriscms.fullname" . }}-admin -o jsonpath='{.data.ADMIN_PASSWORD}'
+
+Then port-forward and log in with the username (or ADMIN_EMAIL) and that password:
+
+  export SERVICE_NAME=$(kubectl get svc --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/name=ferriscms,app.kubernetes.io/instance={{ .Release.Name }}" -o jsonpath='{.items[0].metadata.name}')
   kubectl --namespace {{ .Release.Namespace }} port-forward svc/$SERVICE_NAME 1337:1337
 
-Then open http://localhost:1337/admin/init and register the first admin user.
+Then open http://localhost:1337/admin/login
 
-Set a strong JWT_SECRET in production (--set env.JWT_SECRET=...).
-The webserver uses PostgreSQL: point env.DATABASE_URL at your database
-(--set env.DATABASE_URL='postgres://user:pass@host:5432/ferriscms').
-The PVC mounts at /data for uploaded media only.
+Notes:
+  - On an existing database that already has an admin, the bootstrap is skipped
+    and you should log in with the credentials you set up before.
+  - Set a strong JWT_SECRET in production (--set env.JWT_SECRET=...).
+  - The webserver uses PostgreSQL: point env.DATABASE_URL at your database
+    (--set env.DATABASE_URL='postgres://user:pass@host:5432/ferriscms').
+  - The PVC mounts at /data for uploaded media only.

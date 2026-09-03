@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ferriscms.fullname" . }}-admin
+  labels:
+    {{- include "ferriscms.labels" . | nindent 4 }}
+data:
+  # Injected into the server pod via envFrom; the server auto-provisions a
+  # Super Admin from these on first boot (see server-bin bootstrap_admin).
+  ADMIN_USERNAME: {{ include "ferriscms.adminUsername" . | quote }}
+  ADMIN_PASSWORD: {{ include "ferriscms.adminPassword" . | quote }}
+  ADMIN_EMAIL: {{ include "ferriscms.adminEmail" . | quote }}

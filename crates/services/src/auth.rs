@@ -113,15 +113,27 @@ async fn load_user_roles(
 }
 
 /// Admin login.
+///
+/// The `email` field doubles as an identifier: it matches against an admin's
+/// email *or* their username, so an operator provisioned from environment
+/// configuration (see `bootstrap_admin`) can sign in with `admin`.
 pub async fn auth_login(
     ctx: &AppContext,
     req: &LoginRequest,
 ) -> Result<LoginResponse, ServiceError> {
-    let user = admin_user::Entity::find()
+    // Match on email first, then fall back to username.
+    let user = match admin_user::Entity::find()
         .filter(admin_user::COLUMN.email.eq(&req.email))
         .one(&ctx.db)
         .await?
-        .ok_or_else(|| ServiceError::Unauthorized)?;
+    {
+        Some(u) => u,
+        None => admin_user::Entity::find()
+            .filter(admin_user::COLUMN.username.eq(req.email.clone()))
+            .one(&ctx.db)
+            .await?
+            .ok_or_else(|| ServiceError::Unauthorized)?,
+    };
 
     if !user.is_active || user.blocked {
         return Err(ServiceError::Unauthorized);
@@ -228,6 +240,86 @@ pub async fn auth_register(
             },
         },
     })
+}
+
+/// The credentials of an admin auto-provisioned from environment config.
+#[derive(Clone, Debug)]
+pub struct BootstrapAdmin {
+    pub username: String,
+    pub email: String,
+}
+
+/// Provision the initial Super Admin from environment variables at first boot.
+///
+/// Reads `ADMIN_USERNAME` (default `admin`), `ADMIN_EMAIL` (default
+/// `{username}@ferriscms.local`) and `ADMIN_PASSWORD`. When `ADMIN_PASSWORD` is
+/// set (non-empty) and no admin user exists yet, a Super Admin is created so the
+/// operator never has to register through the UI. Idempotent: once an admin
+/// exists, subsequent boots do nothing.
+///
+/// Returns `Ok(Some(..))` with the created credentials, or `Ok(None)` when
+/// nothing was provisioned (no password configured, or an admin already exists).
+pub async fn bootstrap_admin(ctx: &AppContext) -> Result<Option<BootstrapAdmin>, ServiceError> {
+    let password = match std::env::var("ADMIN_PASSWORD") {
+        Ok(p) if !p.trim().is_empty() => p,
+        _ => return Ok(None),
+    };
+
+    let username = std::env::var("ADMIN_USERNAME")
+        .ok()
+        .map(|u| u.trim().to_string())
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| "admin".into());
+
+    let email = std::env::var("ADMIN_EMAIL")
+        .ok()
+        .map(|e| e.trim().to_string())
+        .filter(|e| !e.is_empty())
+        .unwrap_or_else(|| format!("{username}@ferriscms.local"));
+
+    // An admin already exists (e.g. registered through the UI previously) —
+    // never override existing credentials.
+    if db::seed::has_admin(&ctx.db).await? {
+        return Ok(None);
+    }
+
+    let password_hash = hash_password(&password)?;
+    let now = Utc::now();
+
+    let user = admin_user::ActiveModel {
+        email: Set(email.clone()),
+        first_name: Set(Some("Admin".into())),
+        last_name: Set(None),
+        username: Set(Some(username.clone())),
+        password_hash: Set(password_hash),
+        is_active: Set(true),
+        blocked: Set(false),
+        prefered_locale: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    };
+    let user = user.insert(&ctx.db).await?;
+
+    // Assign the Super Admin role (app-level + SeaORM RBAC) so the new admin
+    // has full access, mirroring `auth_register`.
+    if let Some(role) = admin_role::Entity::find()
+        .filter(admin_role::COLUMN.code.eq(db::seed::ROLE_SUPER_ADMIN))
+        .one(&ctx.db)
+        .await?
+    {
+        admin_user_role::ActiveModel {
+            user_id: Set(user.id),
+            role_id: Set(role.id),
+            ..Default::default()
+        }
+        .insert(&ctx.db)
+        .await?;
+    }
+    let _ =
+        crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
+
+    Ok(Some(BootstrapAdmin { username, email }))
 }
 
 /// Build a CurrentUser from a user id.
