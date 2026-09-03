@@ -277,20 +277,35 @@ pub async fn bootstrap_admin(ctx: &AppContext) -> Result<Option<BootstrapAdmin>,
         .filter(|e| !e.is_empty())
         .unwrap_or_else(|| format!("{username}@ferriscms.local"));
 
+    provision_admin(ctx, &username, &email, &password).await
+}
+
+/// Provision an initial Super Admin, unless one already exists.
+///
+/// The testable core of [`bootstrap_admin`]: takes explicit credentials instead
+/// of reading environment variables. Idempotent — returns `Ok(None)` when an
+/// admin already exists (e.g. registered through the UI previously), and never
+/// overrides existing credentials.
+pub async fn provision_admin(
+    ctx: &AppContext,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> Result<Option<BootstrapAdmin>, ServiceError> {
     // An admin already exists (e.g. registered through the UI previously) —
     // never override existing credentials.
     if db::seed::has_admin(&ctx.db).await? {
         return Ok(None);
     }
 
-    let password_hash = hash_password(&password)?;
+    let password_hash = hash_password(password)?;
     let now = Utc::now();
 
     let user = admin_user::ActiveModel {
-        email: Set(email.clone()),
+        email: Set(email.to_string()),
         first_name: Set(Some("Admin".into())),
         last_name: Set(None),
-        username: Set(Some(username.clone())),
+        username: Set(Some(username.to_string())),
         password_hash: Set(password_hash),
         is_active: Set(true),
         blocked: Set(false),
@@ -319,7 +334,10 @@ pub async fn bootstrap_admin(ctx: &AppContext) -> Result<Option<BootstrapAdmin>,
     let _ =
         crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
 
-    Ok(Some(BootstrapAdmin { username, email }))
+    Ok(Some(BootstrapAdmin {
+        username: username.to_string(),
+        email: email.to_string(),
+    }))
 }
 
 /// Build a CurrentUser from a user id.
@@ -356,4 +374,107 @@ pub async fn load_current_user(
         is_active: user.is_active && !user.blocked,
         roles,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use db::entities::admin_user;
+    use sea_orm::{EntityTrait, PaginatorTrait};
+    use sea_orm_migration::MigratorTrait;
+
+    fn test_config() -> AppConfig {
+        AppConfig {
+            db_driver: "sqlite".into(),
+            ..Default::default()
+        }
+    }
+
+    async fn setup() -> AppContext {
+        let db = db::connect_sqlite_memory().await.unwrap();
+        db::migration::Migrator::up(&db, None).await.unwrap();
+        db::seed::seed(&db).await.unwrap();
+        AppContext::new(db, test_config())
+    }
+
+    /// Provisioning the initial Super Admin lets an operator log in with the
+    /// username or the email, and is idempotent (never overrides an admin).
+    #[tokio::test]
+    async fn provision_admin_super_admin_login_and_idempotent() {
+        let ctx = setup().await;
+
+        let out = provision_admin(&ctx, "admin", "admin@ferriscms.local", "Sup3rSecret!9")
+            .await
+            .unwrap()
+            .expect("first provision creates an admin");
+        assert_eq!(out.username, "admin");
+        assert_eq!(out.email, "admin@ferriscms.local");
+        assert!(db::seed::has_admin(&ctx.db).await.unwrap());
+
+        // The provisioned user holds the Super Admin role.
+        let count = admin_user::Entity::find().count(&ctx.db).await.unwrap();
+        assert_eq!(count, 1);
+
+        // Login via username works.
+        let resp = auth_login(
+            &ctx,
+            &LoginRequest {
+                email: "admin".into(),
+                password: "Sup3rSecret!9".into(),
+            },
+        )
+        .await
+        .expect("username login succeeds");
+        assert_eq!(resp.data.token.is_empty(), false);
+        assert_eq!(resp.data.user.username.as_deref(), Some("admin"));
+
+        // Login via the email also works.
+        let resp2 = auth_login(
+            &ctx,
+            &LoginRequest {
+                email: "admin@ferriscms.local".into(),
+                password: "Sup3rSecret!9".into(),
+            },
+        )
+        .await
+        .expect("email login succeeds");
+        assert_eq!(resp2.data.user.email, "admin@ferriscms.local");
+
+        // Wrong password is rejected.
+        assert!(auth_login(
+            &ctx,
+            &LoginRequest {
+                email: "admin".into(),
+                password: "wrong".into(),
+            },
+        )
+        .await
+        .is_err());
+
+        // A second provision is a no-op — existing credentials are preserved.
+        assert!(provision_admin(&ctx, "admin2", "admin2@ferriscms.local", "OtherSecret!1")
+            .await
+            .unwrap()
+            .is_none());
+        let count = admin_user::Entity::find().count(&ctx.db).await.unwrap();
+        assert_eq!(count, 1, "no second admin is created");
+    }
+
+    /// bootstrap_admin only provisions when ADMIN_PASSWORD is set.
+    #[tokio::test]
+    async fn bootstrap_admin_requires_password_env() {
+        let ctx = setup().await;
+        // No ADMIN_PASSWORD set => nothing provisioned.
+        assert!(bootstrap_admin(&ctx).await.unwrap().is_none());
+        assert!(!db::seed::has_admin(&ctx.db).await.unwrap());
+
+        // Set the vars and retry.
+        std::env::set_var("ADMIN_PASSWORD", "EnvSecret!42");
+        std::env::set_var("ADMIN_USERNAME", "root");
+        let out = bootstrap_admin(&ctx).await.unwrap().expect("provisioned");
+        assert_eq!(out.username, "root");
+        assert_eq!(out.email, "root@ferriscms.local");
+        std::env::remove_var("ADMIN_PASSWORD");
+        std::env::remove_var("ADMIN_USERNAME");
+    }
 }
