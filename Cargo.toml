@@ -75,6 +75,8 @@ jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 argon2 = "0.5"
 sha2 = "0.10"
 rand = "0.9"
+url = "2"
+openidconnect = { version = "3", default-features = false, features = ["reqwest", "rustls-tls"] }
 
 # e2e testing (Turso database + Obscura browser, no containers)
 playwright-rs = "0.15"

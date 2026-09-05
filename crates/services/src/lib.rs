@@ -20,6 +20,7 @@ mod content_type_builder;
 mod i18n;
 pub mod import_export;
 mod media;
+pub mod oidc;
 mod rbac;
 mod schema_cache;
 pub mod workflow;
@@ -32,6 +33,7 @@ pub use content_type_builder::*;
 pub use i18n::*;
 pub use import_export::*;
 pub use media::*;
+pub use oidc::*;
 pub use rbac::*;
 pub use schema_cache::*;
 pub use workflow::*;
@@ -141,6 +143,8 @@ pub struct AppContext {
     pub current_user: Option<CurrentUser>,
     pub config: AppConfig,
     pub schema_cache: SchemaCache,
+    /// OpenID Connect SSO config, if enabled (`None` disables SSO).
+    pub oidc: Option<crate::oidc::OidcConfig>,
 }
 
 /// Server configuration (design Part II §6).
@@ -173,11 +177,21 @@ impl Default for AppConfig {
 impl AppContext {
     /// Create a new context with a fresh schema cache.
     pub fn new(db: DatabaseConnection, config: AppConfig) -> Self {
+        Self::new_with_oidc(db, config, crate::oidc::OidcConfig::from_env())
+    }
+
+    /// Create a new context with an explicit OIDC config (for tests / callers).
+    pub fn new_with_oidc(
+        db: DatabaseConnection,
+        config: AppConfig,
+        oidc: Option<crate::oidc::OidcConfig>,
+    ) -> Self {
         Self {
             db,
             current_user: None,
             config,
             schema_cache: SchemaCache::empty(),
+            oidc,
         }
     }
 

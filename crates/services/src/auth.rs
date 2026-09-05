@@ -82,7 +82,7 @@ pub async fn init_info(ctx: &AppContext) -> Result<InitInfo, ServiceError> {
 }
 
 /// Load user roles by user id.
-async fn load_user_roles(
+pub(crate) async fn load_user_roles(
     db: &sea_orm::DatabaseConnection,
     user_id: i64,
 ) -> Result<Vec<api_types::admin::AdminRoleDto>, ServiceError> {

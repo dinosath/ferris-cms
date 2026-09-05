@@ -17,11 +17,12 @@ pub mod ai;
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode, Uri},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{delete, get, post, put},
     Json, Router,
 };
 use rust_embed::RustEmbed;
+use std::collections::HashMap;
 use services::{
     api_token_create, api_token_delete, api_token_list, auth_login, auth_register,
     cm_content_types, cm_create, cm_delete, cm_discard_draft, cm_get, cm_get_configuration,
@@ -60,6 +61,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/init", get(admin_init))
         .route("/admin/login", post(admin_login))
         .route("/admin/register-admin", post(admin_register))
+        // OpenID Connect SSO
+        .route("/admin/oidc/status", get(oidc_status_handler))
+        .route("/admin/oidc/authorize", get(oidc_authorize_handler))
+        .route("/admin/oidc/callback", get(oidc_callback_handler))
         // Content-Type Builder
         .route(
             "/content-type-builder/content-types",
@@ -347,6 +352,52 @@ async fn admin_register(
     Json(req): Json<api_types::admin::RegisterAdminRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
     let resp = auth_register(&state.ctx, &req).await?;
+    Ok(Json(resp))
+}
+
+// ---------------------------------------------------------------------------
+// OpenID Connect (SSO) handlers
+// ---------------------------------------------------------------------------
+
+/// Whether OIDC SSO is enabled, plus the configured IdP issuer. Unauthenticated
+/// so the login screen can decide whether to show a "Continue with SSO" button.
+async fn oidc_status_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let oidc = state.ctx.oidc.as_ref();
+    Ok(Json(serde_json::json!({
+        "data": {
+            "enabled": oidc.is_some(),
+            "issuer": oidc.map(|c| c.issuer.clone()),
+        }
+    })))
+}
+
+/// Kick off SSO: discover the IdP and redirect the browser to its authorization
+/// endpoint (with `state` + PKCE). Fails when OIDC is not configured.
+async fn oidc_authorize_handler(
+    State(state): State<Arc<AppState>>,
+) -> Result<Redirect, error::AppError> {
+    let url = services::oidc_authorize_url(&state.ctx).await?;
+    Ok(Redirect::temporary(&url))
+}
+
+/// Complete SSO: exchange `code`, verify the ID token, map to an admin and
+/// return the standard login response (JWT + user) the frontend expects.
+async fn oidc_callback_handler(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let code = params
+        .get("code")
+        .cloned()
+        .ok_or_else(|| error::AppError(services::ServiceError::Unauthorized))?;
+    let state_param = params
+        .get("state")
+        .cloned()
+        .ok_or_else(|| error::AppError(services::ServiceError::Unauthorized))?;
+
+    let resp = services::oidc_login(&state.ctx, &code, &state_param).await?;
     Ok(Json(resp))
 }
 

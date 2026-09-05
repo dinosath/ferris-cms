@@ -34,6 +34,8 @@ rand = { workspace = true }
 tracing = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
 base64 = "0.22"
+url = { workspace = true }
+openidconnect = { workspace = true }
 chacha20poly1305 = "0.10"
 serverless_workflow_core = { git = "https://github.com/open-workflow-specification/sdk-rust", rev = "12d7c5b2ef76bc5186f949e3a3d649db6a3f3ba5" }
 ows-runtime = { git = "https://github.com/dinosath/ows-runtime-rust", branch = "main" }
