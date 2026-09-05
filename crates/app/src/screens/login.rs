@@ -26,6 +26,20 @@ pub fn Login() -> Element {
     // async body in the wasm build.
     let mut attempt = use_signal(|| None::<(String, String)>);
 
+    // OIDC/SSO availability, fetched once from the server so the screen can show
+    // a "Continue with SSO" action when it is configured.
+    let mut oidc_enabled = use_signal(|| false);
+    let g_oidc_effect = global.clone();
+    use_effect(move || {
+        let mut g = g_oidc_effect.clone();
+        let mut enabled = oidc_enabled;
+        spawn(async move {
+            if let Ok(status) = g.client.oidc_status().await {
+                enabled.set(status.enabled);
+            }
+        });
+    });
+
     // Perform login when a submit is requested. Running `spawn` from an effect
     // (rather than an event handler) is what works on the web target.
     let g_login_effect = global.clone();
@@ -112,6 +126,19 @@ pub fn Login() -> Element {
                             attempt.set(Some((email(), password())));
                         },
                     }
+                    if oidc_enabled() {
+                        div { style: "width:100%; display:flex; align-items:center; margin:18px 0 8px;",
+                            span { style: "flex:1; height:1px; background:{color::NEUTRAL_300};" }
+                            span { style: "margin:0 10px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "or" }
+                            span { style: "flex:1; height:1px; background:{color::NEUTRAL_300};" }
+                        }
+                        Button {
+                            label: "Continue with SSO".to_string(),
+                            variant: "secondary".to_string(),
+                            full_width: true,
+                            on_click: move |_| start_oidc_sso(),
+                        }
+                    }
                     span { style: "{footer_style}",
                         "New here? ",
                         a { style: "color:{color::PRIMARY_600}; cursor:pointer;",
@@ -123,4 +150,17 @@ pub fn Login() -> Element {
             }
         }
     }
+}
+
+/// Send the user to the OIDC authorization endpoint (web only). The server
+/// redirects to the IdP; on success the user returns to `/#oidc_token=...`.
+fn start_oidc_sso() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(w) = web_sys::window() {
+            let _ = w.location().set_href("/admin/oidc/authorize");
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {}
 }

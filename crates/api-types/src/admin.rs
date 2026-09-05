@@ -72,6 +72,15 @@ pub struct InitInfo {
     pub has_admin: bool,
 }
 
+/// Whether OpenID Connect SSO is available, for the login screen.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OidcStatus {
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // API tokens (Part V §6)
 // ---------------------------------------------------------------------------

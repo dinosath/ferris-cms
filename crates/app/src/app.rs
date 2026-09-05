@@ -101,13 +101,37 @@ fn persist_token(token: Option<&str>) {
     }
 }
 
+/// Read and clear an SSO token that the OIDC callback passed in the URL
+/// fragment (`/#oidc_token=<jwt>`). Web only; returns `None` on other targets.
+fn consume_oidc_token_fragment() -> Option<String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let loc = web_sys::window()?.location();
+        let hash = loc.hash().ok()?; // e.g. "#oidc_token=<jwt>"
+        let prefix = "oidc_token=";
+        let start = hash.find(prefix)? + prefix.len();
+        let token = hash[start..].split(['&', '#']).next()?.to_string();
+        if token.is_empty() {
+            return None;
+        }
+        // Drop the fragment so the token isn't left in the address bar.
+        let _ = loc.set_hash("");
+        Some(token)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
 impl Global {
     pub fn new() -> Self {
-        let token = load_persisted_token();
+        let token = load_persisted_token().or_else(consume_oidc_token_fragment);
         let client = Arc::new(build_client());
         // Keep the HTTP transport's bearer token in sync with the persisted
         // session so authenticated API calls succeed immediately after a reload.
         if let Some(t) = &token {
+            persist_token(Some(t));
             client.set_token(Some(t.clone()));
         }
         Self {

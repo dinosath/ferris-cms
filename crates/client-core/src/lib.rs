@@ -333,6 +333,12 @@ impl Client {
         Ok(serde_json::from_value(v)?)
     }
 
+    /// Report whether OIDC SSO is enabled (for the login screen).
+    pub async fn oidc_status(&self) -> Result<api_types::admin::OidcStatus, ClientError> {
+        let v = self.transport.get_json("/admin/oidc/status").await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
     // -- Content-Type Builder --
     pub async fn ctb_list(&self) -> Result<serde_json::Value, ClientError> {
         self.transport

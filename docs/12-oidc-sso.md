@@ -49,9 +49,10 @@ OIDC is considered **enabled** when `OIDC_ISSUER`, `OIDC_CLIENT_ID` and
    - an existing **active** admin with that email is signed in;
    - otherwise, if `OIDC_AUTO_PROVISION=true`, a Super Admin is created;
    - otherwise the request is rejected (`403`).
-5. On success the callback returns the **standard admin login response** (the
-   `data.token` + `data.user` object), the same shape `POST /admin/login`
-   returns. The frontend stores that token and enters the admin panel.
+5. On success the callback **redirects the browser back to the SPA** with the
+   session token in the URL fragment: `/#oidc_token=<jwt>`. The SPA reads it,
+   stores the token in `localStorage`, clears the fragment and opens the admin
+   panel. The token is never sent back to the server as part of a reload.
 
 ## Admin API surface
 
@@ -61,7 +62,7 @@ All three routes are unauthenticated (they are the SSO entry points).
 |--------|-------|-----------|
 | `GET` | `/admin/oidc/status` | `{"data":{"enabled":bool,"issuer":string\|null}}` |
 | `GET` | `/admin/oidc/authorize` | `302` redirect to the IdP, or an error when disabled |
-| `GET` | `/admin/oidc/callback` | `code`+`state` exchange → `LoginResponse` JSON, or an error |
+| `GET` | `/admin/oidc/callback` | `code`+`state` exchange → `302` to `/#oidc_token=<jwt>` (the SPA logs the user in), or an error |
 
 ### Example (status)
 
@@ -70,24 +71,10 @@ curl http://localhost:1337/admin/oidc/status
 # {"data":{"enabled":true,"issuer":"https://idp.example.com/realms/app"}}
 ```
 
-### Example (headless / non-browser)
-
-For non-browser clients (e.g. automation that can follow redirects and hold the
-`state`), the flow is:
-
-```
-# 1. Open authorize (browser redirect). It will 302 to the IdP.
-curl -L http://localhost:1337/admin/oidc/authorize
-
-# 2. After signing in, the IdP redirects to:
-#    /admin/oidc/callback?code=XXXX&state=YYYY
-
-# 3. Callback returns:
-#    {"data":{"token":"<admin-jwt>","user":{...}}}
-```
-
-Use the returned `data.token` as the `Authorization: Bearer <token>` for all
-`/admin/**` endpoints.
+The `authorize`/`callback` pair is a browser (Authorization Code + PKCE) flow:
+`/admin/oidc/authorize` 302s to the IdP, and after the user signs in the IdP
+redirects back to `/admin/oidc/callback`, which 302s the browser to the SPA at
+`/#oidc_token=<jwt>`. The admin UI reads that token and starts a session.
 
 ## Mapping rules
 

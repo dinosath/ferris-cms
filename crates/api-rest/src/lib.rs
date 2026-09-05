@@ -382,12 +382,14 @@ async fn oidc_authorize_handler(
     Ok(Redirect::temporary(&url))
 }
 
-/// Complete SSO: exchange `code`, verify the ID token, map to an admin and
-/// return the standard login response (JWT + user) the frontend expects.
+/// Complete SSO: exchange `code`, verify the ID token, map to an admin and then
+/// redirect the browser back to the SPA, passing the session token in the URL
+/// fragment (`/#oidc_token=...`) so the admin UI can log the user in without
+/// exposing the token to the server again.
 async fn oidc_callback_handler(
     State(state): State<Arc<AppState>>,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<impl IntoResponse, error::AppError> {
+) -> Result<Redirect, error::AppError> {
     let code = params
         .get("code")
         .cloned()
@@ -398,7 +400,8 @@ async fn oidc_callback_handler(
         .ok_or_else(|| error::AppError(services::ServiceError::Unauthorized))?;
 
     let resp = services::oidc_login(&state.ctx, &code, &state_param).await?;
-    Ok(Json(resp))
+    let token = resp.data.token;
+    Ok(Redirect::temporary(&format!("/#oidc_token={token}")))
 }
 
 // ---------------------------------------------------------------------------
