@@ -25,4 +25,10 @@ Notes:
   - Set a strong JWT_SECRET in production (--set env.JWT_SECRET=...).
   - The webserver uses PostgreSQL: point env.DATABASE_URL at your database
     (--set env.DATABASE_URL='postgres://user:pass@host:5432/ferriscms').
+  - To keep secrets out of version control, reference an existing Secret with
+    { valueFrom: { secretKeyRef: { name: ..., key: ... } } } under env (e.g. for
+    DATABASE_URL, JWT_SECRET and OIDC_CLIENT_SECRET).
+  - SSO is opt-in: set OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET (and
+    optionally OIDC_REDIRECT_URI) under env to enable OpenID Connect login.
+  - When ingress.enabled=true the app is exposed per the configured hosts.
   - The PVC mounts at /data for uploaded media only.

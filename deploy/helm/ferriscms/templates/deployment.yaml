@@ -30,7 +30,13 @@ spec:
           env:
             {{- range $key, $value := .Values.env }}
             - name: {{ $key | quote }}
+              {{- if kindIs "string" $value }}
               value: {{ $value | quote }}
+              {{- else if $value.valueFrom }}
+              {{- toYaml $value | nindent 14 }}
+              {{- else }}
+              value: {{ $value | quote }}
+              {{- end }}
             {{- end }}
           livenessProbe:
             httpGet:

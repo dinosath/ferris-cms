@@ -27,6 +27,18 @@ admin:
   email: ""
 
 # Environment variables passed to the server container.
+# Each value is either a plain string (injected literally) or an object of the
+# form { valueFrom: { secretKeyRef: { name: ..., key: ... } } } to pull a value
+# from a Kubernetes Secret (recommended for secrets such as DATABASE_URL,
+# JWT_SECRET and OIDC_CLIENT_SECRET so they never live in version control).
+#
+#   env:
+#     DATABASE_URL:
+#       valueFrom:
+#         secretKeyRef:
+#           name: ferriscms-secrets
+#           key: DATABASE_URL
+#
 # The webserver uses PostgreSQL. Set DATABASE_URL to your database
 # (e.g. postgres://user:password@postgres:5432/ferriscms).
 env:
@@ -35,6 +47,18 @@ env:
   MEDIA_STORAGE_DIR: "/data/media"
   BIND_ADDR: "0.0.0.0:1337"
   RUST_LOG: "info"
+
+# Ingress (optional) to expose the admin UI + REST API.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: ferriscms.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
 
 # Persistent storage for uploaded media (the database is external PostgreSQL).
 persistence:
