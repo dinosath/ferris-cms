@@ -70,8 +70,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install cargo-semver-checks
-        run: cargo install cargo-semver-checks --locked
+      # Install a prebuilt cargo-semver-checks binary instead of compiling it
+      # from source on every run.
+      - uses: taiki-e/install-action@cargo-semver-checks
 
       - name: Run semver checks
         run: |
