@@ -33,6 +33,19 @@ pub fn check(ast: &Expr, host: &Schema, all: &[Schema], declared: ValueType) -> 
     Ok(typed)
 }
 
+/// Parse `src` and type-check it, ensuring any returned error carries the
+/// source expression (for validation messages / UI previews).
+pub fn check_str(
+    src: &str,
+    host: &Schema,
+    all: &[Schema],
+    declared: ValueType,
+) -> Result<TypedExpr> {
+    let ast = crate::parser::parse(src)?;
+    check(&ast, host, all, declared)
+        .map_err(|e| if e.expression.is_none() { e.with_expression(src) } else { e })
+}
+
 /// Type-check an expression evaluated in `scope` (a scalar scope; collections
 /// are rejected unless wrapped by an aggregate).
 fn check_in_scope(ast: &Expr, scope: &Schema, all: &[Schema]) -> Result<TypedExpr> {
@@ -737,6 +750,18 @@ mod tests {
             TKind::Aggregate { func, .. } => assert_eq!(func, AggFunc::Sum),
             _ => panic!("expected aggregate"),
         }
+    }
+
+    #[test]
+    fn errors_carry_expression_text() {
+        // Validation errors must include the source expression and a message.
+        let all = erp_registry();
+        let err = check_str("quantity + true", &all[0], &all, ValueType::Decimal).unwrap_err();
+        assert!(err.expression.is_some(), "error should carry the source expression");
+        assert!(!err.message.is_empty());
+        // Error text names the offending expression on display.
+        let display = err.to_string();
+        assert!(display.contains("quantity"), "{display}");
     }
 
     #[test]

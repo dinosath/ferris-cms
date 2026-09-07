@@ -303,6 +303,74 @@ mod tests {
     }
 
     #[test]
+    fn full_erp_chain_no_false_cycle() {
+        // net_price(line) -> total(sale)=SUM(lines.net_price) ->
+        // total_revenue(customer)=SUM(sales.total) — a valid multi-level chain
+        // that must NOT be flagged as a cycle.
+        let sale_line = schema(
+            "api::sl.sl",
+            "saleLine",
+            vec![
+                ("quantity", num()),
+                ("unit_price", num()),
+                ("net_price", formula_attr("quantity * unit_price", FormulaType::Decimal)),
+            ],
+        );
+        let sale = schema(
+            "api::sale.sale",
+            "sale",
+            vec![
+                (
+                    "lines",
+                    Attribute {
+                        attr_type: FieldType::Relation,
+                        relation: Some(RelationKind::OneToMany),
+                        target: Some(Uid::new("api::sl.sl")),
+                        mapped_by: Some("sale".into()),
+                        ..Default::default()
+                    },
+                ),
+                ("total", formula_attr("SUM(lines.net_price)", FormulaType::Decimal)),
+                (
+                    "customer",
+                    Attribute {
+                        attr_type: FieldType::Relation,
+                        relation: Some(RelationKind::ManyToOne),
+                        target: Some(Uid::new("api::cust.cust")),
+                        ..Default::default()
+                    },
+                ),
+            ],
+        );
+        let customer = schema(
+            "api::cust.cust",
+            "customer",
+            vec![
+                (
+                    "sales",
+                    Attribute {
+                        attr_type: FieldType::Relation,
+                        relation: Some(RelationKind::OneToMany),
+                        target: Some(Uid::new("api::sale.sale")),
+                        mapped_by: Some("customer".into()),
+                        ..Default::default()
+                    },
+                ),
+                ("total_revenue", formula_attr("SUM(sales.total)", FormulaType::Decimal)),
+            ],
+        );
+        let report = analyze(&[sale_line, sale, customer]).unwrap();
+        assert_eq!(
+            report.dependency_strings("api::cust.cust", "total_revenue"),
+            vec!["sales.total"]
+        );
+        assert_eq!(
+            report.dependency_strings("api::sale.sale", "total"),
+            vec!["lines.net_price"]
+        );
+    }
+
+    #[test]
     fn detects_cross_entity_dependency() {
         let sale = schema(
             "api::sale.sale",

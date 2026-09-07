@@ -242,7 +242,18 @@ fn arith(op: BinOp, l: &Value, r: &Value) -> Result<Value> {
     use BinOp::*;
     let lt = l.value_type().unwrap();
     let rt = r.value_type().unwrap();
-    let target = promote_numeric(lt, rt).unwrap();
+    let base = promote_numeric(lt, rt).unwrap();
+    // `/` always yields Decimal to preserve precision, unless both operands are
+    // floats (which would be an odd mixture and are kept as float).
+    let target = if op == Div {
+        if base == ValueType::Float {
+            ValueType::Float
+        } else {
+            ValueType::Decimal
+        }
+    } else {
+        base
+    };
     let a = l.coerce_numeric(target).ok_or_else(|| type_err())?;
     let b = r.coerce_numeric(target).ok_or_else(|| type_err())?;
 
@@ -571,5 +582,33 @@ mod tests {
         base.insert("discount".into(), Value::Null);
         assert_eq!(evaluate("discount IS NULL", &base).unwrap(), Value::Boolean(true));
         assert_eq!(evaluate("discount IS NOT NULL", &base).unwrap(), Value::Boolean(false));
+    }
+}
+
+#[cfg(test)]
+mod precedence_tests {
+    use super::*;
+
+    #[test]
+    fn multiplication_binds_tighter_than_addition() {
+        // quantity + unit_price * 2 must be quantity + (unit_price*2), not
+        // (quantity+unit_price)*2. 10 + 5*2 = 20 (not 30).
+        let mut base = Row::new();
+        base.insert("quantity".into(), Value::Integer(10));
+        base.insert("unit_price".into(), Value::Integer(5));
+        let v = evaluate("quantity + unit_price * 2", &base).unwrap();
+        assert_eq!(v, Value::Integer(20));
+        let v = evaluate("(quantity + unit_price) * 2", &base).unwrap();
+        assert_eq!(v, Value::Integer(30));
+    }
+
+    #[test]
+    fn division_is_left_associative() {
+        // 100 / 10 / 2 == (100/10)/2 == 5
+        let mut base = Row::new();
+        base.insert("a".into(), Value::Integer(100));
+        let v = evaluate("a / 10 / 2", &base).unwrap();
+        // 100/10=10 (Decimal), 10/2=5
+        assert_eq!(format!("{v}"), "5");
     }
 }
