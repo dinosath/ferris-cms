@@ -299,3 +299,126 @@ pub fn build_expr(
     let ir = compiler.formula_ir(&host.uid.to_string(), formula_field)?;
     compiler.compile_host(host, &ir)
 }
+
+/// Render a compiled host formula as a full `SELECT <formula> FROM <host>`
+/// statement in SQLite dialect. Primarily used by tests to assert the shape of
+/// the generated SQL (no raw user strings, correlated subqueries present).
+pub fn sqlite_shape(all: &[Schema], host: &Schema, formula_field: &str) -> Result<String> {
+    let c = build_expr(all, host, formula_field)?;
+    let mut sel = Query::select();
+    sel.expr(c.sql).from(Alias::new(host.table_name()));
+    use sea_query::SqliteQueryBuilder;
+    Ok(sel.to_string(SqliteQueryBuilder))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_schema as cs;
+    use core_domain::{ContentTypeKind, FieldType, RelationKind, Uid};
+
+    fn schema(uid: &str, singular: &str, attrs: Vec<(&str, cs::Attribute)>) -> Schema {
+        let mut m = indexmap::IndexMap::new();
+        for (n, a) in attrs {
+            m.insert(n.to_string(), a);
+        }
+        Schema {
+            uid: Uid::new(uid),
+            kind: ContentTypeKind::CollectionType,
+            collection_name: None,
+            info: cs::SchemaInfo {
+                singular_name: singular.into(),
+                plural_name: format!("{singular}s"),
+                display_name: singular.into(),
+                description: None,
+                icon: None,
+            },
+            options: Default::default(),
+            plugin_options: None,
+            attributes: m,
+            metadata: None,
+        }
+    }
+    fn num() -> cs::Attribute {
+        cs::Attribute::new(FieldType::Decimal)
+    }
+    fn int() -> cs::Attribute {
+        cs::Attribute::new(FieldType::Integer)
+    }
+    fn formula(expression: &str) -> cs::Attribute {
+        cs::Attribute {
+            attr_type: FieldType::Decimal,
+            formula: Some(cs::FormulaConfig {
+                expression: expression.into(),
+                return_type: cs::FormulaType::Decimal,
+                execution_strategy: cs::ExecutionStrategy::Computed,
+                dependencies: vec![],
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn scalar_formula_sql_shape() {
+        let line = schema(
+            "api::line.line",
+            "line",
+            vec![
+                ("quantity", int()),
+                ("unit_price", num()),
+                ("discount", num()),
+                ("net_price", formula("(quantity * unit_price) - COALESCE(discount, 0)")),
+            ],
+        );
+        let all = vec![line.clone()];
+        let sql = sqlite_shape(&all, &line, "net_price").unwrap();
+        assert!(sql.contains("COALESCE"), "{sql}");
+        assert!(sql.contains("quantity"), "{sql}");
+        assert!(sql.contains("unit_price"), "{sql}");
+        assert!(!sql.contains("net_price") || sql.contains("AS"), "{sql}");
+    }
+
+    #[test]
+    fn aggregate_formula_emits_correlated_subquery() {
+        // Sale.lines oneToMany SaleLine; Sale.subtotal = SUM(lines.net_price).
+        let line = schema(
+            "api::line.line",
+            "line",
+            vec![
+                ("quantity", int()),
+                ("unit_price", num()),
+                (
+                    "sale",
+                    cs::Attribute {
+                        attr_type: FieldType::Relation,
+                        relation: Some(RelationKind::ManyToOne),
+                        target: Some(Uid::new("api::sale.sale")),
+                        ..Default::default()
+                    },
+                ),
+                ("net_price", formula("quantity * unit_price")),
+            ],
+        );
+        let sale = schema(
+            "api::sale.sale",
+            "sale",
+            vec![
+                (
+                    "lines",
+                    cs::Attribute {
+                        attr_type: FieldType::Relation,
+                        relation: Some(RelationKind::OneToMany),
+                        target: Some(Uid::new("api::line.line")),
+                        mapped_by: Some("sale".into()),
+                        ..Default::default()
+                    },
+                ),
+                ("subtotal", formula("SUM(lines.net_price)")),
+            ],
+        );
+        let all = vec![line, sale.clone()];
+        let sql = sqlite_shape(&all, &sale, "subtotal").unwrap();
+        assert!(sql.contains("SUM("), "{sql}");
+        assert!(sql.contains("SELECT"), "{sql}");
+    }
+}
