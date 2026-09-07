@@ -618,7 +618,7 @@ mod tests {
     use super::*;
     use crate::parser::parse;
     use core_domain::{ContentTypeKind, FieldType, RelationKind, Uid};
-    use core_schema::{Attribute, FormulaConfig, FormulaType, SchemaInfo};
+    use core_schema::{Attribute, SchemaInfo};
     use indexmap::IndexMap;
 
     fn schema(uid: &str, singular: &str, plural: &str, attrs: Vec<(&str, Attribute)>) -> Schema {
@@ -643,19 +643,6 @@ mod tests {
         }
     }
 
-    fn formula_attr(ft: FormulaType, expression: &str) -> Attribute {
-        Attribute {
-            attr_type: FieldType::Decimal,
-            formula: Some(FormulaConfig {
-                expression: expression.into(),
-                return_type: ft,
-                execution_strategy: core_schema::ExecutionStrategy::Computed,
-                dependencies: vec![],
-            }),
-            ..Default::default()
-        }
-    }
-
     fn decimal_attr() -> Attribute {
         Attribute::new(FieldType::Decimal)
     }
@@ -664,9 +651,6 @@ mod tests {
     }
     fn string_attr() -> Attribute {
         Attribute::new(FieldType::String)
-    }
-    fn bool_attr() -> Attribute {
-        Attribute::new(FieldType::Boolean)
     }
     fn date_attr() -> Attribute {
         Attribute::new(FieldType::Date)

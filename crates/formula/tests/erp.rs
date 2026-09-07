@@ -460,3 +460,30 @@ async fn test_null_coalesce_equals_zero() {
         assert!(approx(Some(v), 80.0), "net price {v}");
     }
 }
+
+#[tokio::test]
+async fn test11_revenue_does_not_leak_across_customers() {
+    // Guard against the classic bug: computing SUM(all sales) instead of
+    // SUM(sales WHERE sales.customer_id = current_customer.id).
+    let (db, all) = setup().await;
+    let backend = DbBackend::Sqlite;
+    let product = insert_product(&db, backend, "A", 5.0).await;
+
+    let cust_a = insert_customer(&db, backend, "A").await;
+    let cust_b = insert_customer(&db, backend, "B").await;
+
+    // A: one sale with a 10x10 line -> revenue 100
+    let sa = insert_sale(&db, backend, cust_a, 0.0, "PAID", "2020-01-01", 24).await;
+    insert_sale_line(&db, backend, sa, product, 10, 10.0, None).await;
+    // B: a decoy sale with a huge line -> revenue 1000
+    let sb = insert_sale(&db, backend, cust_b, 0.0, "PAID", "2020-01-01", 24).await;
+    insert_sale_line(&db, backend, sb, product, 100, 10.0, None).await;
+
+    let cust_host = host_by_uid(&all, "api::customer.customer");
+    let revenue = compute_column(&db, &all, cust_host, "total_revenue").await;
+    let rev_a = revenue.get(&cust_a).copied().flatten().unwrap();
+    let rev_b = revenue.get(&cust_b).copied().flatten().unwrap();
+
+    assert!(approx(Some(rev_a), 100.0), "A revenue {rev_a} must not include B's sales");
+    assert!(approx(Some(rev_b), 1000.0), "B revenue {rev_b}");
+}

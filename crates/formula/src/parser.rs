@@ -456,7 +456,7 @@ mod tests {
     fn parses_filtered_sum() {
         let e = parse("SUM(sales.balance WHERE sales.status = \"OPEN\")").unwrap();
         match e {
-            Aggregate { func, arg, filter } => {
+            Aggregate { func, filter, .. } => {
                 assert_eq!(func, AggFunc::Sum);
                 assert!(filter.is_some());
             }
