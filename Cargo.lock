@@ -4459,6 +4459,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "formula"
+version = "0.2.0"
+dependencies = [
+ "api-types",
+ "chrono",
+ "core-domain",
+ "core-schema",
+ "dynamic-store",
+ "indexmap 2.14.0",
+ "rust_decimal",
+ "sea-orm",
+ "sea-query",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "fraction"
 version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
