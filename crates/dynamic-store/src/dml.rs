@@ -19,6 +19,10 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 pub fn column_map(schema: &Schema) -> Vec<(String, String, SqlFamily)> {
     let mut out = Vec::new();
     for (name, attr) in &schema.attributes {
+        // Computed fields are virtual: no physical column.
+        if attr.formula.is_some() {
+            continue;
+        }
         if attr.attr_type.is_scalar_column() {
             out.push((name.clone(), column_name(name), attr.sql_family()));
         } else if attr.attr_type == FieldType::Relation
@@ -571,6 +575,9 @@ pub fn build_write_values(
     let mut out = Vec::new();
     for (name, attr) in &schema.attributes {
         let Some(v) = data.get(name) else { continue };
+        if attr.formula.is_some() {
+            continue; // computed fields are read-only
+        }
         if !attr.attr_type.is_scalar_column() {
             continue;
         }

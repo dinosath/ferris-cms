@@ -1,0 +1,25 @@
+[package]
+name = "formula"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Formula / computed-field engine for Ferris CMS (DSL, type system, dependency graph, SeaORM/sea-query compiler)"
+
+[dependencies]
+core-domain = { workspace = true }
+core-schema = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+indexmap = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+rust_decimal = { version = "1.42", features = ["serde"] }
+sea-query = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+dynamic-store = { workspace = true }
+api-types = { workspace = true }
+sea-orm = { workspace = true }

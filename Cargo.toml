@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/core-domain",
     "crates/core-schema",
+    "crates/formula",
     "crates/api-types",
     "crates/db",
     "crates/dynamic-store",

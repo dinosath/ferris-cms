@@ -121,12 +121,13 @@ fn col_def(name: &str, attr: &Attribute, nullable: bool) -> ColumnDef {
     c
 }
 
-/// Scalar attribute → physical column list, in schema order.
+/// Scalar attribute → physical column list, in schema order. Computed
+/// (formula) attributes are virtual and never get a physical column.
 pub fn scalar_columns(schema: &Schema) -> Vec<(String, String, Attribute)> {
     schema
         .attributes
         .iter()
-        .filter(|(_, a)| a.attr_type.is_scalar_column())
+        .filter(|(_, a)| a.attr_type.is_scalar_column() && a.formula.is_none())
         .map(|(n, a)| (n.clone(), column_name(n), a.clone()))
         .collect()
 }

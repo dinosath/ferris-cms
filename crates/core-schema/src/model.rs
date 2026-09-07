@@ -184,6 +184,14 @@ pub struct Attribute {
     // ---- conditional visibility (Strapi conditional fields) ----
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visible_when: Option<FieldCondition>,
+
+    // ---- computed / formula field ----
+    // Present on an attribute when it is a computed field. Physical columns are
+    // never created for attributes that carry a `formula` block; the value is
+    // derived by the formula subsystem at query time (or as a generated
+    // column), never written by clients.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<crate::FormulaConfig>,
 }
 
 impl Attribute {
