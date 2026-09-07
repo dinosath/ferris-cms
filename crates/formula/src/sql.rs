@@ -36,6 +36,10 @@ pub struct SqlCompiler {
 
 impl SqlCompiler {
     pub fn new(all: Vec<Schema>) -> Result<Self> {
+        // Reject cyclic formula definitions up front so formula inlining below
+        // can never recurse forever (spec §6/§18: circular schemas must fail
+        // with a clear error, not crash).
+        crate::deps::analyze(&all)?;
         let mut formulas = HashMap::new();
         for schema in &all {
             for (field, attr) in &schema.attributes {
@@ -420,5 +424,24 @@ mod tests {
         let sql = sqlite_shape(&all, &sale, "subtotal").unwrap();
         assert!(sql.contains("SUM("), "{sql}");
         assert!(sql.contains("SELECT"), "{sql}");
+    }
+
+    #[test]
+    fn cyclic_registry_rejected_clearly() {
+        // A = B + 1 ; B = A + 1 must be rejected at compiler construction, not
+        // recurse forever during formula inlining.
+        let both = schema(
+            "api::pair.pair",
+            "pair",
+            vec![
+                ("a", formula("b + 1")),
+                ("b", formula("a + 1")),
+            ],
+        );
+        let err = match SqlCompiler::new(vec![both]) {
+            Err(e) => e,
+            Ok(_) => panic!("expected a circular dependency error"),
+        };
+        assert!(err.message.contains("circular"), "{err}");
     }
 }
