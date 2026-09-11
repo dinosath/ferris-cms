@@ -1010,6 +1010,23 @@ mod generated_column_tests {
     }
 
     #[test]
+    fn computed_default_storage_is_stored_and_not_not_null() {
+        // `stored` omitted => STORED; a generated column is never NOT NULL even
+        // when the attribute is required/defaulted upstream.
+        let a = computed(FieldType::Decimal, "a + b", None);
+        let schema = schema_with("total", &a, &[]);
+        let mut t = Table::create();
+        t.table(Alias::new("ct_orders"));
+        t.col(col_def(DbBackend::Sqlite, &schema, "total", &a, false, false));
+        let sql = t.build(SqliteQueryBuilder);
+        assert!(sql.contains("STORED"), "default storage must be STORED: {sql}");
+        assert!(
+            !sql.to_uppercase().contains("NOT NULL"),
+            "generated column must not be NOT NULL: {sql}"
+        );
+    }
+
+    #[test]
     fn non_computed_column_has_no_generated_clause() {
         let a = Attribute::new(FieldType::Decimal);
         let sql = create_sql(DbBackend::Sqlite, &a, false);

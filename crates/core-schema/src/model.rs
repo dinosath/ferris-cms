@@ -521,3 +521,74 @@ mod tests {
         assert_eq!(back.visible_when.unwrap().field, "enabled");
     }
 }
+
+#[cfg(test)]
+mod computed_attribute_contract {
+    use super::*;
+    use core_domain::FieldType;
+
+    /// Public JSON contract for a computed attribute (round-trip + keys).
+    #[test]
+    fn computed_attribute_json_contract() {
+        let attr: Attribute = serde_json::from_value(serde_json::json!({
+            "type": "decimal",
+            "computed": true,
+            "expression": "a + b",
+            "stored": false,
+            "dependencies": ["a", "b"]
+        }))
+        .unwrap();
+        assert!(attr.is_computed());
+        assert!(!attr.is_stored());
+
+        let v = serde_json::to_value(&attr).unwrap();
+        assert_eq!(v["computed"], serde_json::json!(true));
+        assert_eq!(v["expression"], serde_json::json!("a + b"));
+        assert_eq!(v["stored"], serde_json::json!(false));
+        assert_eq!(v["dependencies"], serde_json::json!(["a", "b"]));
+    }
+
+    /// Non-computed attributes must not change their existing JSON output, and
+    /// `stored` defaults to STORED.
+    #[test]
+    fn defaults_are_omitted_and_stored_defaults_true() {
+        let plain = Attribute::new(FieldType::String);
+        assert!(!plain.is_computed());
+        assert!(plain.is_stored());
+
+        let v = serde_json::to_value(&plain).unwrap();
+        assert!(v.get("computed").is_none(), "computed=false omitted: {v}");
+        assert!(v.get("expression").is_none(), "expression omitted: {v}");
+        assert!(v.get("stored").is_none(), "stored omitted: {v}");
+        assert!(v.get("dependencies").is_none(), "dependencies omitted: {v}");
+    }
+
+    /// Type matrix for computed-field support.
+    #[test]
+    fn supports_computed_type_matrix() {
+        for t in [
+            FieldType::Integer,
+            FieldType::Biginteger,
+            FieldType::Decimal,
+            FieldType::Float,
+            FieldType::String,
+            FieldType::Text,
+            FieldType::Boolean,
+            FieldType::Date,
+            FieldType::Datetime,
+        ] {
+            assert!(Attribute::new(t).supports_computed(), "{t:?} should be supported");
+        }
+        for t in [
+            FieldType::Json,
+            FieldType::Time,
+            FieldType::Enumeration,
+            FieldType::Media,
+            FieldType::Relation,
+            FieldType::Component,
+            FieldType::Dynamiczone,
+        ] {
+            assert!(!Attribute::new(t).supports_computed(), "{t:?} should be rejected");
+        }
+    }
+}
