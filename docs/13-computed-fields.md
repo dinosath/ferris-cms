@@ -62,7 +62,7 @@ scalar types:
 - toggle to mark the field computed;
 - expression editor;
 - storage mode (Stored / Virtual);
-- dependency viewer plus a text dependency graph (`field → dependency`);
+- dependency viewer with a node-link visualization (the field box connected to its dependency boxes);
 - generated-DDL preview (`GENERATED ALWAYS AS (<expr>) STORED|VIRTUAL`);
 - clickable field-name chips that insert a sibling field into the expression
   (autocomplete);
@@ -76,10 +76,10 @@ The admin Content Manager renders computed fields read-only (formula icon,
 type, storage mode, expression, value) in the entry view and includes them in
 list views; they are stripped from the save payload.
 
-Not implemented (UI polish): a graphical (node-link) dependency visualization
-and a preview that evaluates against user-supplied sample values (the current
-preview samples every field as `1`). The UI is compile-validated on the host and
-wasm32 targets; it is not exercised by a browser-driven test in this repository.
+Not implemented (UI polish): a preview that evaluates against *user-supplied*
+sample values (the current preview samples every referenced field as `1`), and a
+browser-driven UI test. The UI is compile-validated on the host and wasm32
+targets.
 
 ## Expression language
 

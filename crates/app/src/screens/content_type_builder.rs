@@ -1062,15 +1062,6 @@ fn FieldConfigModal(
         dep_list.join(", ")
     };
     let unknown_text = unknown_deps.join(", ");
-    let graph_text = if dep_list.is_empty() {
-        "no dependencies".to_string()
-    } else {
-        dep_list
-            .iter()
-            .map(|d| format!("{} → {}", name(), d))
-            .collect::<Vec<_>>()
-            .join("    ")
-    };
     let preview_text = format!(
         "GENERATED ALWAYS AS ({}) {}",
         if expression().is_empty() {
@@ -1356,8 +1347,16 @@ fn FieldConfigModal(
                         div { style: "margin-top:8px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_600};",
                             "Dependencies: {dep_text}"
                         }
-                        div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};",
-                            "Dependency graph: {graph_text}"
+                        div { style: "margin-top:6px; display:flex; align-items:center; gap:6px; flex-wrap:wrap;",
+                            span { style: "padding:2px 8px; border-radius:4px; background:{color::PRIMARY_100}; color:{color::PRIMARY_700}; font-size:{typography::PI_SIZE};", "{name()}" }
+                            if dep_list.is_empty() {
+                                span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "no dependencies" }
+                            } else {
+                                for d in dep_list.clone() {
+                                    span { style: "color:{color::NEUTRAL_400};", "→" }
+                                    span { style: "padding:2px 8px; border-radius:4px; background:{color::NEUTRAL_100}; color:{color::NEUTRAL_600}; font-size:{typography::PI_SIZE};", "{d}" }
+                                }
+                            }
                         }
                         div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};",
                             "Preview: {preview_text}"
