@@ -468,6 +468,193 @@ fn bin(op: BinOp, left: Expr, right: Expr) -> Expr {
     }
 }
 
+/// Token category for syntax highlighting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TokenKind {
+    /// A field/column reference.
+    Column,
+    /// A literal keyword (`true`, `false`, `null`).
+    Keyword,
+    Number,
+    Str,
+    Operator,
+    Punct,
+}
+
+/// Tokenize an expression for syntax highlighting.
+pub fn tokenize(input: &str) -> Result<Vec<(TokenKind, String)>, ParseError> {
+    let mut p = Parser::new(input);
+    let mut out = Vec::new();
+    while let Some(tok) = p.next_token()? {
+        let item = match &tok {
+            Token::Ident(s) => {
+                let kind = match s.to_ascii_lowercase().as_str() {
+                    "true" | "false" | "null" => TokenKind::Keyword,
+                    _ => TokenKind::Column,
+                };
+                (kind, s.clone())
+            }
+            Token::Number(n) => (TokenKind::Number, n.to_string()),
+            Token::Str(s) => (TokenKind::Str, format!("'{s}'")),
+            Token::Op(o) => (TokenKind::Operator, o.to_string()),
+            Token::LParen => (TokenKind::Punct, "(".to_string()),
+            Token::RParen => (TokenKind::Punct, ")".to_string()),
+            Token::Comma => (TokenKind::Punct, ",".to_string()),
+        };
+        out.push(item);
+    }
+    Ok(out)
+}
+
+/// Evaluate a parsed expression against sample field values (used for the
+/// Content-Type Builder's realtime preview). Mirrors the DDL semantics for the
+/// supported operators/functions.
+pub fn evaluate(
+    e: &Expr,
+    values: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    use serde_json::Value;
+    match e {
+        Expr::Column(n) => values
+            .get(n)
+            .cloned()
+            .ok_or_else(|| format!("no sample value for `{n}`")),
+        Expr::Number(n) => Ok(num_val(*n)),
+        Expr::Str(s) => Ok(Value::String(s.clone())),
+        Expr::Bool(b) => Ok(Value::Bool(*b)),
+        Expr::Null => Ok(Value::Null),
+        Expr::Unary { op, expr } => {
+            let v = evaluate(expr, values)?;
+            match op {
+                UnOp::Neg => Ok(num_val(-to_num(&v)?)),
+                UnOp::Not => Ok(Value::Bool(!truthy(&v))),
+            }
+        }
+        Expr::Binary { op, left, right } => {
+            let l = evaluate(left, values)?;
+            let r = evaluate(right, values)?;
+            match op {
+                BinOp::Concat => Ok(Value::String(format!("{}{}", to_str(&l), to_str(&r)))),
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+                    let a = to_num(&l)?;
+                    let b = to_num(&r)?;
+                    let out = match op {
+                        BinOp::Add => a + b,
+                        BinOp::Sub => a - b,
+                        BinOp::Mul => a * b,
+                        BinOp::Div => {
+                            if b == 0.0 {
+                                return Err("division by zero".to_string());
+                            }
+                            a / b
+                        }
+                        BinOp::Mod => a % b,
+                        _ => unreachable!(),
+                    };
+                    Ok(num_val(out))
+                }
+                BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+                    let c = compare(&l, &r);
+                    let b = match op {
+                        BinOp::Eq => c == 0,
+                        BinOp::Ne => c != 0,
+                        BinOp::Lt => c < 0,
+                        BinOp::Lte => c <= 0,
+                        BinOp::Gt => c > 0,
+                        BinOp::Gte => c >= 0,
+                        _ => unreachable!(),
+                    };
+                    Ok(Value::Bool(b))
+                }
+            }
+        }
+        Expr::Func { name, args } => {
+            let vals: Vec<serde_json::Value> = args
+                .iter()
+                .map(|a| evaluate(a, values))
+                .collect::<Result<_, _>>()?;
+            let arg = |i: usize| vals.get(i).cloned().unwrap_or(serde_json::Value::Null);
+            match name.as_str() {
+                "COALESCE" => Ok(vals
+                    .into_iter()
+                    .find(|v| !v.is_null())
+                    .unwrap_or(serde_json::Value::Null)),
+                "ABS" => Ok(num_val(to_num(&arg(0))?.abs())),
+                "ROUND" => {
+                    let x = to_num(&arg(0))?;
+                    let d = if vals.len() > 1 { to_num(&arg(1))? } else { 0.0 };
+                    let m = 10f64.powf(d);
+                    Ok(num_val((x * m).round() / m))
+                }
+                "LOWER" => Ok(serde_json::Value::String(to_str(&arg(0)).to_lowercase())),
+                "UPPER" => Ok(serde_json::Value::String(to_str(&arg(0)).to_uppercase())),
+                "LENGTH" => Ok(serde_json::Value::from(to_str(&arg(0)).chars().count() as i64)),
+                other => Err(format!("function `{other}` is not supported in preview")),
+            }
+        }
+    }
+}
+
+fn num_val(f: f64) -> serde_json::Value {
+    if f.is_finite() && f.fract() == 0.0 && f.abs() < 9.007_199_254_740_992e15 {
+        serde_json::Value::from(f as i64)
+    } else {
+        serde_json::Value::from(f)
+    }
+}
+
+fn to_num(v: &serde_json::Value) -> Result<f64, String> {
+    match v {
+        serde_json::Value::Number(n) => n
+            .as_f64()
+            .ok_or_else(|| "number out of range".to_string()),
+        serde_json::Value::String(s) => s
+            .trim()
+            .parse::<f64>()
+            .map_err(|_| format!("`{s}` is not numeric")),
+        serde_json::Value::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
+        other => Err(format!("{other} is not numeric")),
+    }
+}
+
+fn to_str(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
+fn truthy(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Null => false,
+        serde_json::Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
+        serde_json::Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
+
+fn compare(l: &serde_json::Value, r: &serde_json::Value) -> i32 {
+    if let (Ok(a), Ok(b)) = (to_num(l), to_num(r)) {
+        return if a < b {
+            -1
+        } else if a > b {
+            1
+        } else {
+            0
+        };
+    }
+    let (a, b) = (to_str(l), to_str(r));
+    if a < b {
+        -1
+    } else if a > b {
+        1
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,5 +697,81 @@ mod tests {
         assert!(parse_expression("quantity * unit_price)").is_err());
         assert!(parse_expression("@nope").is_err());
         assert!(parse_expression("'unterminated").is_err());
+    }
+}
+
+#[cfg(test)]
+mod eval_and_tokenize_tests {
+    use super::*;
+    use serde_json::{json, Map, Value};
+
+    fn vals(pairs: &[(&str, Value)]) -> Map<String, Value> {
+        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    }
+
+    fn eval(src: &str, pairs: &[(&str, Value)]) -> Value {
+        let e = parse_expression(src).unwrap();
+        evaluate(&e, &vals(pairs)).unwrap()
+    }
+
+    #[test]
+    fn evaluates_erp_and_crm_previews() {
+        assert_eq!(
+            eval("quantity * unit_price", &[("quantity", json!(10)), ("unit_price", json!(100))]),
+            json!(1000)
+        );
+        assert_eq!(
+            eval(
+                "subtotal * discount / 100",
+                &[("subtotal", json!(1000)), ("discount", json!(10))]
+            ),
+            json!(100)
+        );
+        assert_eq!(
+            eval(
+                "subtotal - discount_amount",
+                &[("subtotal", json!(1000)), ("discount_amount", json!(100))]
+            ),
+            json!(900)
+        );
+        assert_eq!(
+            eval(
+                "first_name || ' ' || last_name",
+                &[("first_name", json!("John")), ("last_name", json!("Smith"))]
+            ),
+            json!("John Smith")
+        );
+        assert_eq!(
+            eval(
+                "(deals_won * 100) / (deals_won + deals_lost)",
+                &[("deals_won", json!(8)), ("deals_lost", json!(2))]
+            ),
+            json!(80)
+        );
+        assert_eq!(eval("ROUND(10 / 3, 2)", &[]), json!(3.33));
+        assert_eq!(eval("COALESCE(note, 5)", &[("note", Value::Null)]), json!(5));
+        assert_eq!(eval("UPPER(name)", &[("name", json!("smith"))]), json!("SMITH"));
+    }
+
+    #[test]
+    fn preview_reports_errors() {
+        let e = parse_expression("a / b").unwrap();
+        assert!(evaluate(&e, &vals(&[("a", json!(1)), ("b", json!(0))])).is_err());
+        let missing = parse_expression("a + b").unwrap();
+        assert!(evaluate(&missing, &vals(&[("a", json!(1))])).is_err());
+        let bad_fn = parse_expression("SECRET(a)").unwrap();
+        assert!(evaluate(&bad_fn, &vals(&[("a", json!(1))])).is_err());
+    }
+
+    #[test]
+    fn tokenizes_for_highlighting() {
+        let toks = tokenize("quantity * unit_price + 'x'").unwrap();
+        assert!(toks.iter().any(|(k, t)| *k == TokenKind::Column && t == "quantity"));
+        assert!(toks.iter().any(|(k, _)| *k == TokenKind::Operator));
+        assert!(toks.iter().any(|(k, t)| *k == TokenKind::Str && t == "'x'"));
+        // Keywords vs columns.
+        let kw = tokenize("true ANDx").unwrap();
+        assert_eq!(kw[0].0, TokenKind::Keyword);
+        assert_eq!(kw[1].0, TokenKind::Column);
     }
 }

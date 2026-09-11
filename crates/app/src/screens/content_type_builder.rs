@@ -1080,6 +1080,25 @@ fn FieldConfigModal(
         },
         if computed_stored() { "STORED" } else { "VIRTUAL" }
     );
+    // Syntax highlighting + realtime sample preview (sample values default to 1).
+    let highlighted: Vec<(String, String)> = core_schema::tokenize(&expression())
+        .unwrap_or_default()
+        .iter()
+        .map(|(k, t)| (token_color(*k).to_string(), t.clone()))
+        .collect();
+    let sample_preview: Option<String> = match core_schema::parse_expression(&expression()) {
+        Ok(e) if !expression().trim().is_empty() => {
+            let samples: serde_json::Map<String, serde_json::Value> = dep_list
+                .iter()
+                .map(|d| (d.clone(), serde_json::Value::from(1)))
+                .collect();
+            Some(match core_schema::evaluate(&e, &samples) {
+                Ok(v) => format!("Sample preview (each field = 1): {v}"),
+                Err(err) => format!("Sample preview: {err}"),
+            })
+        }
+        _ => None,
+    };
     let storage_value = if computed_stored() {
         "stored".to_string()
     } else {
@@ -1343,6 +1362,16 @@ fn FieldConfigModal(
                         div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};",
                             "Preview: {preview_text}"
                         }
+                        div { style: "margin-top:6px; font-family:monospace; font-size:{typography::PI_SIZE}; background:{color::NEUTRAL_50}; padding:6px 8px; border-radius:4px;",
+                            for (c, t) in highlighted.clone() {
+                                span { style: "color:{c}; margin-right:4px;", "{t}" }
+                            }
+                        }
+                        if let Some(sample) = sample_preview.clone() {
+                            div { style: "margin-top:4px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_600};",
+                                "{sample}"
+                            }
+                        }
                         if !sibling_fields.is_empty() {
                             div { style: "margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;",
                                 for f in sibling_fields.clone() {
@@ -1487,5 +1516,18 @@ mod tests {
         assert_eq!(parse_cond_value("3.5"), serde_json::json!(3.5));
         assert_eq!(parse_cond_value("draft"), serde_json::json!("draft"));
         assert_eq!(parse_cond_value(""), serde_json::json!(""));
+    }
+}
+
+/// Token colour for expression syntax highlighting.
+fn token_color(kind: core_schema::TokenKind) -> &'static str {
+    use core_schema::TokenKind::*;
+    match kind {
+        Column => color::PRIMARY_600,
+        Number => color::NEUTRAL_900,
+        Str => color::DANGER_700,
+        Operator => color::WARNING_700,
+        Keyword => color::PRIMARY_700,
+        Punct => color::NEUTRAL_400,
     }
 }
