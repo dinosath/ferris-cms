@@ -108,4 +108,33 @@ assert d["full_name"] == "John Smith", d
 assert num(d["success_rate"]) == 80, d
 print("CRM create OK: full_name='John Smith' success_rate=80 (DB-computed)")
 
+# Bulk create/update endpoints ignore user-supplied computed values.
+bname = "bi%d" % suf
+buid = "api::%s.%s" % (bname, bname)
+bschema = {"uid": buid, "kind": "collectionType",
+  "info": {"singularName": bname, "pluralName": bname + "s", "displayName": "Bulk Item"},
+  "attributes": {
+    "quantity": {"type": "integer"}, "unit_price": {"type": "decimal"},
+    "total": {"type": "decimal", "computed": True, "expression": "quantity * unit_price",
+              "stored": True, "dependencies": ["quantity", "unit_price"]},
+  }}
+st, body = req("POST", "/content-type-builder/schema", {"schemas": [bschema]}, token)
+assert st == 200 and body.get("error") is None, (st, body)
+bulk = "/admin/content-manager/collection-types/%s/bulk" % buid
+st, body = req("POST", bulk, {"data": [
+    {"quantity": 2, "unit_price": 10, "total": 999},
+    {"quantity": 3, "unit_price": 10, "total": 888},
+]}, token)
+assert st == 200, (st, body)
+rows = body["data"]
+assert [num(r["total"]) for r in rows] == [20, 30], body
+docs = [r["documentId"] for r in rows]
+st, body = req("PUT", bulk, {"data": [
+    {"documentId": docs[0], "quantity": 5, "total": 111},
+    {"documentId": docs[1], "quantity": 7, "total": 222},
+]}, token)
+assert st == 200, (st, body)
+assert [num(r["total"]) for r in body["data"]] == [50, 70], body
+print("bulk create/update OK (user computed values ignored, DB-derived)")
+
 print("\nLIVE ACCEPTANCE PASSED (real server, real PostgreSQL, HTTP)")
