@@ -93,31 +93,95 @@ fn computed_stored(backend: DbBackend, attr: &Attribute, adding_column: bool) ->
     Some(stored)
 }
 
+/// Placeholder style for custom (raw) expressions, which differs per backend:
+/// PostgreSQL uses numbered `$1` tokens, SQLite/MySQL use `?`.
+#[derive(Clone, Copy)]
+enum Ph {
+    Question,
+    Numbered,
+}
+
+impl Ph {
+    fn of(backend: DbBackend) -> Self {
+        match backend {
+            DbBackend::Postgres => Ph::Numbered,
+            _ => Ph::Question,
+        }
+    }
+
+    /// The placeholder for the `n`-th (1-based) expression argument.
+    fn sub(self, n: usize) -> String {
+        match self {
+            Ph::Question => "?".to_string(),
+            Ph::Numbered => format!("${n}"),
+        }
+    }
+}
+
+fn custom(ph: Ph, parts: &[&str], exprs: Vec<SimpleExpr>) -> SimpleExpr {
+    // `parts` are interleaved literal fragments; placeholders are inserted
+    // between them using the backend's token style.
+    let mut template = String::new();
+    for (i, frag) in parts.iter().enumerate() {
+        if i > 0 {
+            template.push_str(&ph.sub(i));
+        }
+        template.push_str(frag);
+    }
+    Expr::cust_with_exprs(template, exprs)
+}
+
 /// Render a parsed computed-field expression to a SeaQuery expression.
 pub fn render_expr(e: &CExpr) -> SimpleExpr {
+    render_expr_impl(e, None, Ph::Question)
+}
+
+/// Render an expression, inlining any reference to *another computed column*
+/// with that column's own expression.
+///
+/// PostgreSQL forbids a generated column from referencing another generated
+/// column, so nested computed fields (e.g. `total = subtotal - discount_amount`
+/// where `subtotal` is itself computed) must be flattened at DDL time. The
+/// substituted expression is parenthesized to preserve precedence; cycles are
+/// already rejected by schema validation.
+fn render_expr_impl(e: &CExpr, schema: Option<&Schema>, ph: Ph) -> SimpleExpr {
     match e {
-        CExpr::Column(n) => Expr::col(Alias::new(n)),
+        CExpr::Column(n) => {
+            if let Some(schema) = schema {
+                if let Some(attr) = schema.attributes.get(n) {
+                    if attr.computed {
+                        if let Some(src) = attr.expression.as_deref() {
+                            if let Ok(inner) = core_schema::parse_expression(src) {
+                                let rendered = render_expr_impl(&inner, Some(schema), ph);
+                                return custom(ph, &["(", ")"], vec![rendered]);
+                            }
+                        }
+                    }
+                }
+            }
+            Expr::col(Alias::new(n))
+        }
         CExpr::Number(n) => Expr::val(*n),
         CExpr::Str(s) => Expr::val(s.clone()),
         CExpr::Bool(b) => Expr::val(*b),
         CExpr::Null => Expr::cust("NULL"),
         CExpr::Unary { op, expr } => {
-            let inner = render_expr(expr);
+            let inner = render_expr_impl(expr, schema, ph);
             match op {
                 UnOp::Neg => Expr::val(0i32).sub(inner),
-                UnOp::Not => Expr::cust_with_exprs("NOT ?", [inner]),
+                UnOp::Not => custom(ph, &["NOT ", ""], vec![inner]),
             }
         }
         CExpr::Binary { op, left, right } => {
-            let l = render_expr(left);
-            let r = render_expr(right);
+            let l = render_expr_impl(left, schema, ph);
+            let r = render_expr_impl(right, schema, ph);
             match op {
                 BinOp::Add => l.add(r),
                 BinOp::Sub => l.sub(r),
                 BinOp::Mul => l.mul(r),
                 BinOp::Div => l.div(r),
                 BinOp::Mod => l.modulo(r),
-                BinOp::Concat => Expr::cust_with_exprs("? || ?", [l, r]),
+                BinOp::Concat => custom(ph, &["", " || ", ""], vec![l, r]),
                 BinOp::Eq => l.eq(r),
                 BinOp::Ne => l.ne(r),
                 BinOp::Lt => l.lt(r),
@@ -127,7 +191,8 @@ pub fn render_expr(e: &CExpr) -> SimpleExpr {
             }
         }
         CExpr::Func { name, args } => {
-            let rendered: Vec<SimpleExpr> = args.iter().map(render_expr).collect();
+            let rendered: Vec<SimpleExpr> =
+                args.iter().map(|a| render_expr_impl(a, schema, ph)).collect();
             Expr::FunctionCall(Func::cust(Alias::new(name)).args(rendered))
         }
     }
@@ -135,6 +200,7 @@ pub fn render_expr(e: &CExpr) -> SimpleExpr {
 
 fn col_def(
     backend: DbBackend,
+    schema: &Schema,
     name: &str,
     attr: &Attribute,
     nullable: bool,
@@ -191,7 +257,7 @@ fn col_def(
         if let Some(src) = attr.expression.as_deref() {
             match core_schema::parse_expression(src) {
                 Ok(parsed) => {
-                    c.generated(render_expr(&parsed), stored);
+                    c.generated(render_expr_impl(&parsed, Some(schema), Ph::of(backend)), stored);
                 }
                 Err(e) => {
                     // Validation should have rejected this earlier; fall back to
@@ -378,7 +444,7 @@ async fn create_host_table<C: ConnectionTrait>(
     for (_, col, attr) in scalar_columns(schema) {
         // Required on create only; added columns later are nullable and the
         // service enforces required-ness at write time.
-        t.col(col_def(backend, &col, &attr, !attr.required, false));
+        t.col(col_def(backend, schema, &col, &attr, !attr.required, false));
     }
     for (_, col, attr, _) in owner_fk_columns(schema, all) {
         let mut c = bigint_null(&col);
@@ -669,7 +735,7 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     db: &C,
     backend: DbBackend,
     table: &str,
-    _schema: &Schema,
+    schema: &Schema,
     name: &str,
     attr: &Attribute,
     _all: &[Schema],
@@ -678,7 +744,7 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     if attr.attr_type.is_scalar_column() {
         let col = column_name(name);
         // Added columns are always nullable; service enforces `required`.
-        add_column_if_supported(db, backend, table, col_def(backend, &col, attr, true, true), actions)
+        add_column_if_supported(db, backend, table, col_def(backend, schema, &col, attr, true, true), actions)
             .await?;
         if attr.unique || attr.attr_type == FieldType::Uid {
             create_index_stmt(db, backend, table, &[col.as_str()], true, actions).await?;
@@ -748,7 +814,7 @@ async fn apply_incompatible_change<C: ConnectionTrait>(
             db,
             backend,
             table,
-            col_def(backend, &old_col, &change.to, true, true),
+            col_def(backend, schema, &old_col, &change.to, true, true),
             actions,
         )
         .await?;
@@ -838,7 +904,7 @@ async fn create_index_stmt<C: ConnectionTrait>(
 mod generated_column_tests {
     use super::*;
     use core_domain::FieldType;
-    use core_schema::Attribute;
+    use core_schema::{Attribute, Schema};
 
     fn computed(ft: FieldType, expr: &str, stored: Option<bool>) -> Attribute {
         let mut a = Attribute::new(ft);
@@ -848,10 +914,36 @@ mod generated_column_tests {
         a
     }
 
+    fn schema_with(name: &str, attr: &Attribute, extra: &[(&str, Attribute)]) -> Schema {
+        let mut attributes = serde_json::Map::new();
+        for (n, a) in extra {
+            attributes.insert(n.to_string(), serde_json::to_value(a).unwrap());
+        }
+        attributes.insert(name.to_string(), serde_json::to_value(attr).unwrap());
+        serde_json::from_value(serde_json::json!({
+            "uid": "api::bench.bench",
+            "kind": "collectionType",
+            "info": {"singularName":"bench","pluralName":"benches","displayName":"Bench"},
+            "attributes": attributes
+        }))
+        .unwrap()
+    }
+
     fn create_sql(backend: DbBackend, attr: &Attribute, adding: bool) -> String {
+        create_sql_for(backend, "total", attr, &[], adding)
+    }
+
+    fn create_sql_for(
+        backend: DbBackend,
+        name: &str,
+        attr: &Attribute,
+        extra: &[(&str, Attribute)],
+        adding: bool,
+    ) -> String {
+        let schema = schema_with(name, attr, extra);
         let mut t = Table::create();
         t.table(Alias::new("ct_orders"));
-        t.col(col_def(backend, "total", attr, true, adding));
+        t.col(col_def(backend, &schema, name, attr, true, adding));
         match backend {
             DbBackend::Postgres => t.build(PostgresQueryBuilder),
             DbBackend::Sqlite => t.build(SqliteQueryBuilder),
@@ -892,6 +984,29 @@ mod generated_column_tests {
         let a = computed(FieldType::Text, "first_name || ' ' || last_name", Some(true));
         let sql = create_sql(DbBackend::Sqlite, &a, false);
         assert!(sql.contains("||"), "concat DDL: {sql}");
+    }
+
+    #[test]
+    fn nested_computed_is_inlined_for_postgres() {
+        // PostgreSQL forbids generated columns referencing other generated
+        // columns, so a reference to a computed column is flattened.
+        let subtotal = computed(FieldType::Decimal, "quantity * unit_price", Some(true));
+        let total = computed(FieldType::Decimal, "subtotal - discount", Some(true));
+        let sql = create_sql_for(
+            DbBackend::Postgres,
+            "total",
+            &total,
+            &[("subtotal", subtotal)],
+            false,
+        );
+        assert!(
+            sql.contains("quantity") && sql.contains("unit_price"),
+            "nested computed expression must be inlined: {sql}"
+        );
+        assert!(
+            !sql.contains("\"subtotal\"") && !sql.contains(" subtotal"),
+            "must not reference the generated `subtotal` column: {sql}"
+        );
     }
 
     #[test]

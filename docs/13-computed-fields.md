@@ -83,6 +83,18 @@ total_amount DECIMAL GENERATED ALWAYS AS (subtotal + tax) STORED
 full_name TEXT GENERATED ALWAYS AS (first_name || ' ' || last_name) STORED
 ```
 
+### Chained computed fields are inlined
+
+PostgreSQL **rejects a generated column that references another generated
+column** (`ERROR: A generated column cannot reference another generated
+column`). Chained definitions such as the ERP example
+(`total_amount = subtotal - discount_amount`, where `subtotal` is itself
+computed) are therefore **flattened at DDL time**: each reference to a computed
+field is substituted with that field's (parenthesized) expression. This is done
+for every backend so the emitted DDL is consistent and portable; the evaluated
+values are identical. Cycles are rejected by schema validation before this
+point.
+
 ### Backend capability handling
 
 | Backend | STORED | VIRTUAL | Notes |
@@ -169,6 +181,21 @@ curl -sS -X POST http://localhost:1337/content-type-builder/schema \
 - `api-rest/tests/computed_fields.rs`: ERP + CRM end-to-end REST scenarios
   (database-derived values, recomputation on update, filtering, sorting, write
   rejection) and CTB validation errors.
+- `services/tests/computed_postgres.rs`: **real PostgreSQL acceptance** (the
+  production DB). Driven by the real service API (`ctb_apply` → `cm_*`) against
+  Postgres 16, covering chained ERP computed columns (inlined), CRM concat +
+  division, filter/sort by computed fields, write rejection, and a
+  virtual-requested column upgraded to STORED. Ignored by default:
+
+  ```bash
+  TEST_POSTGRES_URL=postgres://postgres:postgres@127.0.0.1:55432/ferriscms \
+    cargo test -p services --test computed_postgres -- --ignored --nocapture
+  ```
+
+  Note: `init_rbac` currently errors on PostgreSQL with a duplicate-key on
+  `sea_orm_permission_action_key`; the server logs this as a warning and
+  continues, and the acceptance test mirrors that tolerance (pre-existing,
+  unrelated to computed fields).
 
 ## Performance
 
