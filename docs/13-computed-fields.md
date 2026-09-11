@@ -180,7 +180,8 @@ curl -sS -X POST http://localhost:1337/content-type-builder/schema \
 - `services/tests/computed_migrations.rs`: create/add/alter/rollback/remove.
 - `api-rest/tests/computed_fields.rs`: ERP + CRM end-to-end REST scenarios
   (database-derived values, recomputation on update, filtering, sorting, write
-  rejection) and CTB validation errors.
+  rejection), CTB validation errors, CTB metadata exposure, bulk
+  create/update (computed values ignored), and CRUD/pagination/delete/export.
 - `services/tests/computed_postgres.rs`: **real PostgreSQL acceptance** (the
   production DB). Driven by the real service API (`ctb_apply` → `cm_*`) against
   Postgres 16, covering chained ERP computed columns (inlined), CRM concat +
@@ -233,8 +234,17 @@ PostgreSQL only `STORED` exists, so this is also the required mode there.
 
 ## Bulk APIs
 
-The CMS has no dedicated bulk-insert/bulk-update endpoints; multi-record writes
-go through the Import pipeline and repeated CRUD calls. Every write path routes
-through the same store layer, which excludes computed columns, so user-supplied
-computed values can never be persisted regardless of how records are written.
+Bulk writes are supported and **ignore** user-supplied computed values (the
+values are stripped and the database derives them), so batches that echo full
+rows succeed:
+
+| Method | Route | Body |
+|--------|-------|------|
+| `POST` | `/admin/content-manager/collection-types/{uid}/bulk` | `{ "data": [ { ... }, { ... } ] }` |
+| `PUT`  | `/admin/content-manager/collection-types/{uid}/bulk` | `{ "data": [ { "documentId": "...", ... }, ... ] }` |
+
+Single-entry writes (`POST`/`PUT .../collection-types/{uid}[/{id}]`) instead
+return a `400 ValidationError` when a computed field is written, surfacing the
+mistake. Both paths never persist a user-supplied computed value: it is either
+rejected (single) or stripped (bulk).
 

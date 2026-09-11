@@ -637,3 +637,74 @@ async fn computed_metadata_exposed_by_ctb() {
     assert_eq!(balance["computed"], serde_json::json!(true), "{balance}");
     assert_eq!(balance["dependencies"], serde_json::json!(["debits", "credits"]));
 }
+
+/// Requirement 11 (bulk insert/update): `POST/PUT .../bulk` ignore user-supplied
+/// computed values; the database still derives them.
+#[tokio::test]
+async fn computed_fields_bulk_endpoints() {
+    let router = setup().await;
+    let token = register_admin(&router).await;
+
+    let ct = serde_json::json!({
+        "uid": "api::bulk-item.bulk-item",
+        "kind": "collectionType",
+        "info": {"singularName":"bulk-item","pluralName":"bulk-items","displayName":"Bulk Item"},
+        "attributes": {
+            "quantity": {"type": "integer"},
+            "unit_price": {"type": "decimal"},
+            "total": {
+                "type": "decimal", "computed": true,
+                "expression": "quantity * unit_price", "stored": true,
+                "dependencies": ["quantity", "unit_price"]
+            }
+        }
+    });
+    apply_schema(&router, &token, serde_json::json!([ct])).await;
+    let uid = "api::bulk-item.bulk-item";
+    let bulk = format!("/admin/content-manager/collection-types/{uid}/bulk");
+
+    // Bulk create with bogus computed values -> ignored, DB-derived.
+    let created = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            &bulk,
+            serde_json::json!({"data": [
+                {"quantity": 2, "unit_price": 10, "total": 999},
+                {"quantity": 3, "unit_price": 10, "total": 888}
+            ]}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK, "bulk create");
+    let created = body_json(created).await;
+    let rows = created["data"].as_array().expect("bulk data");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(num(&rows[0]["total"]), 20.0, "bogus 999 ignored: {created}");
+    assert_eq!(num(&rows[1]["total"]), 30.0, "bogus 888 ignored: {created}");
+    let docs: Vec<String> = rows
+        .iter()
+        .map(|r| r["documentId"].as_str().unwrap().to_string())
+        .collect();
+
+    // Bulk update with bogus computed values -> ignored, recomputed.
+    let updated = router
+        .clone()
+        .oneshot(json_request(
+            "PUT",
+            &bulk,
+            serde_json::json!({"data": [
+                {"documentId": docs[0], "quantity": 5, "total": 111},
+                {"documentId": docs[1], "quantity": 7, "total": 222}
+            ]}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK, "bulk update");
+    let updated = body_json(updated).await;
+    let rows = updated["data"].as_array().expect("bulk update data");
+    assert_eq!(num(&rows[0]["total"]), 50.0, "recomputed: {updated}");
+    assert_eq!(num(&rows[1]["total"]), 70.0, "recomputed: {updated}");
+}

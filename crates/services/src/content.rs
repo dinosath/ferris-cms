@@ -158,6 +158,54 @@ pub async fn cm_update(
     })
 }
 
+/// Remove user-supplied values for computed fields. Bulk writes ignore them so
+/// batches that echo full rows still succeed; the database derives the values.
+fn strip_computed(schema: &core_schema::Schema, item: &JsonValue) -> JsonValue {
+    let mut obj = item.as_object().cloned().unwrap_or_default();
+    for (name, attr) in &schema.attributes {
+        if attr.computed {
+            obj.remove(name);
+        }
+    }
+    JsonValue::Object(obj)
+}
+
+/// Bulk create entries. User-supplied computed values are ignored.
+pub async fn cm_bulk_create(
+    ctx: &AppContext,
+    uid: &str,
+    items: &[JsonValue],
+) -> Result<Vec<JsonValue>, ServiceError> {
+    let schema = load_schema(ctx, uid)?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let data = strip_computed(&schema, item);
+        out.push(cm_create(ctx, uid, &data).await?.data);
+    }
+    Ok(out)
+}
+
+/// Bulk update entries. Each item must carry `documentId`; user-supplied
+/// computed values are ignored.
+pub async fn cm_bulk_update(
+    ctx: &AppContext,
+    uid: &str,
+    items: &[JsonValue],
+) -> Result<Vec<JsonValue>, ServiceError> {
+    let schema = load_schema(ctx, uid)?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let mut obj = item.as_object().cloned().unwrap_or_default();
+        let doc_id = obj
+            .remove("documentId")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .ok_or_else(|| ServiceError::bad_payload("bulk update item requires `documentId`"))?;
+        let data = strip_computed(&schema, &JsonValue::Object(obj));
+        out.push(cm_update(ctx, uid, &doc_id, &data).await?.data);
+    }
+    Ok(out)
+}
+
 /// Delete an entry by document_id.
 pub async fn cm_delete(ctx: &AppContext, uid: &str, document_id: &str) -> Result<(), ServiceError> {
     let schema = load_schema(ctx, uid)?;

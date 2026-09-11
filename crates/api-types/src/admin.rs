@@ -165,6 +165,15 @@ pub struct WriteEntryRequest {
     pub data: serde_json::Value,
 }
 
+/// Bulk write body: `{ "data": [ { ... }, { ... } ] }`.
+///
+/// Bulk update items must each carry `documentId`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct BulkWriteRequest {
+    #[serde(default)]
+    pub data: Vec<serde_json::Value>,
+}
+
 /// Per-CT view configuration (design Part III §8).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

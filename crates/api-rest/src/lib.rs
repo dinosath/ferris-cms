@@ -130,6 +130,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .delete(cm_delete_handler),
         )
         .route(
+            "/admin/content-manager/collection-types/{uid}/bulk",
+            post(cm_bulk_create_handler).put(cm_bulk_update_handler),
+        )
+        .route(
             "/admin/content-manager/collection-types/{uid}/{document_id}/actions/publish",
             post(cm_publish_handler),
         )
@@ -552,6 +556,24 @@ async fn cm_create_handler(
 ) -> Result<impl IntoResponse, error::AppError> {
     let resp = cm_create(&admin.0, &uid, &req.data).await?;
     Ok(Json(resp))
+}
+
+async fn cm_bulk_create_handler(
+    admin: auth::AdminCtx,
+    Path(uid): Path<String>,
+    Json(req): Json<api_types::admin::BulkWriteRequest>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let rows = services::cm_bulk_create(&admin.0, &uid, &req.data).await?;
+    Ok(Json(serde_json::json!({ "data": rows })))
+}
+
+async fn cm_bulk_update_handler(
+    admin: auth::AdminCtx,
+    Path(uid): Path<String>,
+    Json(req): Json<api_types::admin::BulkWriteRequest>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let rows = services::cm_bulk_update(&admin.0, &uid, &req.data).await?;
+    Ok(Json(serde_json::json!({ "data": rows })))
 }
 
 async fn cm_update_handler(
