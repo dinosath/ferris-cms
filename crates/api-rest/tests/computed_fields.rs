@@ -456,3 +456,118 @@ async fn computed_field_validation_errors() {
         "expected circular dependency error, got {body}"
     );
 }
+
+fn del(uri: &str, token: &str) -> Request<Body> {
+    Request::builder()
+        .method("DELETE")
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap()
+}
+
+/// CRUD surface for a content type with computed columns: create multiple
+/// entries, list with pagination, delete, and export — verifying computed
+/// values stay database-derived throughout.
+#[tokio::test]
+async fn computed_fields_crud_pagination_and_export() {
+    let router = setup().await;
+    let token = register_admin(&router).await;
+
+    let ct = serde_json::json!({
+        "uid": "api::invoice.invoice",
+        "kind": "collectionType",
+        "info": {"singularName":"invoice","pluralName":"invoices","displayName":"Invoice"},
+        "options": {"draftAndPublish": true},
+        "attributes": {
+            "quantity": {"type": "integer"},
+            "unit_price": {"type": "decimal"},
+            "total": {
+                "type": "decimal", "computed": true,
+                "expression": "quantity * unit_price", "stored": true,
+                "dependencies": ["quantity", "unit_price"]
+            }
+        }
+    });
+    apply_schema(&router, &token, serde_json::json!([ct])).await;
+    let uid = "api::invoice.invoice";
+
+    let mut ids = Vec::new();
+    for (q, p) in [(1, 10), (2, 10), (3, 10)] {
+        let created = create_entry(
+            &router,
+            &token,
+            uid,
+            serde_json::json!({"quantity": q, "unit_price": p}),
+        )
+        .await;
+        assert_eq!(num(&created["data"]["total"]), (q * p) as f64);
+        ids.push(created["data"]["documentId"].as_str().unwrap().to_string());
+    }
+
+    // List + pagination (page 1 of size 2, then page 2).
+    let page1 = router
+        .clone()
+        .oneshot(get(
+            &format!("/admin/content-manager/collection-types/{uid}?pagination[page]=1&pagination[pageSize]=2&sort[0]=total:asc"),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let page1 = body_json(page1).await;
+    assert_eq!(page1["data"].as_array().unwrap().len(), 2);
+    assert_eq!(page1["meta"]["pagination"]["total"], serde_json::json!(3));
+    let page2 = router
+        .clone()
+        .oneshot(get(
+            &format!("/admin/content-manager/collection-types/{uid}?pagination[page]=2&pagination[pageSize]=2&sort[0]=total:asc"),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let page2 = body_json(page2).await;
+    assert_eq!(page2["data"].as_array().unwrap().len(), 1);
+    assert_eq!(num(&page2["data"][0]["total"]), 30.0);
+
+    // Delete one entry.
+    let deleted = router
+        .clone()
+        .oneshot(del(
+            &format!("/admin/content-manager/collection-types/{uid}/{}", ids[0]),
+            &token,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(deleted.status(), StatusCode::OK, "delete");
+    let after = router
+        .clone()
+        .oneshot(get(
+            &format!("/admin/content-manager/collection-types/{uid}?pagination[pageSize]=10"),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    let after = body_json(after).await;
+    assert_eq!(after["meta"]["pagination"]["total"], serde_json::json!(2));
+
+    // Export includes database-derived computed values.
+    let exported = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/import-export/export",
+            serde_json::json!({"uids": [uid], "format": "json"}),
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), StatusCode::OK, "export");
+    let exported = body_json(exported).await;
+    let content = exported["data"]["content"]
+        .as_str()
+        .expect("export content");
+    assert!(
+        content.contains("total") && (content.contains("20") || content.contains("30")),
+        "export should contain computed totals: {content}"
+    );
+}

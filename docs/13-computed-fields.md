@@ -173,7 +173,35 @@ curl -sS -X POST http://localhost:1337/content-type-builder/schema \
 ## Performance
 
 Stored generated columns are computed on write and read like a normal column;
-virtual generated columns are computed on read. For large tables, prefer
-`STORED` for columns that are frequently filtered/sorted (PostgreSQL only
-supports stored, so this is the default). Benchmarking at scale
-(100 / 10k / 100k rows) is not automated in CI yet.
+virtual generated columns are computed on read. A benchmark harness lives in
+`crates/services/tests/computed_performance.rs` (ignored by default):
+
+```bash
+cargo test -p services --test computed_performance -- --ignored --nocapture
+COMPUTED_PERF_LARGE=1 cargo test -p services --test computed_performance -- --ignored --nocapture
+```
+
+It seeds 100 / 10,000 (and, with `COMPUTED_PERF_LARGE=1`, 100,000) rows into
+stored and virtual tables and measures insert / query / filtered / sorted
+latency. Representative results (SQLite, in-memory):
+
+| mode | rows | insert (ms) | query (ms) | filter (ms) | sort (ms) |
+|------|------|-------------|------------|-------------|-----------|
+| stored | 100 | 1.8 | 0.36 | 0.30 | 0.31 |
+| stored | 10,000 | 166 | 0.85 | 0.77 | 1.51 |
+| stored | 100,000 | 1726 | 4.8 | 6.1 | 11.9 |
+| virtual | 100 | 1.8 | 0.34 | 0.30 | 0.36 |
+| virtual | 10,000 | 172 | 1.00 | 1.38 | 1.62 |
+| virtual | 100,000 | 1778 | 4.7 | 7.8 | 13.4 |
+
+Stored columns are comparable to virtual on raw reads and modestly faster on
+filtered/sorted reads at scale (the expression is not recomputed per row). On
+PostgreSQL only `STORED` exists, so this is also the required mode there.
+
+## Bulk APIs
+
+The CMS has no dedicated bulk-insert/bulk-update endpoints; multi-record writes
+go through the Import pipeline and repeated CRUD calls. Every write path routes
+through the same store layer, which excludes computed columns, so user-supplied
+computed values can never be persisted regardless of how records are written.
+
