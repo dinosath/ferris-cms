@@ -743,6 +743,15 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     }
 }
 
+/// Human-readable display for a read-only (computed) value.
+fn display_value(v: &serde_json::Value) -> String {
+    match v {
+        serde_json::Value::Null => "—".to_string(),
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
 /// Render a single cell for a column key (special-cases state + updatedAt).
 fn render_cell(e: &serde_json::Value, key: &str) -> Element {
     if key == "state" {
@@ -1123,6 +1132,8 @@ fn EntryEditView(
         .iter()
         .filter(|(_, a)| a.attr_type.is_scalar_column())
         .filter(|(_, a)| a.attr_type != FieldType::Password)
+        // Computed fields are database-generated and read-only; rendered below.
+        .filter(|(_, a)| !a.computed)
         .map(|(name, a)| (name.clone(), a.attr_type, a.enum_values.clone(), a.clone()))
         .collect();
 
@@ -1156,11 +1167,37 @@ fn EntryEditView(
         })
         .collect();
 
+    // Computed fields: shown read-only and stripped from the save payload.
+    let computed_fields: Vec<(String, FieldType, Option<String>, String, serde_json::Value)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, a)| a.computed)
+        .map(|(name, a)| {
+            (
+                name.clone(),
+                a.attr_type,
+                a.expression.clone(),
+                if a.is_stored() { "stored" } else { "virtual" }.to_string(),
+                form()
+                    .get(name)
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            )
+        })
+        .collect();
+    let computed_names: Vec<String> = schema
+        .attributes
+        .iter()
+        .filter(|(_, a)| a.computed)
+        .map(|(n, _)| n.clone())
+        .collect();
+
     let g = global.clone();
     let g2 = global.clone();
     let uid = schema.uid.as_str().to_string();
     let doc = document_id.clone();
     let save_uid = uid.clone();
+    let save_computed = computed_names.clone();
     let save_doc = doc.clone();
     let pub_uid = uid.clone();
     let pub_doc = doc.clone();
@@ -1192,7 +1229,14 @@ fn EntryEditView(
                         let g = g.clone();
                         let uid = save_uid.clone();
                         let doc = save_doc.clone();
-                        let data = serde_json::Value::Object(form());
+                        // Computed fields are read-only and must not be sent.
+                        let data = {
+                            let mut m = form();
+                            for n in &save_computed {
+                                m.remove(n);
+                            }
+                            serde_json::Value::Object(m)
+                        };
                         saving.set(true);
                         spawn(async move {
                             let res = if is_new {
@@ -1324,6 +1368,24 @@ fn EntryEditView(
                                     label: String::new(),
                                     placeholder: "Dynamic zone entries (JSON)".to_string(),
                                     oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
+                                }
+                            }
+                        }
+                        if !computed_fields.is_empty() {
+                            div { style: "margin-top:24px; border-top:1px solid {color::NEUTRAL_150}; padding-top:16px;",
+                                div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Computed fields" }
+                                for (name, ft, expr, storage, value) in computed_fields.into_iter() {
+                                    div { key: "computed-{name}", style: "margin-bottom:12px; padding:12px; border:1px solid {color::NEUTRAL_150}; border-radius:4px; background:{color::NEUTRAL_50};",
+                                        div { style: "display:flex; align-items:center; gap:8px; flex-wrap:wrap;",
+                                            span { style: "color:{color::PRIMARY_600}; font-weight:700;", "ƒ" }
+                                            span { style: "font-weight:600; color:{color::NEUTRAL_800};", "{name}" }
+                                            span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "{ft:?} · {storage} · read-only" }
+                                        }
+                                        if let Some(expr) = expr {
+                                            div { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; margin-top:4px;", "= {expr}" }
+                                        }
+                                        div { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_900}; margin-top:6px;", "{display_value(&value)}" }
+                                    }
                                 }
                             }
                         }
