@@ -704,6 +704,20 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Unique name for a detached (retained) column. Repeated incompatible changes
+/// to the same column (e.g. expression churn, rollback + re-apply) must not
+/// collide, so a process-unique suffix is appended.
+fn detached_name(col: &str) -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    format!("{col}__detached_{ms:x}_{n:x}")
+}
+
 /// Incompatible change: detach the old column (rename, data retained) and add
 /// the new one (Part IV §8).
 async fn apply_incompatible_change<C: ConnectionTrait>(
@@ -720,7 +734,7 @@ async fn apply_incompatible_change<C: ConnectionTrait>(
         change.from.attr_type.is_scalar_column() && change.to.attr_type.is_scalar_column();
 
     if both_scalar {
-        let detached = format!("{old_col}__detached");
+        let detached = detached_name(&old_col);
         let stmt = Table::alter()
             .table(Alias::new(table))
             .rename_column(Alias::new(&old_col), Alias::new(&detached))
@@ -742,7 +756,7 @@ async fn apply_incompatible_change<C: ConnectionTrait>(
         // Storage-mechanism change (scalar<->relation etc.): detach old
         // storage where applicable, then add the new mechanism.
         if change.from.attr_type.is_scalar_column() {
-            let detached = format!("{old_col}__detached");
+            let detached = detached_name(&old_col);
             let stmt = Table::alter()
                 .table(Alias::new(table))
                 .rename_column(Alias::new(&old_col), Alias::new(&detached))
@@ -818,4 +832,72 @@ async fn create_index_stmt<C: ConnectionTrait>(
         cols.join(",")
     ));
     Ok(())
+}
+
+#[cfg(test)]
+mod generated_column_tests {
+    use super::*;
+    use core_domain::FieldType;
+    use core_schema::Attribute;
+
+    fn computed(ft: FieldType, expr: &str, stored: Option<bool>) -> Attribute {
+        let mut a = Attribute::new(ft);
+        a.computed = true;
+        a.expression = Some(expr.to_string());
+        a.stored = stored;
+        a
+    }
+
+    fn create_sql(backend: DbBackend, attr: &Attribute, adding: bool) -> String {
+        let mut t = Table::create();
+        t.table(Alias::new("ct_orders"));
+        t.col(col_def(backend, "total", attr, true, adding));
+        match backend {
+            DbBackend::Postgres => t.build(PostgresQueryBuilder),
+            DbBackend::Sqlite => t.build(SqliteQueryBuilder),
+            DbBackend::MySql => t.build(MysqlQueryBuilder),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn sqlite_stored_generated_column() {
+        let a = computed(FieldType::Decimal, "quantity * unit_price", Some(true));
+        let sql = create_sql(DbBackend::Sqlite, &a, false);
+        assert!(
+            sql.contains("GENERATED ALWAYS AS") && sql.contains("STORED"),
+            "sqlite stored DDL: {sql}"
+        );
+    }
+
+    #[test]
+    fn postgres_forces_stored() {
+        // PostgreSQL has no VIRTUAL generated columns; request is upgraded.
+        let a = computed(FieldType::Decimal, "revenue - expenses", Some(false));
+        let sql = create_sql(DbBackend::Postgres, &a, false);
+        assert!(sql.contains("STORED"), "postgres DDL: {sql}");
+        assert!(!sql.contains("VIRTUAL"), "postgres must not emit VIRTUAL: {sql}");
+    }
+
+    #[test]
+    fn sqlite_alter_add_falls_back_to_virtual() {
+        // SQLite cannot ADD a STORED generated column; it falls back to VIRTUAL.
+        let a = computed(FieldType::Decimal, "subtotal + tax", Some(true));
+        let sql = create_sql(DbBackend::Sqlite, &a, true);
+        assert!(sql.contains("VIRTUAL"), "sqlite alter DDL: {sql}");
+    }
+
+    #[test]
+    fn concat_expression_renders_portably() {
+        let a = computed(FieldType::Text, "first_name || ' ' || last_name", Some(true));
+        let sql = create_sql(DbBackend::Sqlite, &a, false);
+        assert!(sql.contains("||"), "concat DDL: {sql}");
+    }
+
+    #[test]
+    fn non_computed_column_has_no_generated_clause() {
+        let a = Attribute::new(FieldType::Decimal);
+        let sql = create_sql(DbBackend::Sqlite, &a, false);
+        assert!(!sql.contains("GENERATED"), "plain column DDL: {sql}");
+    }
 }
