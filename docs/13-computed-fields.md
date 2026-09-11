@@ -54,6 +54,30 @@ Supported types: `integer`, `bigint`, `decimal`, `float`, `string`, `text`,
 Validation failures are returned as Strapi-style `ValidationError` details and
 surfaced in the Content-Type Builder UI.
 
+## Content-Type Builder UI
+
+The "Add field" modal exposes a **Computed field** section for the supported
+scalar types:
+
+- toggle to mark the field computed;
+- expression editor;
+- storage mode (Stored / Virtual);
+- dependency viewer plus a text dependency graph (`field → dependency`);
+- generated-DDL preview (`GENERATED ALWAYS AS (<expr>) STORED|VIRTUAL`);
+- clickable field-name chips that insert a sibling field into the expression
+  (autocomplete);
+- live warnings for invalid expressions and unknown references;
+- required/unique options are hidden for computed fields.
+
+The admin Content Manager renders computed fields read-only (formula icon,
+type, storage mode, expression, value) in the entry view and includes them in
+list views; they are stripped from the save payload.
+
+Not implemented (UI polish): full syntax highlighting, a real-time preview that
+evaluates the expression against sample values, and a graphical (node-link)
+dependency visualization. The UI is compile-validated on the host and wasm32
+targets; it is not exercised by a browser-driven test in this repository.
+
 ## Expression language
 
 Portable subset that renders on SQLite / PostgreSQL / MySQL:

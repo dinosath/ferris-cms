@@ -1062,6 +1062,24 @@ fn FieldConfigModal(
         dep_list.join(", ")
     };
     let unknown_text = unknown_deps.join(", ");
+    let graph_text = if dep_list.is_empty() {
+        "no dependencies".to_string()
+    } else {
+        dep_list
+            .iter()
+            .map(|d| format!("{} → {}", name(), d))
+            .collect::<Vec<_>>()
+            .join("    ")
+    };
+    let preview_text = format!(
+        "GENERATED ALWAYS AS ({}) {}",
+        if expression().is_empty() {
+            "<expression>".to_string()
+        } else {
+            expression()
+        },
+        if computed_stored() { "STORED" } else { "VIRTUAL" }
+    );
     let storage_value = if computed_stored() {
         "stored".to_string()
     } else {
@@ -1318,6 +1336,31 @@ fn FieldConfigModal(
                         }
                         div { style: "margin-top:8px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_600};",
                             "Dependencies: {dep_text}"
+                        }
+                        div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};",
+                            "Dependency graph: {graph_text}"
+                        }
+                        div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};",
+                            "Preview: {preview_text}"
+                        }
+                        if !sibling_fields.is_empty() {
+                            div { style: "margin-top:8px; display:flex; flex-wrap:wrap; gap:6px;",
+                                for f in sibling_fields.clone() {
+                                    button {
+                                        key: "field-{f}",
+                                        style: "padding:2px 8px; border-radius:999px; border:1px solid {color::NEUTRAL_200}; background:{color::NEUTRAL_0}; font-size:{typography::PI_SIZE}; cursor:pointer;",
+                                        onclick: move |_| {
+                                            let mut e = expression.write();
+                                            if !e.is_empty() { e.push(' '); }
+                                            e.push_str(&f);
+                                        },
+                                        "{f}"
+                                    }
+                                }
+                            }
+                            span { style: "display:block; margin-top:4px; font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_400};",
+                                "Click a field name to insert it into the expression."
+                            }
                         }
                         if let Some(err) = expr_error.clone() {
                             div { style: "margin-top:6px; font-size:{typography::PI_SIZE}; color:{color::DANGER_700};",
