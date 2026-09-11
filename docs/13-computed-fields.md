@@ -196,6 +196,12 @@ curl -sS -X POST http://localhost:1337/content-type-builder/schema \
   `sea_orm_permission_action_key`; the server logs this as a warning and
   continues, and the acceptance test mirrors that tolerance (pre-existing,
   unrelated to computed fields).
+- `scripts/acceptance_computed_postgres.py`: **live end-user acceptance** — runs
+  the real `ferriscms-server` binary against PostgreSQL and drives the ERP + CRM
+  scenarios over HTTP (schema apply, create/update, filter/sort, write
+  rejection). Verified against PostgreSQL 16, where
+  `information_schema.columns` shows the columns as `GENERATED ALWAYS` with the
+  nested expressions inlined.
 
 ## Performance
 
