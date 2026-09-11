@@ -314,6 +314,12 @@ async fn erp_sales_order_computed_fields() {
         StatusCode::BAD_REQUEST,
         "writing a computed field must be rejected"
     );
+    let bad = body_json(bad).await;
+    assert_eq!(bad["error"]["name"], "ValidationError", "{bad}");
+    assert!(
+        bad.to_string().contains("computed") && bad.to_string().contains("total_amount"),
+        "error should identify the computed field: {bad}"
+    );
 }
 
 /// CRM scenario.
@@ -570,4 +576,64 @@ async fn computed_fields_crud_pagination_and_export() {
         content.contains("total") && (content.contains("20") || content.contains("30")),
         "export should contain computed totals: {content}"
     );
+}
+
+/// Requirement 4: the Content-Type Builder metadata APIs must expose the
+/// computed field properties (`computed`, `expression`, `stored`,
+/// `dependencies`) as public output.
+#[tokio::test]
+async fn computed_metadata_exposed_by_ctb() {
+    let router = setup().await;
+    let token = register_admin(&router).await;
+
+    let ct = serde_json::json!({
+        "uid": "api::ledger.ledger",
+        "kind": "collectionType",
+        "info": {"singularName":"ledger","pluralName":"ledgers","displayName":"Ledger"},
+        "attributes": {
+            "debits": {"type": "decimal"},
+            "credits": {"type": "decimal"},
+            "balance": {
+                "type": "decimal", "computed": true,
+                "expression": "debits - credits", "stored": false,
+                "dependencies": ["debits", "credits"]
+            }
+        }
+    });
+    apply_schema(&router, &token, serde_json::json!([ct])).await;
+
+    // List endpoint.
+    let list = router
+        .clone()
+        .oneshot(get("/content-type-builder/content-types", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let list = body_json(list).await;
+    let schema = list["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["uid"] == "api::ledger.ledger")
+        .expect("ledger schema in list");
+    let balance = &schema["attributes"]["balance"];
+    assert_eq!(balance["computed"], serde_json::json!(true), "{balance}");
+    assert_eq!(balance["expression"], serde_json::json!("debits - credits"));
+    assert_eq!(balance["stored"], serde_json::json!(false));
+    assert_eq!(
+        balance["dependencies"],
+        serde_json::json!(["debits", "credits"])
+    );
+
+    // Single-content-type endpoint.
+    let one = router
+        .clone()
+        .oneshot(get("/content-type-builder/content-types/api::ledger.ledger", Some(&token)))
+        .await
+        .unwrap();
+    assert_eq!(one.status(), StatusCode::OK);
+    let one = body_json(one).await;
+    let balance = &one["data"]["attributes"]["balance"];
+    assert_eq!(balance["computed"], serde_json::json!(true), "{balance}");
+    assert_eq!(balance["dependencies"], serde_json::json!(["debits", "credits"]));
 }
