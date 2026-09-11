@@ -88,7 +88,13 @@ pub fn diff(current: Option<&Schema>, desired: &Schema) -> SchemaDiff {
                 name: name.clone(),
                 from: prev.clone(),
                 to: attr.clone(),
-                compatible: prev.sql_family() == attr.sql_family(),
+                // A changed computed expression or storage mode cannot be
+                // altered in place (PostgreSQL requires DROP+ADD; SQLite
+                // requires a table rebuild), so treat it as incompatible.
+                compatible: prev.sql_family() == attr.sql_family()
+                    && prev.computed == attr.computed
+                    && prev.expression == attr.expression
+                    && prev.stored == attr.stored,
             }),
             _ => {}
         }

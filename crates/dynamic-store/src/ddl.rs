@@ -10,11 +10,11 @@ use core_domain::{
     column_name, component_link_table, fk_column, media_link_table, relation_join_table,
     ContentTypeKind, FieldType, RelationKind,
 };
-use core_schema::{Attribute, DiffKind, Schema, SchemaDiff};
+use core_schema::{Attribute, BinOp, DiffKind, Expr as CExpr, Schema, SchemaDiff, UnOp};
 use sea_orm::{ConnectionTrait, DbBackend};
 use sea_query::{
-    Alias, ColumnDef, Index, IndexCreateStatement, MysqlQueryBuilder, PostgresQueryBuilder,
-    SchemaStatementBuilder, SqliteQueryBuilder, Table,
+    Alias, ColumnDef, Expr, ExprTrait, Func, Index, IndexCreateStatement, MysqlQueryBuilder,
+    PostgresQueryBuilder, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder, Table,
 };
 
 /// Human/audit-log friendly description of what was applied.
@@ -71,7 +71,75 @@ async fn exec_schema<C: ConnectionTrait>(
     Ok(())
 }
 
-fn col_def(name: &str, attr: &Attribute, nullable: bool) -> ColumnDef {
+/// Storage mode actually used for a computed column on this backend, or `None`
+/// when the field is not computed.
+///
+/// Capability notes:
+/// - PostgreSQL only supports `STORED` generated columns (no `VIRTUAL`), so a
+///   virtual request is upgraded to stored.
+/// - SQLite cannot add a `STORED` generated column via `ALTER TABLE`, so when a
+///   computed column is added to an existing table it is added as `VIRTUAL`
+///   (graceful fallback).
+fn computed_stored(backend: DbBackend, attr: &Attribute, adding_column: bool) -> Option<bool> {
+    if !attr.computed {
+        return None;
+    }
+    let mut stored = attr.is_stored();
+    match backend {
+        DbBackend::Postgres => stored = true,
+        DbBackend::Sqlite if adding_column => stored = false,
+        _ => {}
+    }
+    Some(stored)
+}
+
+/// Render a parsed computed-field expression to a SeaQuery expression.
+pub fn render_expr(e: &CExpr) -> SimpleExpr {
+    match e {
+        CExpr::Column(n) => Expr::col(Alias::new(n)),
+        CExpr::Number(n) => Expr::val(*n),
+        CExpr::Str(s) => Expr::val(s.clone()),
+        CExpr::Bool(b) => Expr::val(*b),
+        CExpr::Null => Expr::cust("NULL"),
+        CExpr::Unary { op, expr } => {
+            let inner = render_expr(expr);
+            match op {
+                UnOp::Neg => Expr::val(0i32).sub(inner),
+                UnOp::Not => Expr::cust_with_exprs("NOT ?", [inner]),
+            }
+        }
+        CExpr::Binary { op, left, right } => {
+            let l = render_expr(left);
+            let r = render_expr(right);
+            match op {
+                BinOp::Add => l.add(r),
+                BinOp::Sub => l.sub(r),
+                BinOp::Mul => l.mul(r),
+                BinOp::Div => l.div(r),
+                BinOp::Mod => l.modulo(r),
+                BinOp::Concat => Expr::cust_with_exprs("? || ?", [l, r]),
+                BinOp::Eq => l.eq(r),
+                BinOp::Ne => l.ne(r),
+                BinOp::Lt => l.lt(r),
+                BinOp::Lte => l.lte(r),
+                BinOp::Gt => l.gt(r),
+                BinOp::Gte => l.gte(r),
+            }
+        }
+        CExpr::Func { name, args } => {
+            let rendered: Vec<SimpleExpr> = args.iter().map(render_expr).collect();
+            Expr::FunctionCall(Func::cust(Alias::new(name)).args(rendered))
+        }
+    }
+}
+
+fn col_def(
+    backend: DbBackend,
+    name: &str,
+    attr: &Attribute,
+    nullable: bool,
+    adding_column: bool,
+) -> ColumnDef {
     let mut c = ColumnDef::new(Alias::new(name));
     match attr.attr_type {
         FieldType::String
@@ -115,6 +183,26 @@ fn col_def(name: &str, attr: &Attribute, nullable: bool) -> ColumnDef {
             unreachable!("non-scalar attribute has no column")
         }
     }
+
+    // Computed/generated column: emit `GENERATED ALWAYS AS (expr) STORED|VIRTUAL`
+    // (SeaQuery 1.0 renders the portable DDL). Generated columns are never
+    // written by the application and are not marked NOT NULL.
+    if let Some(stored) = computed_stored(backend, attr, adding_column) {
+        if let Some(src) = attr.expression.as_deref() {
+            match core_schema::parse_expression(src) {
+                Ok(parsed) => {
+                    c.generated(render_expr(&parsed), stored);
+                }
+                Err(e) => {
+                    // Validation should have rejected this earlier; fall back to
+                    // a plain column rather than emitting invalid DDL.
+                    tracing::warn!(column = name, error = %e, "ignoring unparseable computed expression");
+                }
+            }
+        }
+        return c;
+    }
+
     if !nullable {
         c.not_null();
     }
@@ -290,7 +378,7 @@ async fn create_host_table<C: ConnectionTrait>(
     for (_, col, attr) in scalar_columns(schema) {
         // Required on create only; added columns later are nullable and the
         // service enforces required-ness at write time.
-        t.col(col_def(&col, &attr, !attr.required));
+        t.col(col_def(backend, &col, &attr, !attr.required, false));
     }
     for (_, col, attr, _) in owner_fk_columns(schema, all) {
         let mut c = bigint_null(&col);
@@ -590,7 +678,8 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     if attr.attr_type.is_scalar_column() {
         let col = column_name(name);
         // Added columns are always nullable; service enforces `required`.
-        add_column_if_supported(db, backend, table, col_def(&col, attr, true), actions).await?;
+        add_column_if_supported(db, backend, table, col_def(backend, &col, attr, true, true), actions)
+            .await?;
         if attr.unique || attr.attr_type == FieldType::Uid {
             create_index_stmt(db, backend, table, &[col.as_str()], true, actions).await?;
         }
@@ -645,7 +734,7 @@ async fn apply_incompatible_change<C: ConnectionTrait>(
             db,
             backend,
             table,
-            col_def(&old_col, &change.to, true),
+            col_def(backend, &old_col, &change.to, true, true),
             actions,
         )
         .await?;

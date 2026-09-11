@@ -574,6 +574,10 @@ pub fn build_write_values(
         if !attr.attr_type.is_scalar_column() {
             continue;
         }
+        // Computed columns are database-generated; never write them.
+        if attr.computed {
+            continue;
+        }
         if for_update && matches!(attr.attr_type, FieldType::Uid) && v.is_null() {
             continue; // never null out a uid on update
         }

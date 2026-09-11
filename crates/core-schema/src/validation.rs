@@ -4,6 +4,7 @@
 //! (relation targets, component existence, DZ field collisions) need the
 //! whole registry, so validation takes `&[Schema]`.
 
+use crate::expression::parse_expression;
 use crate::model::Schema;
 use core_domain::{reserved, snake_case, ContentTypeKind, FieldType, RelationKind, Uid};
 use once_cell::sync::Lazy;
@@ -90,8 +91,202 @@ pub fn validate_schemas(schemas: &[Schema]) -> Vec<FieldError> {
         }
 
         validate_attributes(schema, &by_uid, &mut errors);
+        validate_computed(schema, &mut errors);
     }
     errors
+}
+
+/// Validate computed/generated field definitions: allowed types, forbidden
+/// settings, expression syntax, dependency existence and circular references.
+fn validate_computed(schema: &Schema, errors: &mut Vec<FieldError>) {
+    let base = schema.uid.to_string();
+
+    for (name, attr) in &schema.attributes {
+        let path = format!("{base}.attributes.{name}");
+
+        if !attr.computed {
+            if attr.expression.is_some() || !attr.dependencies.is_empty() {
+                errors.push(FieldError::new(
+                    &path,
+                    "unexpected-computed-props",
+                    "`expression`/`dependencies` are only valid when `computed` is true",
+                ));
+            }
+            continue;
+        }
+
+        if !attr.supports_computed() {
+            errors.push(FieldError::new(
+                &path,
+                "computed-unsupported-type",
+                format!("type `{:?}` cannot be a computed field", attr.attr_type),
+            ));
+        }
+        if attr.required {
+            errors.push(FieldError::new(
+                format!("{path}.required"),
+                "computed-required",
+                "computed fields cannot be required",
+            ));
+        }
+        if attr.default.is_some() {
+            errors.push(FieldError::new(
+                format!("{path}.default"),
+                "computed-default",
+                "computed fields cannot have a default value",
+            ));
+        }
+        if attr.unique {
+            errors.push(FieldError::new(
+                format!("{path}.unique"),
+                "computed-unique",
+                "computed fields cannot be unique",
+            ));
+        }
+
+        // Declared dependencies must exist and be usable.
+        for dep in &attr.dependencies {
+            if dep == name {
+                errors.push(FieldError::new(
+                    format!("{path}.dependencies"),
+                    "circular-dependency",
+                    format!("computed field `{name}` cannot depend on itself"),
+                ));
+                continue;
+            }
+            match schema.attributes.get(dep) {
+                None => errors.push(FieldError::new(
+                    format!("{path}.dependencies"),
+                    "missing-dependency",
+                    format!("dependency `{dep}` does not exist on this schema"),
+                )),
+                Some(d) if !(d.attr_type.is_scalar_column() || d.computed) => {
+                    errors.push(FieldError::new(
+                        format!("{path}.dependencies"),
+                        "invalid-dependency",
+                        format!("dependency `{dep}` is not a scalar or computed field"),
+                    ))
+                }
+                _ => {}
+            }
+        }
+
+        let Some(src) = attr
+            .expression
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            errors.push(FieldError::new(
+                format!("{path}.expression"),
+                "missing-expression",
+                "computed field requires a non-empty `expression`",
+            ));
+            continue;
+        };
+
+        match parse_expression(src) {
+            Err(e) => errors.push(FieldError::new(
+                format!("{path}.expression"),
+                "invalid-expression",
+                format!("could not parse expression: {e}"),
+            )),
+            Ok(expr) => {
+                for col in expr.columns() {
+                    if col == *name {
+                        errors.push(FieldError::new(
+                            format!("{path}.expression"),
+                            "circular-dependency",
+                            format!("computed field `{name}` cannot reference itself"),
+                        ));
+                        continue;
+                    }
+                    match schema.attributes.get(&col) {
+                        None => errors.push(FieldError::new(
+                            format!("{path}.expression"),
+                            "missing-dependency",
+                            format!("expression references unknown field `{col}`"),
+                        )),
+                        Some(d) if !(d.attr_type.is_scalar_column() || d.computed) => {
+                            errors.push(FieldError::new(
+                                format!("{path}.expression"),
+                                "invalid-dependency",
+                                format!("expression references non-scalar field `{col}`"),
+                            ))
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    detect_computed_cycles(schema, &base, errors);
+}
+
+/// Kahn's algorithm over the computed-field dependency graph; any nodes left
+/// over are part of a cycle.
+fn detect_computed_cycles(schema: &Schema, base: &str, errors: &mut Vec<FieldError>) {
+    let mut edges: HashMap<String, Vec<String>> = HashMap::new();
+    let mut indegree: HashMap<String, usize> = HashMap::new();
+
+    for (name, attr) in &schema.attributes {
+        if !attr.computed {
+            continue;
+        }
+        indegree.entry(name.clone()).or_insert(0);
+        let mut deps: Vec<String> = attr.dependencies.clone();
+        if let Some(src) = attr.expression.as_deref() {
+            if let Ok(expr) = parse_expression(src) {
+                for c in expr.columns() {
+                    if !deps.contains(&c) {
+                        deps.push(c);
+                    }
+                }
+            }
+        }
+        for dep in deps {
+            // Only computed fields participate in the dependency graph.
+            if schema.attributes.get(&dep).map(|a| a.computed) == Some(true) {
+                edges.entry(name.clone()).or_default().push(dep.clone());
+                *indegree.entry(dep).or_insert(0) += 1;
+            }
+        }
+    }
+
+    let mut queue: Vec<String> = indegree
+        .iter()
+        .filter(|(_, d)| **d == 0)
+        .map(|(n, _)| n.clone())
+        .collect();
+    let mut removed = 0usize;
+    while let Some(n) = queue.pop() {
+        removed += 1;
+        for m in edges.get(&n).cloned().unwrap_or_default() {
+            if let Some(d) = indegree.get_mut(&m) {
+                *d = d.saturating_sub(1);
+                if *d == 0 {
+                    queue.push(m);
+                }
+            }
+        }
+    }
+
+    if removed < indegree.len() {
+        let mut cyclic: Vec<&String> = indegree
+            .iter()
+            .filter(|(_, d)| **d > 0)
+            .map(|(n, _)| n)
+            .collect();
+        cyclic.sort();
+        for name in cyclic {
+            errors.push(FieldError::new(
+                format!("{base}.attributes.{name}"),
+                "circular-dependency",
+                format!("computed field `{name}` is part of a circular dependency"),
+            ));
+        }
+    }
 }
 
 /// api ids / display names / kind rules.
@@ -571,5 +766,103 @@ mod tests {
         b2.info.singular_name = "one".into();
         let errors = validate_schemas(&[b1, b2]);
         assert!(errors.iter().any(|e| e.code == "duplicate-api-id"));
+    }
+
+    fn computed(attr_type: FieldType, expr: &str, deps: &[&str]) -> Attribute {
+        let mut a = Attribute::new(attr_type);
+        a.computed = true;
+        a.expression = Some(expr.to_string());
+        a.dependencies = deps.iter().map(|s| s.to_string()).collect();
+        a
+    }
+
+    #[test]
+    fn valid_computed_field_passes() {
+        let order = schema(
+            "api::order.order",
+            ContentTypeKind::CollectionType,
+            &[
+                ("quantity", Attribute::new(FieldType::Integer)),
+                ("unit_price", Attribute::new(FieldType::Decimal)),
+                (
+                    "total_price",
+                    computed(FieldType::Decimal, "quantity * unit_price", &["quantity", "unit_price"]),
+                ),
+            ],
+        );
+        let errors = validate_schemas(&[order]);
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    }
+
+    #[test]
+    fn computed_rejects_required_default_and_bad_type() {
+        let mut req = computed(FieldType::Decimal, "a + b", &["a", "b"]);
+        req.required = true;
+        req.default = Some(serde_json::json!(0));
+        let mut json = Attribute::new(FieldType::Json);
+        json.computed = true;
+        json.expression = Some("a".into());
+        let s = schema(
+            "api::order.order",
+            ContentTypeKind::CollectionType,
+            &[
+                ("a", Attribute::new(FieldType::Decimal)),
+                ("b", Attribute::new(FieldType::Decimal)),
+                ("total", req),
+                ("meta", json),
+            ],
+        );
+        let errors = validate_schemas(&[s]);
+        assert!(errors.iter().any(|e| e.code == "computed-required"));
+        assert!(errors.iter().any(|e| e.code == "computed-default"));
+        assert!(errors.iter().any(|e| e.code == "computed-unsupported-type"));
+    }
+
+    #[test]
+    fn computed_expression_must_reference_existing_fields() {
+        let s = schema(
+            "api::order.order",
+            ContentTypeKind::CollectionType,
+            &[
+                ("quantity", Attribute::new(FieldType::Integer)),
+                (
+                    "total",
+                    computed(FieldType::Decimal, "quantity * missing", &["missing"]),
+                ),
+            ],
+        );
+        let errors = validate_schemas(&[s]);
+        assert!(errors.iter().any(|e| e.code == "missing-dependency"));
+    }
+
+    #[test]
+    fn computed_detects_circular_dependencies() {
+        let s = schema(
+            "api::order.order",
+            ContentTypeKind::CollectionType,
+            &[
+                ("a", computed(FieldType::Decimal, "b + 1", &["b"])),
+                ("b", computed(FieldType::Decimal, "a + 1", &["a"])),
+            ],
+        );
+        let errors = validate_schemas(&[s]);
+        assert!(
+            errors.iter().any(|e| e.code == "circular-dependency"),
+            "expected circular-dependency, got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn computed_rejects_bad_expression() {
+        let s = schema(
+            "api::order.order",
+            ContentTypeKind::CollectionType,
+            &[
+                ("quantity", Attribute::new(FieldType::Integer)),
+                ("total", computed(FieldType::Decimal, "quantity *", &[])),
+            ],
+        );
+        let errors = validate_schemas(&[s]);
+        assert!(errors.iter().any(|e| e.code == "invalid-expression"));
     }
 }

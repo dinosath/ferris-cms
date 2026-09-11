@@ -39,6 +39,36 @@ pub struct AppState {
     pub ctx: Arc<AppContext>,
 }
 
+/// Query extractor for Strapi bracket-notation query strings.
+///
+/// Axum's `Query<QueryParams>` would deserialize via serde and silently drop
+/// `filters[...]` / `sort[...]` / `pagination[...]`; this uses the crate's
+/// dedicated parser instead.
+pub struct QsQuery(pub api_types::QueryParams);
+
+impl<S> axum::extract::FromRequestParts<S> for QsQuery
+where
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let raw = parts.uri.query().unwrap_or("");
+        api_types::QueryParams::parse(raw)
+            .map(QsQuery)
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid query string: {e}"),
+                )
+                    .into_response()
+            })
+    }
+}
+
 impl AppState {
     pub fn new(db: sea_orm::DatabaseConnection, config: AppConfig) -> Self {
         Self {
@@ -449,7 +479,7 @@ async fn ctb_reserved_names_handler(
 async fn public_list(
     State(state): State<Arc<AppState>>,
     Path(uid): Path<String>,
-    Query(params): Query<api_types::QueryParams>,
+    QsQuery(params): QsQuery,
 ) -> Result<impl IntoResponse, error::AppError> {
     let resp = cm_list(&state.ctx, &uid, &params).await?;
     Ok(Json(resp))
@@ -501,7 +531,7 @@ async fn cm_ct_list_handler(admin: auth::AdminCtx) -> Result<impl IntoResponse, 
 async fn cm_list_handler(
     admin: auth::AdminCtx,
     Path(uid): Path<String>,
-    Query(params): Query<api_types::QueryParams>,
+    QsQuery(params): QsQuery,
 ) -> Result<impl IntoResponse, error::AppError> {
     let resp = cm_list(&admin.0, &uid, &params).await?;
     Ok(Json(resp))
