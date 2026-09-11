@@ -86,3 +86,9 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 2
+
+# Use the SeaORM `generated` branch (computed/generated column support) as the
+# canonical implementation for database-generated fields.
+[patch.crates-io]
+sea-orm = { git = "https://github.com/dinosath/sea-orm", branch = "generated" }
+sea-orm-migration = { git = "https://github.com/dinosath/sea-orm", branch = "generated" }
