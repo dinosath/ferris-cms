@@ -179,6 +179,19 @@ jobs:
             "oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}"
 
       # ------------------------------------------------------------------
+      # Export the image as a gzipped tarball so the release has a downloadable
+      # image in addition to the OCI copy in GHCR.
+      # ------------------------------------------------------------------
+      - name: Export image tarball
+        if: env.SKIP == 'false' && env.IS_RELEASE == 'true'
+        run: |
+          mkdir -p dist
+          REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
+          docker pull "$REF"
+          docker save "$REF" | gzip -6 > "dist/ferriscms-image-${{ env.APP_VERSION }}.tgz"
+          ls -lh dist/
+
+      # ------------------------------------------------------------------
       # Attach the chart + OCI image reference to the GitHub Release created by
       # cargo-dist (release.yml). Assets are never overwritten (immutable).
       # ------------------------------------------------------------------
@@ -192,7 +205,11 @@ jobs:
           TAG: server-bin-v${{ env.APP_VERSION }}
         run: |
           mkdir -p dist
-          printf 'image: %s@%s\nchart: %s\n' "$IMAGE" "$DIGEST" "$CHART_REF" > dist/release-artifacts.txt
+          {
+            printf 'image: %s@%s\n' "$IMAGE" "$DIGEST"
+            printf 'image-tarball: ferriscms-image-%s.tgz\n' "$APP_VERSION"
+            printf 'chart: %s\n' "$CHART_REF"
+          } > dist/release-artifacts.txt
 
           # cargo-dist creates the release on the server-bin tag; wait for it.
           for _ in $(seq 1 60); do
@@ -205,7 +222,10 @@ jobs:
           fi
 
           existing=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
-          for f in "dist/ferriscms-${CHART_VERSION}.tgz" dist/release-artifacts.txt; do
+          for f in \
+            "dist/ferriscms-${CHART_VERSION}.tgz" \
+            "dist/ferriscms-image-${APP_VERSION}.tgz" \
+            dist/release-artifacts.txt; do
             b=$(basename "$f")
             if printf '%s\n' "$existing" | grep -qx "$b"; then
               echo "::notice::$b already attached; not overwriting (immutable)."

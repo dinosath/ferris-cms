@@ -321,12 +321,14 @@ Images and charts are published to:
   exists. The Docker build uses the GitHub Actions cache backend
   (`type=gha`, `mode=max`), so the cargo/compilation cache is persisted across
   runs and retries — even a failed build never loses the previously-saved cache.
-  For a stable release it also attaches the packaged **Helm chart** and a
-  `release-artifacts.txt` (image ref + digest, chart ref) to the GitHub Release
-  created by `release.yml`, and publishes **immutably**: a published image tag,
-  chart version, or release asset is never overwritten (the chart push is
-  skipped when the version already exists, and release assets are only uploaded
-  when absent).
+  For a stable release it also attaches downloadable copies to the GitHub
+  Release created by `release.yml` — the packaged **Helm chart**
+  (`ferriscms-<ver>.tgz`), the **container image** (`docker save`d as
+  `ferriscms-image-<ver>.tgz`), and a `release-artifacts.txt` (image
+  ref + digest, chart ref) — in addition to the OCI copies in GHCR. Publication
+  is **immutable**: a published image tag, chart version, or release asset is
+  never overwritten (the chart push is skipped when the version already exists,
+  and release assets are only uploaded when absent).
 - **`checks.yml`** — on every push and PR:
   - **Conventional commits**: every new commit must follow the Conventional
     Commits format (`<type>(<scope>)[!]: <description>`), which is what drives
