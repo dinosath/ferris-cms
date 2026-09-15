@@ -63,15 +63,21 @@ jobs:
           TAG="server-bin-v$VER"
 
           # Only the run that just created the tag should dispatch the builds:
-          # the tag must exist *and* point at the commit this run is for.
-          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+          # the tag must exist *and* point at the commit this run is for. Look the
+          # tag up through the API - `actions/checkout` does not fetch tags, so
+          # `git rev-parse` would not find it.
+          TAG_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" 2>/dev/null || true)
+          if [ -z "$TAG_JSON" ]; then
             echo "::notice::tag $TAG not found; nothing to dispatch"
             exit 0
           fi
-          TAG_SHA=$(git rev-parse "$TAG^{commit}")
-          HEAD_SHA=$(git rev-parse HEAD)
-          if [ "$TAG_SHA" != "$HEAD_SHA" ]; then
-            echo "::notice::$TAG points at $TAG_SHA, not at this commit ($HEAD_SHA); nothing to release"
+          TAG_SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
+          if [ "$(printf '%s' "$TAG_JSON" | jq -r '.object.type')" = "tag" ]; then
+            # annotated tag: resolve it to the commit it points at
+            TAG_SHA=$(gh api "repos/${{ github.repository }}/git/tags/$TAG_SHA" --jq '.object.sha')
+          fi
+          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::notice::$TAG points at $TAG_SHA, not at this commit ($GITHUB_SHA); nothing to release"
             exit 0
           fi
 

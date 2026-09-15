@@ -32,9 +32,13 @@ release_always = false
 # `create-release = false`, i.e. it only attaches artifacts to this release).
 git_release_enable = true
 
-# Run cargo-semver-checks on each release PR. Versions are bumped from the
-# git tags of the previous release.
-semver_check = true
+# Do NOT run cargo-semver-checks from release-plz. With `publish = false` the
+# packages are never on crates.io, so release-plz would compare against the very
+# old published versions (0.1.x) and report breaking changes on every release,
+# forcing a minor bump even for changelog-only diffs. The `Checks` workflow runs
+# cargo-semver-checks against the last release tag instead, and those statuses
+# are required on main.
+semver_check = false
 
 # Add a recognizable label to the release PRs.
 pr_labels = ["release"]
