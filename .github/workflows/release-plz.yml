@@ -61,10 +61,27 @@ jobs:
         run: |
           VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
           TAG="server-bin-v$VER"
-          if ! gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+
+          # Only the run that just created the tag should dispatch the builds:
+          # the tag must exist *and* point at the commit this run is for.
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "::notice::tag $TAG not found; nothing to dispatch"
             exit 0
           fi
+          TAG_SHA=$(git rev-parse "$TAG^{commit}")
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [ "$TAG_SHA" != "$HEAD_SHA" ]; then
+            echo "::notice::$TAG points at $TAG_SHA, not at this commit ($HEAD_SHA); nothing to release"
+            exit 0
+          fi
+
+          # cargo-dist attaches the binary archives to the release created by
+          # release-plz (`create-release = false`), so it must exist already.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::release-plz did not create a GitHub Release for $TAG"
+            exit 1
+          fi
+
           echo "Dispatching release builds for $TAG"
           for wf in build.yml release.yml; do
             # Retry: a freshly pushed workflow file can take a few seconds to

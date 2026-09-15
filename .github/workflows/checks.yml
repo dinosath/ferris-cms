@@ -90,9 +90,12 @@ jobs:
           fi
           echo "Comparing against baseline tag: $BASELINE"
           # Only the library crates have a public API surface; the binaries
-          # (server-bin, desktop-bin) are excluded.
+          # (server-bin, desktop-bin) are excluded. `ferriscms` (crates/app) is
+          # the Dioxus desktop application: rustdoc-ing it pulls in GTK/glib-sys
+          # and fails on a runner without those system libraries, so it is
+          # excluded as well.
           cargo semver-checks check-release \
             --workspace \
             -p core-domain -p core-schema -p api-types -p db -p dynamic-store \
-            -p services -p api-rest -p client-core -p ui -p app \
+            -p services -p api-rest -p client-core -p ui \
             --baseline-rev "$BASELINE"
