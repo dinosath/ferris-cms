@@ -12,8 +12,9 @@ default `GITHUB_TOKEN` and therefore do not trigger workflows:
      an old tag's commit has no `workflow_dispatch` trigger.
   2. Restrict the tag trigger to the tags we actually publish, and keep the
      `pull_request` trigger (dist only runs `plan` there).
-  3. Use the dispatched tag (falling back to the ref) to select what dist
-     builds and check out that tag's source.
+  3. Use the dispatched tag (falling back to the tag ref) to select what dist
+     builds and check out that tag's source, and only publish for real release
+     runs (tag push or a dispatch carrying `tag`).
 
 Usage (after `dist generate --mode ci`):
 
@@ -77,8 +78,14 @@ CHECKOUT_BLOCK_PATCHED = """      - uses: actions/checkout@v6
 """
 
 # `github.ref_name` must become the dispatched tag when one was supplied.
+#
+# A run only publishes when it is a tag push or a dispatch that carries the
+# `tag` input. Anything else (pull requests, and dispatches used to validate a
+# release PR on its branch) runs `dist plan` only, so nothing is published.
 REF_NAME_OLD = "github.ref_name"
-REF_NAME_NEW = "(github.event.inputs.tag || github.ref_name)"
+TAG_EXPR = "(github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name)"
+IS_RELEASE_EXPR = "(!github.event.pull_request && (github.event.inputs.tag != '' || github.ref_type == 'tag'))"
+REF_NAME_NEW = TAG_EXPR
 
 
 def replace_once(text: str, old: str, new: str, what: str) -> str:
@@ -99,19 +106,25 @@ def main() -> int:
     text = replace_once(
         text,
         f"tag: ${{{{ !github.event.pull_request && {REF_NAME_OLD} || '' }}}}",
-        f"tag: ${{{{ !github.event.pull_request && {REF_NAME_NEW} || '' }}}}",
+        f"tag: ${{{{ {IS_RELEASE_EXPR} && {TAG_EXPR} || '' }}}}",
         "plan tag output",
     )
     text = replace_once(
         text,
         f"tag-flag: ${{{{ !github.event.pull_request && format('--tag={{0}}', {REF_NAME_OLD}) || '' }}}}",
-        f"tag-flag: ${{{{ !github.event.pull_request && format('--tag={{0}}', {REF_NAME_NEW}) || '' }}}}",
+        f"tag-flag: ${{{{ {IS_RELEASE_EXPR} && format('--tag={{0}}', {TAG_EXPR}) || '' }}}}",
         "plan tag-flag output",
     )
     text = replace_once(
         text,
-        f"format('host --steps=create --tag={{0}}', {REF_NAME_OLD})",
-        f"format('host --steps=create --tag={{0}}', {REF_NAME_NEW})",
+        "publishing: ${{ !github.event.pull_request }}",
+        f"publishing: ${{{{ {IS_RELEASE_EXPR} }}}}",
+        "plan publishing output",
+    )
+    text = replace_once(
+        text,
+        f"(!github.event.pull_request && format('host --steps=create --tag={{0}}', {REF_NAME_OLD})) || 'plan'",
+        f"({IS_RELEASE_EXPR} && format('host --steps=create --tag={{0}}', {TAG_EXPR})) || 'plan'",
         "dist host --tag argument",
     )
     # The replacements themselves embed `github.ref_name` as the fallback, so

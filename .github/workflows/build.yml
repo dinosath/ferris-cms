@@ -21,6 +21,10 @@ on:
         description: "Release tag to build (must already exist), e.g. server-bin-v0.2.0"
         required: false
         type: string
+      pr:
+        description: "Pull request number to build in no-push mode (used to validate a release PR)"
+        required: false
+        type: string
   # Pull requests build the image and lint/package the chart *without pushing*
   # anything, so a PR (in particular the release PR) is validated by the same
   # build that produces the release artifacts.
@@ -77,13 +81,19 @@ jobs:
           echo "IS_RELEASE=false" >> "$GITHUB_ENV"
           echo "IS_PR=false" >> "$GITHUB_ENV"
 
-          # Pull requests: build and validate, but never publish.
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Pull requests (and manual dispatches that pass a PR number, which
+          # is how the Release-plz workflow validates its release PR): build and
+          # validate, but never publish.
+          EVENT="${{ github.event_name }}"
+          INPUT_TAG="${{ github.event.inputs.tag }}"
+          INPUT_PR="${{ github.event.inputs.pr }}"
+          if [ "$EVENT" = "pull_request" ] || { [ "$EVENT" = "workflow_dispatch" ] && [ -z "$INPUT_TAG" ] && [ -n "$INPUT_PR" ]; }; then
+            PR_NUMBER="${INPUT_PR:-${{ github.event.pull_request.number }}}"
             echo "IS_PR=true" >> "$GITHUB_ENV"
-            echo "IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
-            echo "CHART_VERSION=$BASE-pr.${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+            echo "IMAGE_TAG=pr-$PR_NUMBER" >> "$GITHUB_ENV"
+            echo "CHART_VERSION=$BASE-pr.$PR_NUMBER" >> "$GITHUB_ENV"
             echo "APP_VERSION=$BASE" >> "$GITHUB_ENV"
-            echo "PR build: image $BASE-pr.${{ github.event.pull_request.number }} (not pushed)"
+            echo "PR build: image $BASE-pr.$PR_NUMBER (not pushed)"
             exit 0
           fi
 

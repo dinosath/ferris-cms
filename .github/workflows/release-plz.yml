@@ -110,6 +110,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # Needed to dispatch the validation runs for the release PR below.
+      actions: write
     concurrency:
       group: release-plz-pr-${{ github.ref }}
       cancel-in-progress: false
@@ -166,3 +168,31 @@ jobs:
             done
             sleep 10
           done
+
+      # Without a PAT the release PR's own runs stay unapproved, so run the same
+      # workflows on the PR branch explicitly: a dispatched run does not need
+      # approval and its check runs are attached to the PR's head commit, which
+      # is all the required status checks look at. `build.yml` is told it is a
+      # PR build so it validates without pushing anything.
+      - name: Validate the release PR
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_PAT: ${{ secrets.RELEASE_PLZ_TOKEN != '' }}
+        run: |
+          if [ "$HAS_PAT" = "true" ]; then
+            echo "RELEASE_PLZ_TOKEN is set; the PR's own workflow runs handle this."
+            exit 0
+          fi
+          PR_BRANCH=$(gh pr list --state open --json number,headRefName \
+            --jq '.[] | select(.headRefName | startswith("release-plz-")) | "\(.number) \(.headRefName)"' | head -1)
+          PR=$(printf '%s' "$PR_BRANCH" | cut -d' ' -f1)
+          BRANCH=$(printf '%s' "$PR_BRANCH" | cut -d' ' -f2)
+          if [ -z "$BRANCH" ]; then
+            echo "::notice::no open release PR found; nothing to validate"
+            exit 0
+          fi
+          echo "Validating release PR #$PR on $BRANCH"
+          gh workflow run checks.yml --ref "$BRANCH"
+          gh workflow run release.yml --ref "$BRANCH"
+          gh workflow run build.yml --ref "$BRANCH" -f "pr=$PR"
