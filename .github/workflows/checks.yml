@@ -9,6 +9,11 @@ name: Checks
 on:
   push:
   pull_request:
+  # Manual dispatch is used by the Release-plz workflow: workflow runs that
+  # GitHub creates for a PR opened by the default GITHUB_TOKEN stay in the
+  # `action_required` state until a human approves them, so the release PR's
+  # checks are dispatched explicitly on the PR branch instead.
+  workflow_dispatch:
 
 permissions:
   contents: read
