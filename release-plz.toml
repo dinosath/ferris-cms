@@ -1,28 +1,39 @@
 # release-plz configuration.
 #
 # This project releases as a Docker image + Helm chart on GitHub, NOT on
-# crates.io. `git_only = true` determines versions from git tags and skips
-# `cargo publish` entirely (so no crates.io publishing). When you merge a
-# release-plz PR, release-plz bumps the workspace version, updates the
-# changelogs, and pushes `<package>-v<version>` git tags.
-# Those tags trigger the stable image/chart build in `.github/workflows/build.yml`.
+# crates.io. `publish = false` disables `cargo publish`, so nothing is ever
+# pushed to a cargo registry. Merging a release PR makes release-plz bump the
+# workspace version, update the changelogs, push `<package>-v<version>` git
+# tags and create the GitHub Releases for those tags (the binaries/installers
+# for `server-bin` are attached to its release by cargo-dist).
+#
+# `git_only` is deliberately NOT enabled. In git-only mode release-plz
+# reconstructs the workspace at the previous release tag and runs
+# `cargo package --allow-dirty --workspace --no-verify` inside it to diff
+# package contents. That is impossible for this workspace: `services` and
+# `workflow` depend on `ows-runtime*` (not published on crates.io) and older
+# revisions declare internal path dependencies without version requirements,
+# so that command always fails. With registry mode + `publish = false`,
+# release-plz diffs purely from git and never queries the registry for
+# packages it does not publish.
 
 [workspace]
-# Version source + no crates.io publishing (git tags instead of the registry).
-git_only = true
+# Never publish to a cargo registry (versions come from Cargo.toml + commits).
+publish = false
+git_only = false
 
 # Only release when a release-plz PR is merged, not on every main commit.
 # Matches "when release-plz pr is merged it should do normal release".
 release_always = false
 
-# Do NOT create GitHub Releases from release-plz: cargo-dist
-# (.github/workflows/release.yml) creates the release for the server-bin tag and
-# uploads the built binaries/installers. release-plz still bumps versions,
-# updates changelogs and pushes the `<package>-v<version>` git tags.
-git_release_enable = false
+# Create a GitHub Release for every pushed package tag. The `server-bin`
+# release additionally receives the cargo-dist archives/installer, which are
+# uploaded by `.github/workflows/release.yml` (dist runs with
+# `create-release = false`, i.e. it only attaches artifacts to this release).
+git_release_enable = true
 
-# Run cargo-semver-checks on each release PR. Versions are determined from git
-# tags (git_only mode) which serve as the semver baseline.
+# Run cargo-semver-checks on each release PR. Versions are bumped from the
+# git tags of the previous release.
 semver_check = true
 
 # Add a recognizable label to the release PRs.

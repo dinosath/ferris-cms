@@ -10,8 +10,8 @@
 # * uploads those artifacts to temporary workflow zip
 # * on success, uploads the artifacts to a GitHub Release
 #
-# Note that the GitHub Release will be created with a generated
-# title/body based on your changelogs.
+# Note that a GitHub Release with this tag is assumed to exist as a draft
+# with the appropriate title/body, and will be undrafted for you.
 
 name: Release
 permissions:
@@ -39,15 +39,24 @@ permissions:
 # If there's a prerelease-style suffix to the version, then the release(s)
 # will be marked as a prerelease.
 on:
-  # Manual dispatch is used by release-plz because tags pushed with the default
-  # GITHUB_TOKEN do not trigger workflows. NOTE: `cargo dist generate` rewrites
-  # this file, so re-apply these triggers after regenerating.
+  # NOTE: manual edits below are re-applied by
+  # `python3 scripts/patch_release_workflow.py` after `dist generate`.
+  #
+  # Dispatched by the Release-plz workflow: tags pushed with the default
+  # GITHUB_TOKEN do not trigger workflows. The release tag is passed as an
+  # input because workflows are read from the dispatched ref, and the workflow
+  # file stored at an old tag's commit may predate this trigger.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (must already exist), e.g. server-bin-v0.2.0"
+        required: false
+        type: string
   push:
     tags:
-      # Only the server-bin release tag: release-plz pushes one tag per package,
-      # but server-bin is the only dist-able package.
+      # release-plz tags every package; only the dist-able ones are built here.
       - 'server-bin-v[0-9]+.[0-9]+.[0-9]+*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -55,8 +64,8 @@ jobs:
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
+      tag: ${{ !github.event.pull_request && (github.event.inputs.tag || github.ref_name) || '' }}
+      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', (github.event.inputs.tag || github.ref_name)) || '' }}
       publishing: ${{ !github.event.pull_request }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,6 +74,8 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          # Build the source of the release tag when dispatched manually.
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -82,7 +93,7 @@ jobs:
       # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
         run: |
-          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', (github.event.inputs.tag || github.ref_name))) || 'plan' }} --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -274,14 +285,12 @@ jobs:
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
-          ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+          # If we're editing a release in place, we need to upload things ahead of time
+          gh release upload "${{ needs.plan.outputs.tag }}" artifacts/*
 
-          gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          gh release edit "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --draft=false
 
   announce:
     needs:

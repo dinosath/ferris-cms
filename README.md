@@ -348,13 +348,22 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
     tag on all library crates to catch accidental breaking API changes.
 - **`release-plz.yml`** — on every push to `main`: opens a release PR (version
   bump + changelog + semver check), and finalizes a release when that PR is
-  merged (pushes `<package>-v<version>` git tags). Release tags trigger the
-  stable image build in `build.yml` and the binary build in `release.yml`.
-- **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on a
-  `server-bin-v<version>` tag, builds the `ferriscms-server` binary (x86_64
-  Linux), a shell installer and checksums, and publishes them to the GitHub
-  Release (release-plz no longer creates GitHub Releases — `git_release_enable =
-  false`). Configuration lives in `dist-workspace.toml`.
+  merged. release-plz bumps the workspace version, pushes `<package>-v<version>`
+  git tags and creates the **GitHub Releases** for them (`git_release_enable =
+  true`). Tags pushed with the default `GITHUB_TOKEN` do *not* trigger other
+  workflows, so the job then dispatches `build.yml` and `release.yml` itself,
+  passing the new `server-bin-v<version>` tag as a `tag` input. The dispatch ref
+  is `main` and not the tag, because workflows are read from the dispatched ref
+  and the workflow file stored at an old tag's commit can predate the
+  `workflow_dispatch` trigger.
+- **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): for a
+  `server-bin-v<version>` tag it builds the `ferriscms-server` binary (x86_64
+  Linux), a shell installer and checksums and attaches them to the GitHub
+  Release created by release-plz (`create-release = false`: dist assumes the
+  release exists and only uploads assets to it). Configuration lives in
+  `dist-workspace.toml`. The generated workflow carries a few local edits
+  (extra tag trigger + `workflow_dispatch` with the `tag` input) which are
+  re-applied by `scripts/patch_release_workflow.py` after `dist generate`.
 - **`cleanup.yml`** — daily, deletes `<version>.rc-*` / `<version>.run-*` GHCR
   images older than 30 days. Stable `vX.Y.Z` images are kept.
 
@@ -363,13 +372,16 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 1. Merge changes to `main` as conventional commits (`feat:`, `fix:`, `feat!:` …).
 2. `release-plz.yml` opens a release PR bumping the shared workspace version
    and updating changelogs.
-3. Merge that release PR. `release-plz` pushes `server-bin-vX.Y.Z` (and other
-   `<package>-vX.Y.Z`) git tags.
-4. `release.yml` (cargo-dist) builds the `ferriscms-server` binary + shell
-   installer for `server-bin-vX.Y.Z` and creates/uploads them to the GitHub
-   Release.
-5. `build.yml` sees the tag, builds the stable `vX.Y.Z` image + `X.Y.Z` chart,
-   and publishes them to GHCR. Nothing goes to crates.io.
+3. Merge that release PR (it cannot be merged until the `checks.yml` statuses
+   pass — they are required by branch protection on `main`). `release-plz`
+   pushes `server-bin-vX.Y.Z` (and other `<package>-vX.Y.Z`) git tags and
+   creates a GitHub Release for each of them.
+4. `release-plz.yml` dispatches `release.yml` (cargo-dist) for
+   `server-bin-vX.Y.Z`. It builds the `ferriscms-server` binary + shell installer
+   and attaches them to that GitHub Release.
+5. `release-plz.yml` also dispatches `build.yml`, which builds the stable
+   `vX.Y.Z` image + `X.Y.Z` chart and publishes them to GHCR (and attaches the
+   chart/image tarballs to the release). Nothing goes to crates.io.
 
 ### Requirements
 
@@ -384,6 +396,13 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 - The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
   push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
   secret with the `delete:packages` scope.
+- **Merge gating** — branch protection on `main` requires the `Checks` statuses
+  (`Conventional commits`, `Cargo semver checks`) to pass, and requires a pull
+  request with one approving review, so the release PR cannot be merged with a
+  red build. Note `enforce_admins` is currently `false`, i.e. repository admins
+  can still bypass the gate; set it to `true`
+  (`gh api -X PUT repos/{owner}/{repo}/branches/main/protection/enforce_admins -f enabled=true`)
+  to make the gate apply to admins as well.
 - **Immutable releases** — enable once in **Settings → General → Releases →
   *Immutable releases*** (or set the `REPO_ADMIN_TOKEN` secret to a repo-admin
   PAT and `build.yml` will enable it via `PUT /repos/{owner}/{repo}/immutable-releases`).

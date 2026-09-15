@@ -11,8 +11,16 @@ name: Build images & charts
 on:
   push:
   # Tags pushed with the default GITHUB_TOKEN do not trigger workflows, so the
-  # release job dispatches this workflow on the release tag explicitly.
+  # Release-plz workflow dispatches this workflow explicitly, passing the
+  # release tag as an input. The dispatch ref is `main` (and not the tag)
+  # because the workflow file stored at the tag's commit may predate the
+  # `workflow_dispatch` trigger.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (must already exist), e.g. server-bin-v0.2.0"
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -36,6 +44,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Build the source of the release tag when dispatched manually.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       # ------------------------------------------------------------------
       # Determine the image tag / chart version for this ref.
@@ -47,12 +58,22 @@ jobs:
           BASE=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
           BASE=${BASE:-0.1.0}
 
+          # A manual dispatch (from the Release-plz workflow) passes the release
+          # tag as an input; otherwise use the ref that triggered the run.
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            REF_TYPE=tag
+            REF_NAME="${{ github.event.inputs.tag }}"
+          else
+            REF_TYPE="$GITHUB_REF_TYPE"
+            REF_NAME="$GITHUB_REF_NAME"
+          fi
+
           echo "SKIP=false" >> "$GITHUB_ENV"
           echo "IS_RELEASE=false" >> "$GITHUB_ENV"
 
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          if [ "$REF_TYPE" = "tag" ]; then
             # release-plz tags look like `server-bin-v0.2.0`; plain `v0.2.0` also supported.
-            VER="$GITHUB_REF_NAME"
+            VER="$REF_NAME"
             VER="${VER##*-v}"
             VER="${VER#v}"
             if [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
@@ -65,7 +86,7 @@ jobs:
             fi
           fi
 
-          if [ "$GITHUB_REF_NAME" = "main" ] && [ "$GITHUB_REF_TYPE" = "branch" ]; then
+          if [ "$REF_NAME" = "main" ] && [ "$REF_TYPE" = "branch" ]; then
             # rc images carry the workspace version + run number, e.g. 0.2.0.rc-3
             echo "IMAGE_TAG=$BASE.rc-$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"
             echo "CHART_VERSION=$BASE-rc.$GITHUB_RUN_NUMBER" >> "$GITHUB_ENV"

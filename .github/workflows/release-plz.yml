@@ -4,9 +4,10 @@ name: Release-plz
 # finalizes a release when such a PR is merged (bumps the workspace version and
 # pushes `<package>-v<version>` tags + GitHub releases).
 #
-# Note: `git_only = true` (see release-plz.toml) means nothing is ever
+# Note: `publish = false` (see release-plz.toml) means nothing is ever
 # published to crates.io — only git tags and GitHub releases are created. The
-# pushed tags are what trigger the stable image/chart build in build.yml.
+# pushed tags are what kick off the stable image/chart build (build.yml) and
+# the cargo-dist binary release (release.yml).
 
 on:
   push:
@@ -47,7 +48,12 @@ jobs:
 
       # Tags pushed with the default GITHUB_TOKEN do not trigger other
       # workflows, so explicitly dispatch the image/chart build and the
-      # cargo-dist binary release on the server-bin tag.
+      # cargo-dist binary release for the server-bin tag.
+      #
+      # The dispatch ref is `main`, not the tag: workflows are always read from
+      # the ref they are dispatched on, and the workflow file stored at an old
+      # tag's commit has no `workflow_dispatch` trigger. The tag is passed as
+      # an input instead, and the workflows check out / build that tag.
       - name: Trigger release builds
         if: success()
         env:
@@ -55,13 +61,26 @@ jobs:
         run: |
           VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
           TAG="server-bin-v$VER"
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            echo "Dispatching release builds for $TAG"
-            gh workflow run build.yml --ref "$TAG"
-            gh workflow run release.yml --ref "$TAG"
-          else
+          if ! gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
             echo "::notice::tag $TAG not found; nothing to dispatch"
+            exit 0
           fi
+          echo "Dispatching release builds for $TAG"
+          for wf in build.yml release.yml; do
+            # Retry: a freshly pushed workflow file can take a few seconds to
+            # become dispatchable.
+            for attempt in 1 2 3 4 5; do
+              if gh workflow run "$wf" --ref main -f "tag=$TAG"; then
+                break
+              fi
+              if [ "$attempt" = 5 ]; then
+                echo "::error::could not dispatch $wf for $TAG"
+                exit 1
+              fi
+              echo "$wf dispatch failed (attempt $attempt); retrying in 15s"
+              sleep 15
+            done
+          done
 
   # Open/update the release PR preparing the next version.
   # Concurrency on this job only: if a new commit lands while the PR job is

@@ -15,10 +15,18 @@ targets = ["x86_64-unknown-linux-gnu"]
 install-path = "CARGO_HOME"
 # Where to host releases
 hosting = "github"
-# `release.yml` is generated but the tag trigger is customized to only the
-# dist-able package (release-plz tags every package, and non-dist tags would
-# make CI fail), so allow the generated file to differ from the template.
+# `release.yml` is generated but customized after generation (tag trigger
+# limited to the dist-able packages plus a `workflow_dispatch` trigger, because
+# release-plz's tags are pushed with the default GITHUB_TOKEN and do not
+# trigger workflows). Re-apply those edits with
+# `python3 scripts/patch_release_workflow.py` after regenerating, and keep
+# `allow-dirty` so cargo-dist accepts the difference from its template.
 allow-dirty = ["ci"]
+# release-plz creates the GitHub Releases (its tags are the ones we release
+# from), so dist must NOT create them itself. With `create-release = false`
+# dist assumes the release for the tag already exists and only uploads the
+# archives/installers to it.
+create-release = false
 
 # Whether to install an updater program
 install-updater = false
