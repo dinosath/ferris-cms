@@ -31,3 +31,8 @@ default = ["web"]
 web = ["dioxus/web"]
 desktop = ["dioxus/desktop"]
 mobile = ["dioxus/mobile"]
+
+# Not distributed as a standalone binary (the admin UI is embedded in
+# `ferriscms-server`; the desktop app is built separately).
+[package.metadata.dist]
+dist = false

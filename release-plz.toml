@@ -4,7 +4,7 @@
 # crates.io. `git_only = true` determines versions from git tags and skips
 # `cargo publish` entirely (so no crates.io publishing). When you merge a
 # release-plz PR, release-plz bumps the workspace version, updates the
-# changelogs, and pushes `<package>-v<version>` tags + GitHub releases.
+# changelogs, and pushes `<package>-v<version>` git tags.
 # Those tags trigger the stable image/chart build in `.github/workflows/build.yml`.
 
 [workspace]
@@ -14,6 +14,12 @@ git_only = true
 # Only release when a release-plz PR is merged, not on every main commit.
 # Matches "when release-plz pr is merged it should do normal release".
 release_always = false
+
+# Do NOT create GitHub Releases from release-plz: cargo-dist
+# (.github/workflows/release.yml) creates the release for the server-bin tag and
+# uploads the built binaries/installers. release-plz still bumps versions,
+# updates changelogs and pushes the `<package>-v<version>` git tags.
+git_release_enable = false
 
 # Run cargo-semver-checks on each release PR. Versions are determined from git
 # tags (git_only mode) which serve as the semver baseline.

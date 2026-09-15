@@ -3,6 +3,7 @@ name = "server-bin"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository = "https://github.com/dinosath/ferris-cms"
 
 [[bin]]
 name = "ferriscms-server"

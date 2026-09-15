@@ -328,8 +328,13 @@ Images and charts are published to:
     tag on all library crates to catch accidental breaking API changes.
 - **`release-plz.yml`** — on every push to `main`: opens a release PR (version
   bump + changelog + semver check), and finalizes a release when that PR is
-  merged (pushes `<package>-v<version>` tags + GitHub releases). Release tags
-  trigger the stable image build in `build.yml`.
+  merged (pushes `<package>-v<version>` git tags). Release tags trigger the
+  stable image build in `build.yml` and the binary build in `release.yml`.
+- **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on a
+  `server-bin-v<version>` tag, builds the `ferriscms-server` binary (x86_64
+  Linux), a shell installer and checksums, and publishes them to the GitHub
+  Release (release-plz no longer creates GitHub Releases — `git_release_enable =
+  false`). Configuration lives in `dist-workspace.toml`.
 - **`cleanup.yml`** — daily, deletes `<version>.rc-*` / `<version>.run-*` GHCR
   images older than 30 days. Stable `vX.Y.Z` images are kept.
 
@@ -339,8 +344,11 @@ Images and charts are published to:
 2. `release-plz.yml` opens a release PR bumping the shared workspace version
    and updating changelogs.
 3. Merge that release PR. `release-plz` pushes `server-bin-vX.Y.Z` (and other
-   `<package>-vX.Y.Z`) tags plus a GitHub release.
-4. `build.yml` sees the tag, builds the stable `vX.Y.Z` image + `X.Y.Z` chart,
+   `<package>-vX.Y.Z`) git tags.
+4. `release.yml` (cargo-dist) builds the `ferriscms-server` binary + shell
+   installer for `server-bin-vX.Y.Z` and creates/uploads them to the GitHub
+   Release.
+5. `build.yml` sees the tag, builds the stable `vX.Y.Z` image + `X.Y.Z` chart,
    and publishes them to GHCR. Nothing goes to crates.io.
 
 ### Requirements
