@@ -400,6 +400,14 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 - The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
   push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
   secret with the `delete:packages` scope.
+- **Release PR checks** — the release PR runs the full CI, not just the commit
+  checks: `Checks`, `Build image & chart` (a no-push image + chart build) and
+  the cargo-dist plan in `release.yml`. GitHub creates the workflow runs for a
+  PR opened by the default `GITHUB_TOKEN` in the `action_required` state and
+  `GITHUB_TOKEN` may not approve them, so without a PAT someone has to click
+  **Approve and run** on the PR before the required statuses can be reported.
+  Adding a PAT as the `RELEASE_PLZ_TOKEN` secret makes
+  `release-plz.yml` approve those runs automatically.
 - **Merge gating** — branch protection on `main` requires all CI statuses
   (`Conventional commits`, `Cargo semver checks` from `checks.yml`, and
   `Build image & chart` from `build.yml`) to pass, and requires a pull request

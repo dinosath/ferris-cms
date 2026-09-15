@@ -136,16 +136,23 @@ jobs:
           # open PRs regardless of that setting. Falls back to GITHUB_TOKEN.
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # Workflow runs for the release PR are created in the `action_required`
-      # state (GitHub requires approval for PRs opened by the default
-      # GITHUB_TOKEN), so they would never run and the required `Checks`
-      # statuses would stay pending, leaving the release PR unmergeable.
-      # Approve them here. Setting a PAT as `RELEASE_PLZ_TOKEN` avoids this.
+      # GitHub creates the workflow runs for a PR opened by the default
+      # GITHUB_TOKEN in the `action_required` state, and GITHUB_TOKEN is not
+      # allowed to approve them ("Resource not accessible by integration"), so
+      # they would sit there forever and the required status checks (Checks +
+      # Build image & chart) would never be reported - leaving the release PR
+      # unmergeable. A PAT can approve them, so do that when RELEASE_PLZ_TOKEN
+      # is configured; otherwise a human has to click "Approve and run" once.
       - name: Approve pending workflow runs for the release PR
         if: success()
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          HAS_PAT: ${{ secrets.RELEASE_PLZ_TOKEN != '' }}
         run: |
+          if [ "$HAS_PAT" != "true" ]; then
+            echo "::notice::RELEASE_PLZ_TOKEN is not set: approve the release PR's workflow runs manually (or set a PAT secret) so its required checks can run."
+            exit 0
+          fi
           for attempt in 1 2 3 4 5; do
             RUN_IDS=$(gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
               --jq '.workflow_runs[] | select(.head_branch | startswith("release-plz-")) | .id')
