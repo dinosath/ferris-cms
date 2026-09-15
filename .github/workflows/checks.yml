@@ -32,13 +32,17 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             RANGE="${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
-          else
+          elif [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
             RANGE="${{ github.event.before }}..${{ github.event.after }}"
-          fi
-
-          # Initial push / force-push to an empty ref: check all commits.
-          if [[ -z "$RANGE" || "${{ github.event.before }}" == "0000000000000000000000000000000000000000" ]]; then
-            RANGE="--all"
+          else
+            # Manual dispatch (used to validate a release PR, which needs no
+            # approval): check the commits the branch adds on top of main.
+            git fetch --quiet origin main 2>/dev/null || true
+            RANGE="FETCH_HEAD..HEAD"
+            if ! git rev-parse --verify --quiet "$RANGE" >/dev/null; then
+              echo "No main branch available locally; checking HEAD only."
+              RANGE="HEAD~1..HEAD"
+            fi
           fi
 
           echo "Checking commits in range: $RANGE"
