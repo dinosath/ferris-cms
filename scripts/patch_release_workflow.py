@@ -10,7 +10,8 @@ default `GITHUB_TOKEN` and therefore do not trigger workflows:
      input (instead of dispatching on the tag ref) because workflows are always
      read from the ref they are dispatched on, and the workflow file stored at
      an old tag's commit has no `workflow_dispatch` trigger.
-  2. Restrict the tag trigger to the tags we actually publish.
+  2. Restrict the tag trigger to the tags we actually publish, and keep the
+     `pull_request` trigger (dist only runs `plan` there).
   3. Use the dispatched tag (falling back to the ref) to select what dist
      builds and check out that tag's source.
 
@@ -51,6 +52,9 @@ ON_BLOCK_PATCHED = """on:
         description: "Release tag to publish (must already exist), e.g. server-bin-v0.2.0"
         required: false
         type: string
+  # Run on pull requests too (`dist plan` only, nothing is published) so the
+  # release PR exercises the same workflow that publishes the binaries.
+  pull_request:
   push:
     tags:
       # release-plz tags every package; only the dist-able ones are built here.

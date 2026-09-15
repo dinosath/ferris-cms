@@ -21,6 +21,10 @@ on:
         description: "Release tag to build (must already exist), e.g. server-bin-v0.2.0"
         required: false
         type: string
+  # Pull requests build the image and lint/package the chart *without pushing*
+  # anything, so a PR (in particular the release PR) is validated by the same
+  # build that produces the release artifacts.
+  pull_request:
 
 env:
   REGISTRY: ghcr.io
@@ -29,6 +33,7 @@ env:
 
 jobs:
   build:
+    name: Build image & chart
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -70,6 +75,17 @@ jobs:
 
           echo "SKIP=false" >> "$GITHUB_ENV"
           echo "IS_RELEASE=false" >> "$GITHUB_ENV"
+          echo "IS_PR=false" >> "$GITHUB_ENV"
+
+          # Pull requests: build and validate, but never publish.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "IS_PR=true" >> "$GITHUB_ENV"
+            echo "IMAGE_TAG=pr-${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+            echo "CHART_VERSION=$BASE-pr.${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+            echo "APP_VERSION=$BASE" >> "$GITHUB_ENV"
+            echo "PR build: image $BASE-pr.${{ github.event.pull_request.number }} (not pushed)"
+            exit 0
+          fi
 
           if [ "$REF_TYPE" = "tag" ]; then
             # release-plz tags look like `server-bin-v0.2.0`; plain `v0.2.0` also supported.
@@ -139,7 +155,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
+          # PRs build the image to validate it, but never publish it.
+          push: ${{ env.IS_PR != 'true' }}
           # Persist the BuildKit cache (including the cargo /app/target cache
           # mount) to the GitHub Actions cache. This is reused by subsequent
           # runs and by retries after a failed build, so the expensive Rust
@@ -174,7 +191,7 @@ jobs:
             -d dist/
 
       - name: Login to GHCR (helm)
-        if: env.SKIP == 'false'
+        if: env.SKIP == 'false' && env.IS_PR != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
@@ -184,7 +201,7 @@ jobs:
       # Immutability: never overwrite a published chart version. If it already
       # exists in the OCI registry, keep the existing artifact.
       - name: Check chart immutability
-        if: env.SKIP == 'false'
+        if: env.SKIP == 'false' && env.IS_PR != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
@@ -195,7 +212,7 @@ jobs:
           fi
 
       - name: Push chart to GHCR
-        if: env.SKIP == 'false' && env.CHART_EXISTS != 'true'
+        if: env.SKIP == 'false' && env.IS_PR != 'true' && env.CHART_EXISTS != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |

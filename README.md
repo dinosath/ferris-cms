@@ -329,7 +329,10 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 - **`build.yml`** — on every push, chooses the mode above and builds/pushes the
   image + chart. RC/run image tags are prefixed with the current workspace
   version (e.g. `0.2.0.rc-3`). Stable releases skip if the exact version already
-  exists. The Docker build uses the GitHub Actions cache backend
+  exists. It also runs on pull requests, where it builds the image and
+  lint/packages the chart **without pushing anything** (image tag `pr-<number>`,
+  chart `0.2.0-pr.<number>`), so a PR is validated by the same build that
+  produces the release artifacts. The Docker build uses the GitHub Actions cache backend
   (`type=gha`, `mode=max`), so the cargo/compilation cache is persisted across
   runs and retries — even a failed build never loses the previously-saved cache.
   For a stable release it also attaches downloadable copies to the GitHub
@@ -356,7 +359,8 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   is `main` and not the tag, because workflows are read from the dispatched ref
   and the workflow file stored at an old tag's commit can predate the
   `workflow_dispatch` trigger.
-- **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): for a
+- **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on
+  pull requests it only runs `dist plan` (nothing is published); for a
   `server-bin-v<version>` tag it builds the `ferriscms-server` binary (x86_64
   Linux), a shell installer and checksums and attaches them to the GitHub
   Release created by release-plz (`create-release = false`: dist assumes the
@@ -396,10 +400,11 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 - The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
   push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
   secret with the `delete:packages` scope.
-- **Merge gating** — branch protection on `main` requires the `Checks` statuses
-  (`Conventional commits`, `Cargo semver checks`) to pass, and requires a pull
-  request with one approving review, so the release PR cannot be merged with a
-  red build. Note `enforce_admins` is currently `false`, i.e. repository admins
+- **Merge gating** — branch protection on `main` requires all CI statuses
+  (`Conventional commits`, `Cargo semver checks` from `checks.yml`, and
+  `Build image & chart` from `build.yml`) to pass, and requires a pull request
+  with one approving review, so the release PR cannot be merged with a red
+  build. Note `enforce_admins` is currently `false`, i.e. repository admins
   can still bypass the gate; set it to `true`
   (`gh api -X PUT repos/{owner}/{repo}/branches/main/protection/enforce_admins -f enabled=true`)
   to make the gate apply to admins as well.

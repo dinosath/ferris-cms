@@ -52,6 +52,9 @@ on:
         description: "Release tag to publish (must already exist), e.g. server-bin-v0.2.0"
         required: false
         type: string
+  # Run on pull requests too (`dist plan` only, nothing is published) so the
+  # release PR exercises the same workflow that publishes the binaries.
+  pull_request:
   push:
     tags:
       # release-plz tags every package; only the dist-able ones are built here.
