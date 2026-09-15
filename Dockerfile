@@ -80,6 +80,10 @@ FROM gcr.io/distroless/static-debian13 AS runtime
 # The single self-contained binary (webserver + embedded admin UI).
 COPY --from=builder /app/ferriscms-server /usr/local/bin/ferriscms-server
 
+# CA bundle for outbound TLS (rustls-platform-verifier used by reqwest 0.13 for
+# the AI providers reads the system trust store; distroless/static ships none).
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
 # Persistable directory for uploaded media (mounted by the Helm chart/Compose).
 WORKDIR /data
 

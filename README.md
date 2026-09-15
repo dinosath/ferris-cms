@@ -317,7 +317,11 @@ The runtime image is a **statically linked (musl)** `ferriscms-server` on
 `gcr.io/distroless/static-debian13` — no libc, no shell, no package manager,
 ~1 MiB base — with the binary stripped (`strip` + thin LTO). The admin UI is
 embedded in the binary, so no assets are copied alongside it. The server links
-no OpenSSL (rustls), so nothing from the base image is needed at runtime.
+no OpenSSL and no `aws-lc-rs`: rustls uses the small **ring** provider (rig's
+`reqwest` is compiled with `rustls-no-provider` and ring is installed at runtime
+by `ai::ensure_crypto_provider()`). A CA bundle is copied in for
+`rustls-platform-verifier`. Measured: ~31 MiB static binary (+~3 MiB embedded
+UI) on a ~1 MiB base.
 
 ### Workflows
 

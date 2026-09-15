@@ -13,7 +13,13 @@ reqwest = { workspace = true, features = ["json", "stream"] }
 tokio = { workspace = true }
 futures-util = "0.3"
 bytes = "1"
-rig = { version = "0.42", default-features = true }
+# No TLS backend from rig: its `rustls` feature hard-enables reqwest/rustls
+# (aws-lc-rs). We enable rig's HTTP support but supply TLS ourselves below.
+rig = { version = "0.42", default-features = false, features = ["agent", "derive", "reqwest"] }
+# rig's reqwest (0.13) with `rustls-no-provider`; the ring provider is installed
+# at runtime by `ai::ensure_crypto_provider()`.
+reqwest13 = { package = "reqwest", version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

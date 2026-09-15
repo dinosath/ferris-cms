@@ -33,6 +33,8 @@ pub enum RigClient {
 
 /// Build a Rig provider client for a neutral config.
 fn build_rig_client(config: &AiProviderConfig) -> Result<RigClient, AiError> {
+    // rig's reqwest is built with `rustls-no-provider`; ensure ring is installed.
+    crate::ensure_crypto_provider();
     let api_key = || config.api_key.clone().unwrap_or_default();
     match config.kind {
         AiProviderKind::OpenAiCompatible => {
