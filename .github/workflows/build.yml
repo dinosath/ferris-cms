@@ -52,7 +52,10 @@ jobs:
     # new commit on a release PR can never cancel the release build that is
     # publishing the previous version.
     concurrency:
-      group: build-${{ github.event.inputs.pr || github.event.pull_request.number || 'release' }}
+      # One group per release tag (so publishing builds never cancel each
+      # other) and per pull request (so validation builds are independent);
+      # plain pushes share the `rc` group.
+      group: build-${{ github.event.inputs.tag || github.event.inputs.pr || github.event.pull_request.number || 'rc' }}
       cancel-in-progress: ${{ github.event.inputs.pr != '' || github.event_name == 'pull_request' }}
     steps:
       - name: Checkout
