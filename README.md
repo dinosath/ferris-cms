@@ -350,12 +350,17 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   - **Cargo semver checks**: runs `cargo-semver-checks` against the latest git
     tag on all library crates to catch accidental breaking API changes.
 - **`release-plz.yml`** — on every push to `main`: opens a release PR (version
-  bump + changelog + semver check), and finalizes a release when that PR is
-  merged. release-plz bumps the workspace version, pushes `<package>-v<version>`
+  bump + changelog), validates it, and finalizes a release when that PR is
+  merged. Versions are bumped from the commits since the previous release tag
+  (`publish = false`, so nothing is published to a registry and release-plz's own
+  semver check is disabled — it would compare against the long-since-superseded
+  published versions; `checks.yml` runs cargo-semver-checks against the last
+  release tag instead). release-plz bumps the workspace version, pushes `<package>-v<version>`
   git tags and creates the **GitHub Releases** for them (`git_release_enable =
   true`). Tags pushed with the default `GITHUB_TOKEN` do *not* trigger other
   workflows, so the job then dispatches `build.yml` and `release.yml` itself,
-  passing the new `server-bin-v<version>` tag as a `tag` input. The dispatch ref
+  passing the new `server-bin-v<version>` tag as a `tag` input, and also runs
+  the CI for the release PR itself (see the note under *Requirements*). The dispatch ref
   is `main` and not the tag, because workflows are read from the dispatched ref
   and the workflow file stored at an old tag's commit can predate the
   `workflow_dispatch` trigger.
@@ -407,7 +412,13 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   `GITHUB_TOKEN` may not approve them, so without a PAT someone has to click
   **Approve and run** on the PR before the required statuses can be reported.
   Adding a PAT as the `RELEASE_PLZ_TOKEN` secret makes
-  `release-plz.yml` approve those runs automatically.
+  `release-plz.yml` approve those runs automatically (and, because the PR is
+  then opened by a user instead of the bot, they run without approval at all).
+  Without a PAT, `release-plz.yml` still runs the same workflows on the PR
+  branch with `workflow_dispatch` (which is why `checks.yml`/`build.yml`/
+  `release.yml` are dispatchable; `build.yml -f pr=<n>` builds without
+  pushing), so the results are visible in the Actions tab even though GitHub
+  does not count those runs towards the PR's required statuses.
 - **Merge gating** — branch protection on `main` requires all CI statuses
   (`Conventional commits`, `Cargo semver checks` from `checks.yml`, and
   `Build image & chart` from `build.yml`) to pass, and requires a pull request
