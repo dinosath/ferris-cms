@@ -77,6 +77,8 @@ sha2 = "0.10"
 rand = "0.9"
 url = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
+# Use the small `ring` crypto provider instead of `aws-lc-rs`.
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std", "tls12"] }
 openidconnect = { version = "3", default-features = false, features = ["reqwest", "rustls-tls"] }
 
 # e2e testing (Turso database + Obscura browser, no containers)

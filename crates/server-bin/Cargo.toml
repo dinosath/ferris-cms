@@ -15,8 +15,10 @@ api-rest = { workspace = true }
 db = { workspace = true }
 sea-orm-migration = { workspace = true }
 axum = { workspace = true }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+# `tls-rustls-no-provider` avoids axum-server forcing rustls/aws-lc-rs;
+# the ring provider is installed in main.rs.
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { workspace = true }
