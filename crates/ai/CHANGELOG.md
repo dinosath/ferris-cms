@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/dinosath/ferris-cms/compare/ai-v0.2.0...ai-v0.3.0) - 2026-09-15
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.2.0](https://github.com/dinosath/ferris-cms/releases/tag/ai-v0.2.0) - 2026-09-15
 
 ### Added

@@ -90,7 +90,7 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -224,7 +224,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api-rest"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ai",
  "api-types",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "api-types"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-domain",
@@ -1262,7 +1262,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-types",
  "async-trait",
@@ -1527,7 +1527,7 @@ dependencies = [
 
 [[package]]
 name = "core-domain"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "core-schema"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "core-domain",
  "indexmap 2.14.0",
@@ -1966,7 +1966,7 @@ checksum = "4583a4551df46e2792f82ceeac45e850d2e2d5debba0b91f102385cda5b11f06"
 
 [[package]]
 name = "db"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "desktop-bin"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-rest",
  "axum",
@@ -2737,7 +2737,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
 name = "dynamic-store"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-types",
  "async-trait",
@@ -2757,7 +2757,7 @@ dependencies = [
 
 [[package]]
 name = "e2e"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "api-rest",
@@ -3039,7 +3039,7 @@ dependencies = [
 
 [[package]]
 name = "ferriscms"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-types",
  "chrono",
@@ -8224,7 +8224,7 @@ dependencies = [
 
 [[package]]
 name = "server-bin"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-rest",
  "axum",
@@ -8251,7 +8251,7 @@ dependencies = [
 
 [[package]]
 name = "services"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ai",
  "api-types",
@@ -9895,7 +9895,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "api-types",
  "async-trait",
@@ -10946,7 +10946,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "workflow"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "core-domain",
