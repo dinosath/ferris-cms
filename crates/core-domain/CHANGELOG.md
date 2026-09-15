@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/dinosath/ferris-cms/compare/core-domain-v0.2.0...core-domain-v0.3.0) - 2026-09-15
+
+### Added
+
+- *(metadata)* Kubernetes-style labels/namespace on content types and workflows
+
+### Other
+
+- release v0.2.0
+- run cargo fmt across the workspace
+- Add unit tests for internal helper branches; backend coverage >90%
+- Add Relation field configuration to CTB field-config modal
+- Initial commit: ferriscms — offline-first Strapi clone in Rust (Dioxus multiplatform UI + Axum backend)
+
 ## [0.2.0](https://github.com/dinosath/ferris-cms/releases/tag/core-domain-v0.2.0) - 2026-09-15
 
 ### Added
