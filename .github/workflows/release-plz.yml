@@ -25,6 +25,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+      # Needed to dispatch the build/release workflows below.
+      actions: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -42,6 +44,24 @@ jobs:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # Tags pushed with the default GITHUB_TOKEN do not trigger other
+      # workflows, so explicitly dispatch the image/chart build and the
+      # cargo-dist binary release on the server-bin tag.
+      - name: Trigger release builds
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
+          TAG="server-bin-v$VER"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "Dispatching release builds for $TAG"
+            gh workflow run build.yml --ref "$TAG"
+            gh workflow run release.yml --ref "$TAG"
+          else
+            echo "::notice::tag $TAG not found; nothing to dispatch"
+          fi
 
   # Open/update the release PR preparing the next version.
   # Concurrency on this job only: if a new commit lands while the PR job is

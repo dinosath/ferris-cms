@@ -39,12 +39,14 @@ permissions:
 # If there's a prerelease-style suffix to the version, then the release(s)
 # will be marked as a prerelease.
 on:
-  pull_request:
+  # Manual dispatch is used by release-plz because tags pushed with the default
+  # GITHUB_TOKEN do not trigger workflows. NOTE: `cargo dist generate` rewrites
+  # this file, so re-apply these triggers after regenerating.
+  workflow_dispatch:
   push:
     tags:
       # Only the server-bin release tag: release-plz pushes one tag per package,
-      # but server-bin is the only dist-able package. NOTE: `cargo dist generate`
-      # rewrites this file, so re-apply this filter after regenerating.
+      # but server-bin is the only dist-able package.
       - 'server-bin-v[0-9]+.[0-9]+.[0-9]+*'
 
 jobs:
