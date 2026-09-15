@@ -82,6 +82,12 @@ openidconnect = { version = "3", default-features = false, features = ["reqwest"
 # e2e testing (Turso database + Obscura browser, no containers)
 playwright-rs = "0.15"
 
+# Ship a small release binary: strip symbols, thin LTO, one codegen unit.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
 [profile.dev]
 opt-level = 1
 

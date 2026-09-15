@@ -26,10 +26,11 @@ COPY crates ./crates
 # C toolchain + headers present at build time, plus the WASM target.
 # `binaryen` provides `wasm-opt`, which `dx build --release` needs (dx would
 # otherwise try to auto-download it from GitHub). `curl` fetches esbuild.
+# `musl-tools` provides musl-gcc for the fully static server build.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev binaryen curl \
+    && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev binaryen curl musl-tools \
     && rm -rf /var/lib/apt/lists/* \
-    && rustup target add wasm32-unknown-unknown
+    && rustup target add wasm32-unknown-unknown x86_64-unknown-linux-musl
 
 # Install the Dioxus CLI. Version must match the dioxus crate (0.7.10).
 # `--locked` pins to the CLI's own vetted dependency set.
@@ -63,24 +64,24 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # COPY. This must run after the `ui/` copy above, so the first compile of
 # api-rest picks up the embedded files.
 WORKDIR /app
+# Static musl build: no libc/OpenSSL at runtime, so the image can use
+# distroless/static (no shell, no package manager, tiny base).
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo build --release -p server-bin \
-    && cp /app/target/release/ferriscms-server /app/ferriscms-server
+    cargo build --release --target x86_64-unknown-linux-musl -p server-bin \
+    && cp /app/target/x86_64-unknown-linux-musl/release/ferriscms-server /app/ferriscms-server
 
 ########## Runtime stage ##########
-FROM debian:bookworm-slim AS runtime
-# Pin apt package versions (DL3008) for reproducible, lean image.
-# Bookworm ships ca-certificates 20230311+deb12u1 (verified in bookworm main).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates=20230311+deb12u1 \
-    && rm -rf /var/lib/apt/lists/*
+# Distroless static (no libc, no shell, no package manager; ~1 MiB base). The
+# server is a static musl binary that uses rustls with bundled webpki roots, so
+# it needs nothing from the base image.
+FROM gcr.io/distroless/static-debian13 AS runtime
 
 # The single self-contained binary (webserver + embedded admin UI).
 COPY --from=builder /app/ferriscms-server /usr/local/bin/ferriscms-server
 
-# Persistable directory for uploaded media.
-RUN mkdir -p /data/media
+# Persistable directory for uploaded media (mounted by the Helm chart/Compose).
+WORKDIR /data
 
 # PostgreSQL for the webserver. Override via env/Helm. Example URL:
 # postgres://user:password@host:5432/ferriscms
@@ -89,4 +90,4 @@ ENV BIND_ADDR=0.0.0.0:1337 \
     MEDIA_STORAGE_DIR=/data/media
 
 EXPOSE 1337
-ENTRYPOINT ["ferriscms-server"]
+ENTRYPOINT ["/usr/local/bin/ferriscms-server"]

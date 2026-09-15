@@ -313,6 +313,12 @@ Images and charts are published to:
 - Image: `ghcr.io/<owner>/ferris-cms:<tag>`
 - Chart (OCI): `ghcr.io/<owner>/ferriscms-charts`
 
+The runtime image is a **statically linked (musl)** `ferriscms-server` on
+`gcr.io/distroless/static-debian13` — no libc, no shell, no package manager,
+~1 MiB base — with the binary stripped (`strip` + thin LTO). The admin UI is
+embedded in the binary, so no assets are copied alongside it. The server links
+no OpenSSL (rustls), so nothing from the base image is needed at runtime.
+
 ### Workflows
 
 - **`build.yml`** — on every push, chooses the mode above and builds/pushes the
