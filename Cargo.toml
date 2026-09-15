@@ -89,6 +89,9 @@ playwright-rs = "0.15"
 strip = true
 lto = "thin"
 codegen-units = 1
+# Abort instead of unwinding on panic (smaller, no landing pads). Cargo ignores
+# this for the `test` profile, so `cargo test` still unwinds and works.
+panic = "abort"
 
 [profile.dev]
 opt-level = 1

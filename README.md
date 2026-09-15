@@ -320,8 +320,9 @@ embedded in the binary, so no assets are copied alongside it. The server links
 no OpenSSL and no `aws-lc-rs`: rustls uses the small **ring** provider (rig's
 `reqwest` is compiled with `rustls-no-provider` and ring is installed at runtime
 by `ai::ensure_crypto_provider()`). A CA bundle is copied in for
-`rustls-platform-verifier`. Measured: ~31 MiB static binary (+~3 MiB embedded
-UI) on a ~1 MiB base.
+`rustls-platform-verifier`. Release builds also use `panic = "abort"`.
+Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
+(≈ ~31 MiB image).
 
 ### Workflows
 
