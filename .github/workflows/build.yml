@@ -42,14 +42,18 @@ jobs:
     permissions:
       contents: write
       packages: write
-    # Serialize all builds. This is important for releases: release-plz pushes
-    # one tag per package (all at the same version), so several `v<ver>` builds
-    # could otherwise race and 11 of 12 would fail pushing the same chart
+    # Serialize publishing builds. This is important for releases: release-plz
+    # pushes one tag per package (all at the same version), so several `v<ver>`
+    # builds could otherwise race and 11 of 12 would fail pushing the same chart
     # version. With a single group, only the first job builds; the rest wait,
     # re-check, and skip via the manifest check below.
+    #
+    # PR validation builds get their own group (keyed by pull request) so that a
+    # new commit on a release PR can never cancel the release build that is
+    # publishing the previous version.
     concurrency:
-      group: build
-      cancel-in-progress: false
+      group: build-${{ github.event.inputs.pr || github.event.pull_request.number || 'release' }}
+      cancel-in-progress: ${{ github.event.inputs.pr != '' || github.event_name == 'pull_request' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
