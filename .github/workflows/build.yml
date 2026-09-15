@@ -52,11 +52,13 @@ jobs:
     # new commit on a release PR can never cancel the release build that is
     # publishing the previous version.
     concurrency:
-      # One group per release tag (so publishing builds never cancel each
-      # other) and per pull request (so validation builds are independent);
-      # plain pushes share the `rc` group.
-      group: build-${{ github.event.inputs.tag || github.event.inputs.pr || github.event.pull_request.number || 'rc' }}
-      cancel-in-progress: ${{ github.event.inputs.pr != '' || github.event_name == 'pull_request' }}
+      # One group per release tag (publishing builds never cancel each other)
+      # and per pull request, so that a new commit on a PR supersedes its own
+      # build. Validation builds dispatched by the Release-plz workflow carry
+      # neither, share the `rc` group and therefore can never cancel the PR's
+      # own build - which is the run that reports the required status check.
+      group: build-${{ github.event.inputs.tag || github.event.pull_request.number || 'rc' }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
