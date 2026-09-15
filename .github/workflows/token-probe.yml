@@ -1,0 +1,35 @@
+name: Token probe
+
+# Temporary diagnostic workflow: checks whether the default GITHUB_TOKEN can
+# create a branch ref (release-plz needs this to open release PRs).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe ref creation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          echo "--- create ref ---"
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f ref=refs/heads/tmp-token-probe -f sha="${{ github.sha }}" 2>&1 | head -20
+          echo "create exit=$?"
+          echo "--- delete ref ---"
+          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/tmp-token-probe" 2>&1 | head -5
+          echo "delete exit=$?"
+          echo "--- push via git ---"
+          git init -q probe && cd probe
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git fetch -q origin "${{ github.sha }}" --depth 1
+          git checkout -q FETCH_HEAD
+          git push -q origin HEAD:refs/heads/tmp-token-probe-git 2>&1 | head -10
+          echo "git push exit=$?"
+          git push -q origin --delete tmp-token-probe-git 2>&1 | head -5
+          echo "git delete exit=$?"
