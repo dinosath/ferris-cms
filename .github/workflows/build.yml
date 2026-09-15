@@ -20,7 +20,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
     # Serialize all builds. This is important for releases: release-plz pushes
     # one tag per package (all at the same version), so several `v<ver>` builds
@@ -111,6 +111,7 @@ jobs:
 
       - name: Build and push image
         if: env.SKIP == 'false'
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -148,12 +149,84 @@ jobs:
             --app-version "${{ env.APP_VERSION }}" \
             -d dist/
 
-      - name: Login and push chart to GHCR
+      - name: Login to GHCR (helm)
         if: env.SKIP == 'false'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login "${{ env.REGISTRY }}" \
             --username "${{ github.actor }}" --password-stdin
+
+      # Immutability: never overwrite a published chart version. If it already
+      # exists in the OCI registry, keep the existing artifact.
+      - name: Check chart immutability
+        if: env.SKIP == 'false'
+        env:
+          HELM_EXPERIMENTAL_OCI: "1"
+        run: |
+          if helm show chart "oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}/ferriscms" \
+               --version "${{ env.CHART_VERSION }}" >/dev/null 2>&1; then
+            echo "CHART_EXISTS=true" >> "$GITHUB_ENV"
+            echo "::notice::Chart ${{ env.CHART_VERSION }} already exists; not overwriting (immutable)."
+          fi
+
+      - name: Push chart to GHCR
+        if: env.SKIP == 'false' && env.CHART_EXISTS != 'true'
+        env:
+          HELM_EXPERIMENTAL_OCI: "1"
+        run: |
           helm push "dist/ferriscms-${{ env.CHART_VERSION }}.tgz" \
             "oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}"
+
+      # ------------------------------------------------------------------
+      # Attach the chart + OCI image reference to the GitHub Release created by
+      # cargo-dist (release.yml). Assets are never overwritten (immutable).
+      # ------------------------------------------------------------------
+      - name: Attach chart + image to the GitHub Release
+        if: env.SKIP == 'false' && env.IS_RELEASE == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          CHART_REF: oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}/ferriscms:${{ env.CHART_VERSION }}
+          TAG: server-bin-v${{ env.APP_VERSION }}
+        run: |
+          mkdir -p dist
+          printf 'image: %s@%s\nchart: %s\n' "$IMAGE" "$DIGEST" "$CHART_REF" > dist/release-artifacts.txt
+
+          # cargo-dist creates the release on the server-bin tag; wait for it.
+          for _ in $(seq 1 60); do
+            gh release view "$TAG" >/dev/null 2>&1 && break
+            sleep 10
+          done
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::warning::release $TAG not found yet; skipping chart/image attachment"
+            exit 0
+          fi
+
+          existing=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+          for f in "dist/ferriscms-${CHART_VERSION}.tgz" dist/release-artifacts.txt; do
+            b=$(basename "$f")
+            if printf '%s\n' "$existing" | grep -qx "$b"; then
+              echo "::notice::$b already attached; not overwriting (immutable)."
+            else
+              gh release upload "$TAG" "$f"
+            fi
+          done
+
+      # ------------------------------------------------------------------
+      # Enable GitHub immutable releases (assets/tags can't be changed after
+      # publication). Requires a repo-admin token; skipped when unset.
+      # ------------------------------------------------------------------
+      - name: Enable immutable releases
+        if: env.IS_RELEASE == 'true' && env.SKIP == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::notice::REPO_ADMIN_TOKEN not set; enable immutable releases once in repo settings (Settings -> General -> Releases)."
+            exit 0
+          fi
+          gh api --method PUT "repos/${{ github.repository }}/immutable-releases" >/dev/null \
+            && echo "immutable releases enabled"

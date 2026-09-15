@@ -299,7 +299,8 @@ profile, override the image with `FERRISCMS_IMAGE=ghcr.io/dinosath/ferris-cms:<t
 CI lives in [`.github/workflows/`](.github/workflows/). It builds the Docker
 image and Helm chart, publishes them to **GitHub Container Registry (GHCR)**,
 and integrates [release-plz](https://release-plz.dev) for versioning. Nothing
-is ever published to **crates.io**.
+is ever published to **crates.io**. All HTTP/TLS in the shipped crates uses
+**rustls** (no OpenSSL/native-tls dependency in `ferriscms-server`).
 
 | Event | Image tag | Chart version | Kept |
 |---|---|---|---|
@@ -320,6 +321,12 @@ Images and charts are published to:
   exists. The Docker build uses the GitHub Actions cache backend
   (`type=gha`, `mode=max`), so the cargo/compilation cache is persisted across
   runs and retries — even a failed build never loses the previously-saved cache.
+  For a stable release it also attaches the packaged **Helm chart** and a
+  `release-artifacts.txt` (image ref + digest, chart ref) to the GitHub Release
+  created by `release.yml`, and publishes **immutably**: a published image tag,
+  chart version, or release asset is never overwritten (the chart push is
+  skipped when the version already exists, and release assets are only uploaded
+  when absent).
 - **`checks.yml`** — on every push and PR:
   - **Conventional commits**: every new commit must follow the Conventional
     Commits format (`<type>(<scope>)[!]: <description>`), which is what drives
@@ -364,6 +371,11 @@ Images and charts are published to:
 - The repo is granted admin on its own GHCR packages, so `GITHUB_TOKEN` can
   push and delete. If cleanup ever needs more, add a PAT as the `GH_TOKEN`
   secret with the `delete:packages` scope.
+- **Immutable releases** — enable once in **Settings → General → Releases →
+  *Immutable releases*** (or set the `REPO_ADMIN_TOKEN` secret to a repo-admin
+  PAT and `build.yml` will enable it via `PUT /repos/{owner}/{repo}/immutable-releases`).
+  Once enabled, release assets and their git tags cannot be modified, and the
+  workflows never attempt to overwrite published artifacts.
 
 ---
 

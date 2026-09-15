@@ -13,7 +13,7 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 # rustls TLS avoids requiring system OpenSSL/pkg-config.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { workspace = true, features = ["json"] }
 anyhow = "1"
 
 # native-tls (pulled transitively by playwright-rs via tokio-tungstenite) needs
