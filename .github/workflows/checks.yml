@@ -94,8 +94,9 @@ jobs:
           # the Dioxus desktop application: rustdoc-ing it pulls in GTK/glib-sys
           # and fails on a runner without those system libraries, so it is
           # excluded as well.
+          # NOTE: no `--workspace` here - it selects every member and the
+          # `-p` flags would not narrow it down again.
           cargo semver-checks check-release \
-            --workspace \
             -p core-domain -p core-schema -p api-types -p db -p dynamic-store \
             -p services -p api-rest -p client-core -p ui \
             --baseline-rev "$BASELINE"
