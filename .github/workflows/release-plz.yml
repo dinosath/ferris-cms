@@ -92,13 +92,26 @@ jobs:
             # A build takes ~20 minutes. Give the run that created the release
             # time to finish before considering its artifacts missing, so that
             # ordinary pushes to main do not queue duplicate builds.
-            created=$(gh release view "$REL_TAG" --json createdAt -q '.createdAt')
-            age=$(( $(date +%s) - $(date -d "$created" +%s) ))
-            if [ "$age" -lt 2700 ]; then
-              echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - assuming its build is still running"
-              exit 0
+            #
+            # Use `publishedAt`, not `createdAt`: for a release created on an
+            # already-existing tag, GitHub reports `createdAt` as the *tag's
+            # commit date* (verified: a release created today on a tag pointing
+            # at an older commit came back with that commit's timestamp), which
+            # would make a brand-new release look days old and re-dispatch on
+            # every push. `publishedAt` is set when the release is published,
+            # which is exactly when this job creates it. It is empty for a
+            # draft, and a draft is treated as needing its builds.
+            published=$(gh release view "$REL_TAG" --json publishedAt -q '.publishedAt' || true)
+            if [ -n "$published" ]; then
+              age=$(( $(date +%s) - $(date -d "$published" +%s) ))
+              if [ "$age" -lt 2700 ]; then
+                echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - assuming its build is still running"
+                exit 0
+              fi
+              echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - re-dispatching the builds"
+            else
+              echo "::notice::release $REL_TAG is an unpublished draft and is missing:$missing - re-dispatching the builds"
             fi
-            echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - re-dispatching the builds"
           fi
 
           # release-plz only creates its tags when it actually released the
