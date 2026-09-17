@@ -3,9 +3,17 @@
 # This project releases as a Docker image + Helm chart on GitHub, NOT on
 # crates.io. `publish = false` disables `cargo publish`, so nothing is ever
 # pushed to a cargo registry. Merging a release PR makes release-plz bump the
-# workspace version, update the changelogs, push `<package>-v<version>` git
-# tags and create the GitHub Releases for those tags (the binaries/installers
-# for `server-bin` are attached to its release by cargo-dist).
+# workspace version, update the changelogs and push the `<package>-v<version>`
+# git tags (`git_release_enable = false`, so it does NOT create a GitHub
+# Release per crate).
+#
+# The only GitHub Release is the single `v<version>` release for the whole
+# application. It is created by cargo-dist (`release.yml`) and gets the shell
+# installer (the `curl ... | sh` instructions), the image tarball and the Helm
+# chart from `build.yml` attached. See `.github/workflows/release-plz.yml`.
+# The per-package git tags are still needed: for packages that are not on a
+# cargo registry, release-plz falls back to the git tags to determine the
+# previous released version.
 #
 # `git_only` is deliberately NOT enabled. In git-only mode release-plz
 # reconstructs the workspace at the previous release tag and runs
@@ -26,11 +34,12 @@ git_only = false
 # Matches "when release-plz pr is merged it should do normal release".
 release_always = false
 
-# Create a GitHub Release for every pushed package tag. The `server-bin`
-# release additionally receives the cargo-dist archives/installer, which are
-# uploaded by `.github/workflows/release.yml` (dist runs with
-# `create-release = false`, i.e. it only attaches artifacts to this release).
-git_release_enable = true
+# Do NOT create a GitHub Release for every pushed package tag: that would show
+# up as one release per crate (14 of them per version). release-plz still pushes
+# the git tags, but the single user-facing `v<version>` release is created by
+# cargo-dist in `release.yml` (see `dist-workspace.toml`, which no longer sets
+# `create-release = false`) and completed by `build.yml`.
+git_release_enable = false
 
 # Do NOT run cargo-semver-checks from release-plz. With `publish = false` the
 # packages are never on crates.io, so release-plz would compare against the very

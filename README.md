@@ -328,21 +328,21 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 
 - **`build.yml`** — on every push, chooses the mode above and builds/pushes the
   image + chart. RC/run image tags are prefixed with the current workspace
-  version (e.g. `0.2.0.rc-3`). Stable releases skip if the exact version already
-  exists. It also runs on pull requests, where it builds the image and
-  lint/packages the chart **without pushing anything** (image tag `pr-<number>`,
-  chart `0.2.0-pr.<number>`), so a PR is validated by the same build that
-  produces the release artifacts. The Docker build uses the GitHub Actions cache backend
-  (`type=gha`, `mode=max`), so the cargo/compilation cache is persisted across
-  runs and retries — even a failed build never loses the previously-saved cache.
-  For a stable release it also attaches downloadable copies to the GitHub
-  Release created by `release.yml` — the packaged **Helm chart**
-  (`ferriscms-<ver>.tgz`), the **container image** (`docker save`d as
-  `ferriscms-image-<ver>.tgz`), and a `release-artifacts.txt` (image
-  ref + digest, chart ref) — in addition to the OCI copies in GHCR. Publication
-  is **immutable**: a published image tag, chart version, or release asset is
-  never overwritten (the chart push is skipped when the version already exists,
-  and release assets are only uploaded when absent).
+  version (e.g. `0.2.0.rc-3`). It also runs on pull requests, where it builds
+  the image and lint/packages the chart **without pushing anything** (image tag
+  `pr-<number>`, chart `0.2.0-pr.<number>`), so a PR is validated by the same
+  build that produces the release artifacts. The Docker build uses the GitHub
+  Actions cache backend (`type=gha`, `mode=max`), so the cargo/compilation cache
+  is persisted across runs and retries — even a failed build never loses the
+  previously-saved cache. For a stable release it finishes the single
+  `v<version>` GitHub Release (created by `release.yml`) by attaching the
+  packaged **Helm chart** (`ferriscms-<ver>.tgz`), the **container image**
+  (`docker save`d as `ferriscms-image-<ver>.tgz`), and a
+  `release-artifacts.txt` (image ref + digest, chart ref) — in addition to the
+  OCI copies in GHCR — and by appending the Docker/Helm install instructions to
+  the release body. Publication is **immutable**: a published chart version or
+  release asset is never overwritten (the chart push is skipped when the version
+  already exists, and release assets are only uploaded when absent).
 - **`checks.yml`** — on every push and PR:
   - **Conventional commits**: every new commit must follow the Conventional
     Commits format (`<type>(<scope>)[!]: <description>`), which is what drives
@@ -355,24 +355,28 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   (`publish = false`, so nothing is published to a registry and release-plz's own
   semver check is disabled — it would compare against the long-since-superseded
   published versions; `checks.yml` runs cargo-semver-checks against the last
-  release tag instead). release-plz bumps the workspace version, pushes `<package>-v<version>`
-  git tags and creates the **GitHub Releases** for them (`git_release_enable =
-  true`). Tags pushed with the default `GITHUB_TOKEN` do *not* trigger other
-  workflows, so the job then dispatches `build.yml` and `release.yml` itself,
-  passing the new `server-bin-v<version>` tag as a `tag` input, and also runs
-  the CI for the release PR itself (see the note under *Requirements*). The dispatch ref
-  is `main` and not the tag, because workflows are read from the dispatched ref
-  and the workflow file stored at an old tag's commit can predate the
+  release tag instead). release-plz bumps the workspace version and pushes the
+  `<package>-v<version>` git tags, but **creates no GitHub Release** — the tags
+  are internal (`git_release_enable = false`, otherwise every crate would show
+  up as its own release). The job then creates the single application tag
+  `v<version>` (with the workflow's own `GITHUB_TOKEN`, so it never triggers a
+  workflow run) and dispatches `build.yml` and `release.yml` itself, passing
+  `v<version>` as the `tag` input. It also runs the CI for the release PR
+  itself (see the note under *Requirements*). The dispatch ref is `main` and
+  not the tag, because workflows are read from the dispatched ref and the
+  workflow file stored at an old tag's commit can predate the
   `workflow_dispatch` trigger.
 - **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on
   pull requests it only runs `dist plan` (nothing is published); for a
-  `server-bin-v<version>` tag it builds the `ferriscms-server` binary (x86_64
-  Linux), a shell installer and checksums and attaches them to the GitHub
-  Release created by release-plz (`create-release = false`: dist assumes the
-  release exists and only uploads assets to it). Configuration lives in
+  `v<version>` tag it builds the `ferriscms-server` binary (x86_64 Linux), a
+  shell installer and checksums, **creates the one and only GitHub Release**
+  for that version (`create-release = true`) and attaches them to it. The
+  release body it writes is where the `curl --proto '=https' --tlsv1.2 -LsSf
+  … | sh` install instructions come from. Configuration lives in
   `dist-workspace.toml`. The generated workflow carries a few local edits
-  (extra tag trigger + `workflow_dispatch` with the `tag` input) which are
-  re-applied by `scripts/patch_release_workflow.py` after `dist generate`.
+  (tag trigger limited to `v<version>` + `workflow_dispatch` with the `tag`
+  input) which are re-applied by `scripts/patch_release_workflow.py` after
+  `dist generate`.
 - **`cleanup.yml`** — daily, deletes `<version>.rc-*` / `<version>.run-*` GHCR
   images older than 30 days. Stable `vX.Y.Z` images are kept.
 
@@ -383,14 +387,15 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
    and updating changelogs.
 3. Merge that release PR (it cannot be merged until the `checks.yml` statuses
    pass — they are required by branch protection on `main`). `release-plz`
-   pushes `server-bin-vX.Y.Z` (and other `<package>-vX.Y.Z`) git tags and
-   creates a GitHub Release for each of them.
-4. `release-plz.yml` dispatches `release.yml` (cargo-dist) for
-   `server-bin-vX.Y.Z`. It builds the `ferriscms-server` binary + shell installer
-   and attaches them to that GitHub Release.
-5. `release-plz.yml` also dispatches `build.yml`, which builds the stable
-   `vX.Y.Z` image + `X.Y.Z` chart and publishes them to GHCR (and attaches the
-   chart/image tarballs to the release). Nothing goes to crates.io.
+   pushes the internal `<package>-vX.Y.Z` git tags (no GitHub Release).
+4. `release-plz.yml` creates the single application tag `vX.Y.Z` and dispatches
+   `release.yml` (cargo-dist) and `build.yml` for it.
+5. `release.yml` builds the `ferriscms-server` binary + shell installer,
+   **creates the one GitHub Release `vX.Y.Z`** and attaches the binaries plus
+   the `curl … | sh` install instructions.
+6. `build.yml` builds the stable `vX.Y.Z` image + `X.Y.Z` chart and publishes
+   them to GHCR, and attaches the chart/image tarballs and the Docker/Helm
+   instructions to the same `vX.Y.Z` release. Nothing goes to crates.io.
 
 ### Requirements
 

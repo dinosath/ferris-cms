@@ -2,23 +2,29 @@ name: Build images & charts
 
 # Builds the Docker image and Helm chart and publishes them to GHCR.
 # Mode is chosen from the triggering ref:
-#   - release tag (e.g. `server-bin-v0.2.0` / `v0.2.0`) -> stable `v<ver>` image
-#   - push to `main` -> RC image `rc-<run_number>`
-#   - push to any other branch -> `run-<run_number>` image
+#   - release tag (e.g. `v0.3.1`)              -> stable `v<ver>` image
+#   - push to `main`                           -> RC image `<ver>.rc-<run_number>`
+#   - push to any other branch                 -> `run-<run_number>` image
 # Stable release images are kept indefinitely; `rc-*` and `run-*` images are
 # pruned by cleanup.yml after 30 days.
+#
+# For a release it also finishes the single GitHub Release for the version
+# (`v<version>`, created by cargo-dist in `release.yml`): it attaches the
+# `docker save`d image tarball and the packaged Helm chart, and appends the
+# Docker/Helm instructions to the release body (cargo-dist already put the
+# `curl ... | sh` shell-installer instructions there).
 
 on:
   push:
-  # Tags pushed with the default GITHUB_TOKEN do not trigger workflows, so the
-  # Release-plz workflow dispatches this workflow explicitly, passing the
-  # release tag as an input. The dispatch ref is `main` (and not the tag)
-  # because the workflow file stored at the tag's commit may predate the
-  # `workflow_dispatch` trigger.
+  # The tag is created via the API by the Release-plz workflow, which then
+  # dispatches this workflow explicitly (tags created with the default
+  # GITHUB_TOKEN do not trigger workflows). The dispatch ref is `main` (and not
+  # the tag) because the workflow file stored at the tag's commit may predate
+  # the `workflow_dispatch` trigger.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build (must already exist), e.g. server-bin-v0.2.0"
+        description: "Release tag to build (must already exist), e.g. v0.3.1"
         required: false
         type: string
       pr:
@@ -42,21 +48,10 @@ jobs:
     permissions:
       contents: write
       packages: write
-    # Serialize publishing builds. This is important for releases: release-plz
-    # pushes one tag per package (all at the same version), so several `v<ver>`
-    # builds could otherwise race and 11 of 12 would fail pushing the same chart
-    # version. With a single group, only the first job builds; the rest wait,
-    # re-check, and skip via the manifest check below.
-    #
-    # PR validation builds get their own group (keyed by pull request) so that a
-    # new commit on a release PR can never cancel the release build that is
-    # publishing the previous version.
+    # One group per release tag and per pull request, so that a new commit on a
+    # PR supersedes its own build. Validation builds dispatched by the
+    # Release-plz workflow carry neither and share the `rc` group.
     concurrency:
-      # One group per release tag (publishing builds never cancel each other)
-      # and per pull request, so that a new commit on a PR supersedes its own
-      # build. Validation builds dispatched by the Release-plz workflow carry
-      # neither, share the `rc` group and therefore can never cancel the PR's
-      # own build - which is the run that reports the required status check.
       group: build-${{ github.event.inputs.tag || github.event.pull_request.number || 'rc' }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
@@ -86,7 +81,6 @@ jobs:
             REF_NAME="$GITHUB_REF_NAME"
           fi
 
-          echo "SKIP=false" >> "$GITHUB_ENV"
           echo "IS_RELEASE=false" >> "$GITHUB_ENV"
           echo "IS_PR=false" >> "$GITHUB_ENV"
 
@@ -107,7 +101,8 @@ jobs:
           fi
 
           if [ "$REF_TYPE" = "tag" ]; then
-            # release-plz tags look like `server-bin-v0.2.0`; plain `v0.2.0` also supported.
+            # The application release tag is plain `v0.3.1`; the older
+            # per-crate `server-bin-v0.3.1` form is still accepted.
             VER="$REF_NAME"
             VER="${VER##*-v}"
             VER="${VER#v}"
@@ -131,11 +126,6 @@ jobs:
           fi
           echo "APP_VERSION=$BASE" >> "$GITHUB_ENV"
 
-      # ------------------------------------------------------------------
-      # Authenticate first so the release skip-check below works for both
-      # public and private/org GHCR packages (anonymous manifest inspect would
-      # 401 and defeat the skip for private packages).
-      # ------------------------------------------------------------------
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
@@ -144,24 +134,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # ------------------------------------------------------------------
-      # For stable releases, skip if that exact version already exists, so a
-      # multi-crate release (several `*-v<ver>` tags) only builds once.
-      # ------------------------------------------------------------------
-      - name: Skip if release image already published
-        if: env.IS_RELEASE == 'true'
-        run: |
-          if docker manifest inspect "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >/dev/null 2>&1; then
-            echo "SKIP=true" >> "$GITHUB_ENV"
-            echo "::notice::Release image ${{ env.IMAGE_TAG }} already exists; skipping."
-          else
-            echo "::notice::Releasing ${{ env.IMAGE_TAG }}"
-          fi
-
-      # ------------------------------------------------------------------
       # Docker image
       # ------------------------------------------------------------------
       - name: Set up Docker Buildx
-        if: env.SKIP == 'false'
         uses: docker/setup-buildx-action@v4
         with:
           # Required for the GHA cache backend (cache-from/cache-to below);
@@ -169,7 +144,6 @@ jobs:
           driver: docker-container
 
       - name: Build and push image
-        if: env.SKIP == 'false'
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -195,13 +169,11 @@ jobs:
       # Helm chart
       # ------------------------------------------------------------------
       - name: Install Helm
-        if: env.SKIP == 'false'
         uses: azure/setup-helm@v5
         with:
           version: v3.15.4
 
       - name: Lint and package chart
-        if: env.SKIP == 'false'
         run: |
           helm lint deploy/helm/ferriscms
           helm package deploy/helm/ferriscms \
@@ -210,7 +182,7 @@ jobs:
             -d dist/
 
       - name: Login to GHCR (helm)
-        if: env.SKIP == 'false' && env.IS_PR != 'true'
+        if: env.IS_PR != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
@@ -220,7 +192,7 @@ jobs:
       # Immutability: never overwrite a published chart version. If it already
       # exists in the OCI registry, keep the existing artifact.
       - name: Check chart immutability
-        if: env.SKIP == 'false' && env.IS_PR != 'true'
+        if: env.IS_PR != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
@@ -231,7 +203,7 @@ jobs:
           fi
 
       - name: Push chart to GHCR
-        if: env.SKIP == 'false' && env.IS_PR != 'true' && env.CHART_EXISTS != 'true'
+        if: env.IS_PR != 'true' && env.CHART_EXISTS != 'true'
         env:
           HELM_EXPERIMENTAL_OCI: "1"
         run: |
@@ -243,35 +215,35 @@ jobs:
       # image in addition to the OCI copy in GHCR.
       # ------------------------------------------------------------------
       - name: Export image tarball
-        if: env.SKIP == 'false' && env.IS_RELEASE == 'true'
+        if: env.IS_RELEASE == 'true'
         run: |
-          mkdir -p dist
           REF="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}"
           docker pull "$REF"
           docker save "$REF" | gzip -6 > "dist/ferriscms-image-${{ env.APP_VERSION }}.tgz"
           ls -lh dist/
 
       # ------------------------------------------------------------------
-      # Attach the chart + OCI image reference to the GitHub Release created by
-      # cargo-dist (release.yml). Assets are never overwritten (immutable).
+      # Finish the single `v<version>` GitHub Release: cargo-dist creates it
+      # (with the curl/shell-installer instructions), we add the chart + image
+      # tarball and the Docker/Helm instructions.
       # ------------------------------------------------------------------
       - name: Attach chart + image to the GitHub Release
-        if: env.SKIP == 'false' && env.IS_RELEASE == 'true'
+        if: env.IS_RELEASE == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           DIGEST: ${{ steps.build.outputs.digest }}
-          CHART_REF: oci://${{ env.REGISTRY }}/${{ env.CHART_OCI }}/ferriscms:${{ env.CHART_VERSION }}
-          TAG: server-bin-v${{ env.APP_VERSION }}
+          VERSION: ${{ env.APP_VERSION }}
+          TAG: v${{ env.APP_VERSION }}
         run: |
           mkdir -p dist
           {
             printf 'image: %s@%s\n' "$IMAGE" "$DIGEST"
-            printf 'image-tarball: ferriscms-image-%s.tgz\n' "$APP_VERSION"
-            printf 'chart: %s\n' "$CHART_REF"
+            printf 'image-tarball: ferriscms-image-%s.tgz\n' "$VERSION"
+            printf 'chart: oci://%s/%s/ferriscms:%s\n' "${{ env.REGISTRY }}" "${{ env.CHART_OCI }}" "$VERSION"
           } > dist/release-artifacts.txt
 
-          # cargo-dist creates the release on the server-bin tag; wait for it.
+          # cargo-dist creates the release (as a draft) on the v<version> tag.
           for _ in $(seq 1 60); do
             gh release view "$TAG" >/dev/null 2>&1 && break
             sleep 10
@@ -283,8 +255,8 @@ jobs:
 
           existing=$(gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
           for f in \
-            "dist/ferriscms-${CHART_VERSION}.tgz" \
-            "dist/ferriscms-image-${APP_VERSION}.tgz" \
+            "dist/ferriscms-${VERSION}.tgz" \
+            "dist/ferriscms-image-${VERSION}.tgz" \
             dist/release-artifacts.txt; do
             b=$(basename "$f")
             if printf '%s\n' "$existing" | grep -qx "$b"; then
@@ -294,12 +266,48 @@ jobs:
             fi
           done
 
+          # Append the Docker/Helm instructions once. The marker keeps a re-run
+          # (or a second build for the same tag) from duplicating the section.
+          body=$(gh release view "$TAG" --json body -q '.body' || true)
+          if printf '%s' "$body" | grep -q 'ferriscms-install-notes'; then
+            echo "::notice::install notes already present on $TAG; leaving the body unchanged."
+            exit 0
+          fi
+          notes="dist/release-notes.md"
+          {
+            printf '%s\n\n' "$body"
+            printf '<!-- ferriscms-install-notes -->\n'
+            printf '## Install the server with Docker\n\n'
+            printf 'The server image is published to GHCR and also attached below as `ferriscms-image-%s.tgz`.\n\n' "$VERSION"
+            printf '```sh\n'
+            printf 'docker pull %s\n' "$IMAGE"
+            printf '# or load the attached tarball:\n'
+            printf 'docker load < ferriscms-image-%s.tgz\n' "$VERSION"
+            printf '```\n\n'
+            printf 'Run it against PostgreSQL:\n\n'
+            printf '```sh\n'
+            printf '%s\n' 'docker run --rm -p 1337:1337 \'
+            printf '%s\n' "  -e DATABASE_URL='postgres://user:pass@host:5432/ferriscms' \\"
+            printf '%s\n' "  -e JWT_SECRET='change-me-in-production' \\"
+            printf '%s\n' '  -e MEDIA_STORAGE_DIR=/data/media \'
+            printf '%s\n' '  -v ferriscms-media:/data/media \'
+            printf '  %s\n' "$IMAGE"
+            printf '```\n\n'
+            printf '## Install the Helm chart\n\n'
+            printf '```sh\n'
+            printf 'helm install ferriscms oci://%s/%s/ferriscms --version %s\n' "${{ env.REGISTRY }}" "${{ env.CHART_OCI }}" "$VERSION"
+            printf '# or from the attached chart tarball:\n'
+            printf 'helm install ferriscms ferriscms-%s.tgz\n' "$VERSION"
+            printf '```\n'
+          } > "$notes"
+          gh release edit "$TAG" --notes-file "$notes"
+
       # ------------------------------------------------------------------
       # Enable GitHub immutable releases (assets/tags can't be changed after
       # publication). Requires a repo-admin token; skipped when unset.
       # ------------------------------------------------------------------
       - name: Enable immutable releases
-        if: env.IS_RELEASE == 'true' && env.SKIP == 'false'
+        if: env.IS_RELEASE == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN }}

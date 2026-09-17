@@ -16,17 +16,19 @@ install-path = "CARGO_HOME"
 # Where to host releases
 hosting = "github"
 # `release.yml` is generated but customized after generation (tag trigger
-# limited to the dist-able packages plus a `workflow_dispatch` trigger, because
-# release-plz's tags are pushed with the default GITHUB_TOKEN and do not
-# trigger workflows). Re-apply those edits with
+# limited to the `v<version>` application tag plus a `workflow_dispatch`
+# trigger, because the tag is created with the default GITHUB_TOKEN and
+# therefore does not trigger workflows). Re-apply those edits with
 # `python3 scripts/patch_release_workflow.py` after regenerating, and keep
 # `allow-dirty` so cargo-dist accepts the difference from its template.
 allow-dirty = ["ci"]
-# release-plz creates the GitHub Releases (its tags are the ones we release
-# from), so dist must NOT create them itself. With `create-release = false`
-# dist assumes the release for the tag already exists and only uploads the
-# archives/installers to it.
-create-release = false
+# cargo-dist creates the one and only GitHub Release, on the `v<version>` tag:
+# release-plz is configured with `git_release_enable = false` so it does not
+# create a release per crate. dist puts the shell installer (i.e. the
+# `curl --proto '=https' --tlsv1.2 -LsSf ... | sh` instructions) and the
+# checksums on it; `build.yml` then appends the Docker image tarball, the Helm
+# chart and their install instructions to the same release.
+create-release = true
 
 # Whether to install an updater program
 install-updater = false

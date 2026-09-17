@@ -43,14 +43,15 @@ ON_BLOCK_PATCHED = """on:
   # NOTE: manual edits below are re-applied by
   # `python3 scripts/patch_release_workflow.py` after `dist generate`.
   #
-  # Dispatched by the Release-plz workflow: tags pushed with the default
-  # GITHUB_TOKEN do not trigger workflows. The release tag is passed as an
-  # input because workflows are read from the dispatched ref, and the workflow
-  # file stored at an old tag's commit may predate this trigger.
+  # Dispatched by the Release-plz workflow after it created the `v<version>`
+  # tag for a new release: tags created with the default GITHUB_TOKEN do not
+  # trigger workflows. The release tag is passed as an input because workflows
+  # are read from the dispatched ref, and the workflow file stored at an old
+  # tag's commit may predate this trigger.
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to publish (must already exist), e.g. server-bin-v0.2.0"
+        description: "Release tag to publish (must already exist), e.g. v0.3.1"
         required: false
         type: string
   # Run on pull requests too (`dist plan` only, nothing is published) so the
@@ -58,8 +59,10 @@ ON_BLOCK_PATCHED = """on:
   pull_request:
   push:
     tags:
-      # release-plz tags every package; only the dist-able ones are built here.
-      - 'server-bin-v[0-9]+.[0-9]+.[0-9]+*'
+      # Only the single application tag (`v<version>`) publishes a release.
+      # release-plz's per-package `<crate>-v<version>` tags are internal (they
+      # carry no GitHub Release) and must NOT trigger a build, otherwise every
+      # crate would produce its own release.
       - 'v[0-9]+.[0-9]+.[0-9]+*'
 """
 

@@ -2,12 +2,15 @@ name: Release-plz
 
 # Creates release PRs (version bumps + changelogs) on every push to main, and
 # finalizes a release when such a PR is merged (bumps the workspace version and
-# pushes `<package>-v<version>` tags + GitHub releases).
+# pushes the `<package>-v<version>` git tags).
 #
 # Note: `publish = false` (see release-plz.toml) means nothing is ever
-# published to crates.io — only git tags and GitHub releases are created. The
-# pushed tags are what kick off the stable image/chart build (build.yml) and
-# the cargo-dist binary release (release.yml).
+# published to crates.io. release-plz also runs with `git_release_enable =
+# false`, so it creates no GitHub Release at all: the per-crate tags are
+# internal. This workflow then creates the single application tag `v<version>`
+# and dispatches the stable image/chart build (build.yml) and the cargo-dist
+# binary release (release.yml), which together produce exactly ONE GitHub
+# Release per version.
 
 on:
   push:
@@ -46,9 +49,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
-      # Tags pushed with the default GITHUB_TOKEN do not trigger other
-      # workflows, so explicitly dispatch the image/chart build and the
-      # cargo-dist binary release for the server-bin tag.
+      # release-plz's tags are created via its API/pat, so they are not
+      # guaranteed to trigger workflows. Explicitly dispatch the image/chart
+      # build and the cargo-dist binary release for the single `v<version>`
+      # tag, which we create here first.
       #
       # The dispatch ref is `main`, not the tag: workflows are always read from
       # the ref they are dispatched on, and the workflow file stored at an old
@@ -56,48 +60,59 @@ jobs:
       # an input instead, and the workflows check out / build that tag.
       - name: Trigger release builds
         if: success()
+        # Use the workflow's own GITHUB_TOKEN (not the release-plz PAT): tags
+        # created with it never trigger workflows, so the dispatches below stay
+        # the *only* release trigger and a release can never be started twice.
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
-          TAG="server-bin-v$VER"
+          REL_TAG="v$VER"                # the single application release tag
+          BASE_TAG="server-bin-v$VER"    # internal release-plz tag (dist-able crate)
 
-          # Only the run that just created the tag should dispatch the builds:
-          # the tag must exist *and* point at the commit this run is for. Look the
-          # tag up through the API - `actions/checkout` does not fetch tags, so
-          # `git rev-parse` would not find it.
-          TAG_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/$TAG" 2>/dev/null || true)
-          if [ -z "$TAG_JSON" ]; then
-            echo "::notice::tag $TAG not found; nothing to dispatch"
+          # Already released (also matches a draft release): nothing to do.
+          if gh release view "$REL_TAG" >/dev/null 2>&1; then
+            echo "::notice::release $REL_TAG already exists; nothing to dispatch"
             exit 0
           fi
-          TAG_SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
+
+          # release-plz only creates its tags when it actually released the
+          # version in Cargo.toml; on any other push to main the tag for the
+          # current version is missing (not released yet). Look the tag up
+          # through the API - `actions/checkout` does not fetch tags, so
+          # `git rev-parse` would not find it.
+          TAG_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/$BASE_TAG" 2>/dev/null || true)
+          if [ -z "$TAG_JSON" ]; then
+            echo "::notice::tag $BASE_TAG not found; nothing to release"
+            exit 0
+          fi
+          SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
           if [ "$(printf '%s' "$TAG_JSON" | jq -r '.object.type')" = "tag" ]; then
             # annotated tag: resolve it to the commit it points at
-            TAG_SHA=$(gh api "repos/${{ github.repository }}/git/tags/$TAG_SHA" --jq '.object.sha')
-          fi
-          if [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
-            echo "::notice::$TAG points at $TAG_SHA, not at this commit ($GITHUB_SHA); nothing to release"
-            exit 0
+            SHA=$(gh api "repos/${{ github.repository }}/git/tags/$SHA" --jq '.object.sha')
           fi
 
-          # cargo-dist attaches the binary archives to the release created by
-          # release-plz (`create-release = false`), so it must exist already.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::release-plz did not create a GitHub Release for $TAG"
-            exit 1
+          # Create the single application tag at the released commit if it is
+          # not there yet. release.yml/build.yml check this tag out, so it must
+          # exist before they are dispatched.
+          if gh api "repos/${{ github.repository }}/git/ref/tags/$REL_TAG" >/dev/null 2>&1; then
+            echo "tag $REL_TAG already exists"
+          else
+            echo "creating tag $REL_TAG at $SHA"
+            gh api --method POST "repos/${{ github.repository }}/git/refs" \
+              -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
           fi
 
-          echo "Dispatching release builds for $TAG"
+          echo "Dispatching release builds for $REL_TAG"
           for wf in build.yml release.yml; do
             # Retry: a freshly pushed workflow file can take a few seconds to
             # become dispatchable.
             for attempt in 1 2 3 4 5; do
-              if gh workflow run "$wf" --ref main -f "tag=$TAG"; then
+              if gh workflow run "$wf" --ref main -f "tag=$REL_TAG"; then
                 break
               fi
               if [ "$attempt" = 5 ]; then
-                echo "::error::could not dispatch $wf for $TAG"
+                echo "::error::could not dispatch $wf for $REL_TAG"
                 exit 1
               fi
               echo "$wf dispatch failed (attempt $attempt); retrying in 15s"
