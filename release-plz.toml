@@ -8,9 +8,10 @@
 # Release per crate).
 #
 # The only GitHub Release is the single `v<version>` release for the whole
-# application. It is created by cargo-dist (`release.yml`) and gets the shell
-# installer (the `curl ... | sh` instructions), the image tarball and the Helm
-# chart from `build.yml` attached. See `.github/workflows/release-plz.yml`.
+# application. `.github/workflows/release-plz.yml` creates it as a draft with
+# the install instructions (`curl ... | sh`, Docker, Helm), cargo-dist uploads
+# the shell installer / archives and publishes it, and `build.yml` attaches the
+# image tarball and the Helm chart.
 # The per-package git tags are still needed: for packages that are not on a
 # cargo registry, release-plz falls back to the git tags to determine the
 # previous released version.
@@ -36,9 +37,10 @@ release_always = false
 
 # Do NOT create a GitHub Release for every pushed package tag: that would show
 # up as one release per crate (14 of them per version). release-plz still pushes
-# the git tags, but the single user-facing `v<version>` release is created by
-# cargo-dist in `release.yml` (see `dist-workspace.toml`, which no longer sets
-# `create-release = false`) and completed by `build.yml`.
+# the git tags, but the single user-facing `v<version>` release is created as a
+# draft by `.github/workflows/release-plz.yml` (body from
+# `scripts/release_notes.sh`), filled in by cargo-dist (`release.yml`) and
+# `build.yml`, and published by cargo-dist.
 git_release_enable = false
 
 # Do NOT run cargo-semver-checks from release-plz. With `publish = false` the
