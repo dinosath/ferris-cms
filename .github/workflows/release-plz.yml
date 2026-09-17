@@ -103,6 +103,16 @@ jobs:
               -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
           fi
 
+          # Create the one and only GitHub Release for this version, as a draft
+          # (cargo-dist publishes it once the binaries are uploaded). The body
+          # is where the curl/docker/helm install instructions live; it is
+          # written fully here so it does not depend on the source checked out
+          # at the tag.
+          bash scripts/release_notes.sh "$VER" "${{ github.repository }}" > dist-release-notes.md
+          echo "creating draft release $REL_TAG"
+          gh release create "$REL_TAG" \
+            --draft --title "$REL_TAG" --notes-file dist-release-notes.md
+
           echo "Dispatching release builds for $REL_TAG"
           for wf in build.yml release.yml; do
             # Retry: a freshly pushed workflow file can take a few seconds to

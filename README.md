@@ -335,14 +335,13 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   Actions cache backend (`type=gha`, `mode=max`), so the cargo/compilation cache
   is persisted across runs and retries — even a failed build never loses the
   previously-saved cache. For a stable release it finishes the single
-  `v<version>` GitHub Release (created by `release.yml`) by attaching the
-  packaged **Helm chart** (`ferriscms-<ver>.tgz`), the **container image**
-  (`docker save`d as `ferriscms-image-<ver>.tgz`), and a
-  `release-artifacts.txt` (image ref + digest, chart ref) — in addition to the
-  OCI copies in GHCR — and by appending the Docker/Helm install instructions to
-  the release body. Publication is **immutable**: a published chart version or
-  release asset is never overwritten (the chart push is skipped when the version
-  already exists, and release assets are only uploaded when absent).
+  `v<version>` GitHub Release by attaching the packaged **Helm chart**
+  (`ferriscms-<ver>.tgz`), the **container image** (`docker save`d as
+  `ferriscms-image-<ver>.tgz`), and a `release-artifacts.txt` (image ref +
+  digest, chart ref) — in addition to the OCI copies in GHCR. Publication is
+  **immutable**: a published chart version or release asset is never
+  overwritten (the chart push is skipped when the version already exists, and
+  release assets are only uploaded when absent).
 - **`checks.yml`** — on every push and PR:
   - **Conventional commits**: every new commit must follow the Conventional
     Commits format (`<type>(<scope>)[!]: <description>`), which is what drives
@@ -359,24 +358,27 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   `<package>-v<version>` git tags, but **creates no GitHub Release** — the tags
   are internal (`git_release_enable = false`, otherwise every crate would show
   up as its own release). The job then creates the single application tag
-  `v<version>` (with the workflow's own `GITHUB_TOKEN`, so it never triggers a
-  workflow run) and dispatches `build.yml` and `release.yml` itself, passing
-  `v<version>` as the `tag` input. It also runs the CI for the release PR
-  itself (see the note under *Requirements*). The dispatch ref is `main` and
-  not the tag, because workflows are read from the dispatched ref and the
-  workflow file stored at an old tag's commit can predate the
-  `workflow_dispatch` trigger.
+  `v<version>` and the single `v<version>` GitHub Release, as a **draft**, with
+  the install instructions in its body (`scripts/release_notes.sh`: the curl
+  one-liner, the Docker image, the Helm chart and the changelog). The tag and
+  the release are created with the workflow's own `GITHUB_TOKEN`, which never
+  triggers another workflow run, so the explicit dispatches of `build.yml` and
+  `release.yml` (with `v<version>` as the `tag` input) stay the only release
+  trigger. It also runs the CI for the release PR itself (see the note under
+  *Requirements*). The dispatch ref is `main` and not the tag, because
+  workflows are read from the dispatched ref and the workflow file stored at an
+  old tag's commit can predate the `workflow_dispatch` trigger.
 - **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on
   pull requests it only runs `dist plan` (nothing is published); for a
   `v<version>` tag it builds the `ferriscms-server` binary (x86_64 Linux), a
-  shell installer and checksums, **creates the one and only GitHub Release**
-  for that version (`create-release = true`) and attaches them to it. The
-  release body it writes is where the `curl --proto '=https' --tlsv1.2 -LsSf
-  … | sh` install instructions come from. Configuration lives in
-  `dist-workspace.toml`. The generated workflow carries a few local edits
-  (tag trigger limited to `v<version>` + `workflow_dispatch` with the `tag`
-  input) which are re-applied by `scripts/patch_release_workflow.py` after
-  `dist generate`.
+  shell installer and checksums, uploads them to the draft `v<version>` release
+  and publishes it (`create-release = false`: dist assumes the draft exists and
+  undrafts it once the artifacts are up). The installer it uploads is the one
+  referenced by the `curl --proto '=https' --tlsv1.2 -LsSf … | sh` line in the
+  release body. Configuration lives in `dist-workspace.toml`. The generated
+  workflow carries a few local edits (tag trigger limited to `v<version>` +
+  `workflow_dispatch` with the `tag` input) which are re-applied by
+  `scripts/patch_release_workflow.py` after `dist generate`.
 - **`cleanup.yml`** — daily, deletes `<version>.rc-*` / `<version>.run-*` GHCR
   images older than 30 days. Stable `vX.Y.Z` images are kept.
 
@@ -388,14 +390,15 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 3. Merge that release PR (it cannot be merged until the `checks.yml` statuses
    pass — they are required by branch protection on `main`). `release-plz`
    pushes the internal `<package>-vX.Y.Z` git tags (no GitHub Release).
-4. `release-plz.yml` creates the single application tag `vX.Y.Z` and dispatches
-   `release.yml` (cargo-dist) and `build.yml` for it.
-5. `release.yml` builds the `ferriscms-server` binary + shell installer,
-   **creates the one GitHub Release `vX.Y.Z`** and attaches the binaries plus
-   the `curl … | sh` install instructions.
+4. `release-plz.yml` creates the single application tag `vX.Y.Z` plus the
+   single `vX.Y.Z` GitHub Release (a draft, body built by
+   `scripts/release_notes.sh`), then dispatches `release.yml` (cargo-dist) and
+   `build.yml` for it. That is the **only** GitHub Release of the version.
+5. `release.yml` builds the `ferriscms-server` binary + shell installer and
+   uploads them to that release, which it then publishes.
 6. `build.yml` builds the stable `vX.Y.Z` image + `X.Y.Z` chart and publishes
-   them to GHCR, and attaches the chart/image tarballs and the Docker/Helm
-   instructions to the same `vX.Y.Z` release. Nothing goes to crates.io.
+   them to GHCR, and attaches the chart/image tarballs to the same `vX.Y.Z`
+   release. Nothing goes to crates.io.
 
 ### Requirements
 

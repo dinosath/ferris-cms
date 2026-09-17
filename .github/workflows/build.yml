@@ -9,10 +9,10 @@ name: Build images & charts
 # pruned by cleanup.yml after 30 days.
 #
 # For a release it also finishes the single GitHub Release for the version
-# (`v<version>`, created by cargo-dist in `release.yml`): it attaches the
-# `docker save`d image tarball and the packaged Helm chart, and appends the
-# Docker/Helm instructions to the release body (cargo-dist already put the
-# `curl ... | sh` shell-installer instructions there).
+# (`v<version>`, created as a draft by the Release-plz workflow with the
+# `curl ... | sh` / Docker / Helm instructions in its body): it attaches the
+# `docker save`d image tarball and the packaged Helm chart, next to the
+# installer and archives that cargo-dist uploads from `release.yml`.
 
 on:
   push:
@@ -223,9 +223,9 @@ jobs:
           ls -lh dist/
 
       # ------------------------------------------------------------------
-      # Finish the single `v<version>` GitHub Release: cargo-dist creates it
-      # (with the curl/shell-installer instructions), we add the chart + image
-      # tarball and the Docker/Helm instructions.
+      # Finish the single `v<version>` GitHub Release (created as a draft by the
+      # Release-plz workflow, published by cargo-dist): attach the chart and the
+      # image tarball, next to the installer/archive cargo-dist uploads.
       # ------------------------------------------------------------------
       - name: Attach chart + image to the GitHub Release
         if: env.IS_RELEASE == 'true'
@@ -243,7 +243,8 @@ jobs:
             printf 'chart: oci://%s/%s/ferriscms:%s\n' "${{ env.REGISTRY }}" "${{ env.CHART_OCI }}" "$VERSION"
           } > dist/release-artifacts.txt
 
-          # cargo-dist creates the release (as a draft) on the v<version> tag.
+          # The release is created by the Release-plz workflow before this
+          # workflow is dispatched; wait briefly for eventual consistency.
           for _ in $(seq 1 60); do
             gh release view "$TAG" >/dev/null 2>&1 && break
             sleep 10
@@ -265,42 +266,6 @@ jobs:
               gh release upload "$TAG" "$f"
             fi
           done
-
-          # Append the Docker/Helm instructions once. The marker keeps a re-run
-          # (or a second build for the same tag) from duplicating the section.
-          body=$(gh release view "$TAG" --json body -q '.body' || true)
-          if printf '%s' "$body" | grep -q 'ferriscms-install-notes'; then
-            echo "::notice::install notes already present on $TAG; leaving the body unchanged."
-            exit 0
-          fi
-          notes="dist/release-notes.md"
-          {
-            printf '%s\n\n' "$body"
-            printf '<!-- ferriscms-install-notes -->\n'
-            printf '## Install the server with Docker\n\n'
-            printf 'The server image is published to GHCR and also attached below as `ferriscms-image-%s.tgz`.\n\n' "$VERSION"
-            printf '```sh\n'
-            printf 'docker pull %s\n' "$IMAGE"
-            printf '# or load the attached tarball:\n'
-            printf 'docker load < ferriscms-image-%s.tgz\n' "$VERSION"
-            printf '```\n\n'
-            printf 'Run it against PostgreSQL:\n\n'
-            printf '```sh\n'
-            printf '%s\n' 'docker run --rm -p 1337:1337 \'
-            printf '%s\n' "  -e DATABASE_URL='postgres://user:pass@host:5432/ferriscms' \\"
-            printf '%s\n' "  -e JWT_SECRET='change-me-in-production' \\"
-            printf '%s\n' '  -e MEDIA_STORAGE_DIR=/data/media \'
-            printf '%s\n' '  -v ferriscms-media:/data/media \'
-            printf '  %s\n' "$IMAGE"
-            printf '```\n\n'
-            printf '## Install the Helm chart\n\n'
-            printf '```sh\n'
-            printf 'helm install ferriscms oci://%s/%s/ferriscms --version %s\n' "${{ env.REGISTRY }}" "${{ env.CHART_OCI }}" "$VERSION"
-            printf '# or from the attached chart tarball:\n'
-            printf 'helm install ferriscms ferriscms-%s.tgz\n' "$VERSION"
-            printf '```\n'
-          } > "$notes"
-          gh release edit "$TAG" --notes-file "$notes"
 
       # ------------------------------------------------------------------
       # Enable GitHub immutable releases (assets/tags can't be changed after
