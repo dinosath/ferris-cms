@@ -6,7 +6,7 @@ license.workspace = true
 repository = "https://github.com/dinosath/ferris-cms"
 
 [[bin]]
-name = "ferriscms"
+name = "ferriscms-server"
 path = "src/main.rs"
 
 [dependencies]

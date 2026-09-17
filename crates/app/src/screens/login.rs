@@ -51,7 +51,14 @@ pub fn Login() -> Element {
             attempt.set(None);
             outcome.set(LoginOutcome::Loading);
             spawn(async move {
-                let resp = g.client.auth_login(&LoginRequest { email, password }).await;
+                let resp = g
+                    .client
+                    .auth_login(&LoginRequest {
+                        email,
+                        username: None,
+                        password,
+                    })
+                    .await;
                 match resp {
                     Ok(r) => {
                         g.set_token(Some(r.data.token.clone()));
@@ -105,9 +112,9 @@ pub fn Login() -> Element {
 
                     TextField {
                         value: "{email}",
-                        label: "Email".to_string(),
-                        placeholder: "kai@doe.com".to_string(),
-                        input_type: "email".to_string(),
+                        label: "Email or username".to_string(),
+                        placeholder: "admin or kai@doe.com".to_string(),
+                        input_type: "text".to_string(),
                         oninput: move |v| email.set(v),
                     }
                     TextField {

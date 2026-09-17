@@ -30,7 +30,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     cargo build --release --target x86_64-unknown-linux-musl -p server-bin \
-    && cp /app/target/x86_64-unknown-linux-musl/release/ferriscms /app/ferriscms
+    && cp /app/target/x86_64-unknown-linux-musl/release/ferriscms-server /app/ferriscms
 
 FROM gcr.io/distroless/static-debian13 AS runtime
 

@@ -5,7 +5,7 @@ use api_types::admin::{AdminUserDto, InitInfo, LoginRequest, LoginResponse, Regi
 use chrono::Utc;
 use db::entities::{admin_role, admin_user, admin_user_role};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
-use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, Condition, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -114,26 +114,23 @@ pub(crate) async fn load_user_roles(
 
 /// Admin login.
 ///
-/// The `email` field doubles as an identifier: it matches against an admin's
-/// email *or* their username, so an operator provisioned from environment
-/// configuration (see `bootstrap_admin`) can sign in with `admin`.
+/// Login accepts the legacy `email` field or an explicit `username` field.
 pub async fn auth_login(
     ctx: &AppContext,
     req: &LoginRequest,
 ) -> Result<LoginResponse, ServiceError> {
-    // Match on email first, then fall back to username.
-    let user = match admin_user::Entity::find()
-        .filter(admin_user::COLUMN.email.eq(&req.email))
+    let identifier = req
+        .username
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(&req.email);
+    let user = admin_user::Entity::find()
+        .filter(Condition::any()
+            .add(admin_user::COLUMN.email.eq(identifier))
+            .add(admin_user::COLUMN.username.eq(identifier)))
         .one(&ctx.db)
         .await?
-    {
-        Some(u) => u,
-        None => admin_user::Entity::find()
-            .filter(admin_user::COLUMN.username.eq(req.email.clone()))
-            .one(&ctx.db)
-            .await?
-            .ok_or_else(|| ServiceError::Unauthorized)?,
-    };
+        .ok_or(ServiceError::Unauthorized)?;
 
     if !user.is_active || user.blocked {
         return Err(ServiceError::Unauthorized);
@@ -419,7 +416,8 @@ mod tests {
         let resp = auth_login(
             &ctx,
             &LoginRequest {
-                email: "admin".into(),
+                email: String::new(),
+                username: Some("admin".into()),
                 password: "Sup3rSecret!9".into(),
             },
         )
@@ -433,6 +431,7 @@ mod tests {
             &ctx,
             &LoginRequest {
                 email: "admin@ferriscms.local".into(),
+                username: None,
                 password: "Sup3rSecret!9".into(),
             },
         )
@@ -445,6 +444,7 @@ mod tests {
             &ctx,
             &LoginRequest {
                 email: "admin".into(),
+                username: None,
                 password: "wrong".into(),
             },
         )

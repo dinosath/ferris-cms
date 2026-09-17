@@ -551,6 +551,7 @@ mod tests {
             &ctx,
             &LoginRequest {
                 email: "admin".into(),
+                username: None,
                 password: "LocalPass!123".into(),
             },
         )

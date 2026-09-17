@@ -17,6 +17,7 @@ members = [
     "crates/desktop-bin",
     "crates/e2e",
 ]
+default-members = ["crates/server-bin"]
 
 [workspace.package]
 version = "0.3.1"

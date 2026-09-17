@@ -33,6 +33,7 @@ use services::{
     rbac_list_users, rbac_update_permissions, AppConfig, AppContext, ServiceError,
 };
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 /// Shared application state held by Axum.
 pub struct AppState {
@@ -285,7 +286,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         Err(_) => router.fallback(get(embedded_ui)),
     };
 
-    router.with_state(state)
+    router
+        .with_state(state)
+        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
 }
 
 /// The Dioxus WASM admin UI, embedded into the binary from `crates/api-rest/ui/`.

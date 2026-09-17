@@ -6,6 +6,7 @@
 
 use sea_orm::DbErr;
 use sea_orm_migration::prelude::*;
+use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Migrator;
@@ -20,6 +21,7 @@ impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
             Box::new(M20260731Init),
+            Box::new(M20260917DevAdmin),
             Box::new(M20260731Rbac),
             Box::new(M20260820Workflow),
             Box::new(M20260821ImportExportPresets),
@@ -27,6 +29,26 @@ impl MigratorTrait for Migrator {
             Box::new(M20260823AiPrivacy),
         ]
     }
+}
+
+fn dev_admin_mode() -> bool {
+    let mode = ["FERRISCMS_ENV", "APP_ENV", "RUST_ENV"]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(mode.as_str(), "dev" | "development" | "test")
+}
+
+fn default_admin_password_hash() -> Result<String, DbErr> {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+
+    let salt = SaltString::from_b64("c29tZXNhbHRzYWx0MTIzNA")
+        .map_err(|error| DbErr::Custom(format!("default admin salt: {error}")))?;
+    argon2::Argon2::default()
+        .hash_password(b"admin", &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|error| DbErr::Custom(format!("default admin password: {error}")))
 }
 
 fn id_bigint(table: TableCreateStatement) -> TableCreateStatement {
@@ -408,6 +430,116 @@ impl MigrationTrait for M20260731Init {
                         .if_exists()
                         .to_owned(),
                 )
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+/// Seed a predictable local admin only when the process explicitly identifies
+/// itself as development or test. Production-like environments are untouched.
+struct M20260917DevAdmin;
+
+impl MigrationName for M20260917DevAdmin {
+    fn name(&self) -> &str {
+        "m20260917_000001_dev_admin"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260917DevAdmin {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        if !dev_admin_mode() {
+            return Ok(());
+        }
+
+        let db = manager.get_connection();
+        if crate::entities::admin_user::Entity::find()
+            .count(db)
+            .await?
+            > 0
+        {
+            return Ok(());
+        }
+
+        let now = chrono::Utc::now();
+        let role = crate::entities::admin_role::ActiveModel {
+            name: Set("Super Admin".to_string()),
+            code: Set(crate::seed::ROLE_SUPER_ADMIN.to_string()),
+            description: Set(Some(
+                "Super Admins can access and manage all features and settings.".to_string(),
+            )),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        };
+        let role_insert = crate::entities::admin_role::Entity::insert(role)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(
+                    crate::entities::admin_role::COLUMN.code,
+                )
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec(db)
+            .await;
+        if let Err(error) = role_insert {
+            if !matches!(error, DbErr::RecordNotInserted) {
+                return Err(DbErr::Custom(format!("default admin role: {error}")));
+            }
+        }
+
+        let role = crate::entities::admin_role::Entity::find()
+            .filter(
+                crate::entities::admin_role::COLUMN
+                    .code
+                    .eq(crate::seed::ROLE_SUPER_ADMIN),
+            )
+            .one(db)
+            .await?
+            .ok_or_else(|| DbErr::Custom("default admin role was not created".to_string()))?;
+
+        let user = crate::entities::admin_user::ActiveModel {
+            email: Set("admin@ferriscms.local".to_string()),
+            username: Set(Some("admin".to_string())),
+            password_hash: Set(default_admin_password_hash()?),
+            is_active: Set(true),
+            blocked: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        }
+        .insert(db)
+        .await?;
+
+        crate::entities::admin_user_role::ActiveModel {
+            user_id: Set(user.id),
+            role_id: Set(role.id),
+            ..Default::default()
+        }
+        .insert(db)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        if !dev_admin_mode() {
+            return Ok(());
+        }
+
+        let db = manager.get_connection();
+        let user = crate::entities::admin_user::Entity::find()
+            .filter(
+                crate::entities::admin_user::COLUMN
+                    .email
+                    .eq("admin@ferriscms.local"),
+            )
+            .one(db)
+            .await?;
+        if let Some(user) = user {
+            crate::entities::admin_user::Entity::delete_by_id(user.id)
+                .exec(db)
                 .await?;
         }
         Ok(())

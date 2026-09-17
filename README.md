@@ -172,12 +172,48 @@ cargo run -p server-bin
 | Env var | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | `sqlite://ferriscms.db?mode=rwc` | Local SQLite file by default; set a `postgres://…` URL for PostgreSQL |
-| `BIND_ADDR` | `0.0.0.0:1337` | HTTP listen address |
+| `BIND_ADDR` | `0.0.0.0:8080` | HTTP listen address |
 | `JWT_SECRET` | `change-me-in-production` | HS256 signing secret (set in production!) |
 | `MEDIA_STORAGE_DIR` | `media` | Directory for uploaded files |
 
 On first boot, register the first admin via `POST /admin/register-admin`
 (or use the UI). Then log in through `POST /admin/login` to get a JWT.
+
+### Local development
+
+Run the backend and the web UI together with cargo-make. The `--no-workspace`
+flag prevents cargo-make from trying to run the task in every workspace crate.
+The backend listens on port `8080`; the Dioxus web server uses port `8081`.
+In development mode, the migration creates `admin` / `admin` as a local
+Super Admin.
+
+Install [cargo-make](https://github.com/sagiegurari/cargo-make) if it is not
+already available:
+
+```bash
+cargo install cargo-make
+```
+
+```bash
+cargo make --no-workspace dev
+```
+
+Without cargo-make, use two terminals from the repository root:
+
+```bash
+# Terminal 1: Axum backend
+FERRISCMS_ENV=development cargo run
+```
+
+```bash
+# Terminal 2: Dioxus web UI
+cd crates/app
+FERRISCMS_API_URL=http://127.0.0.1:8080 dx serve --web --package ferriscms --port 8081
+```
+
+The `dx` command requires the Dioxus CLI version matching the app dependency
+(currently `0.7.10`). The web UI is available at `http://127.0.0.1:8081` and
+the backend at `http://127.0.0.1:8080`.
 
 ### Offline desktop (`ferriscms-desktop`)
 
@@ -202,12 +238,12 @@ The Dioxus admin UI (the `ferriscms` app crate) talks to the backend through
 it targets `FERRISCMS_API_URL` (default `http://127.0.0.1:1337`).
 
 Because the app's `Dioxus.toml` lives in `crates/app/`, run `dx` from inside
-that directory, or pass `--package ferriscms` from the workspace root:
+that directory and select the app package explicitly:
 
 ```bash
-# Dev server (hot reload) for the web UI — default http://localhost:8080
+# Dev server (hot reload) for the web UI
 cd crates/app
-dx serve
+FERRISCMS_API_URL=http://127.0.0.1:8080 dx serve --web --package ferriscms --port 8081
 
 # Native desktop app
 cd crates/app

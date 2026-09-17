@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LoginRequest {
+    #[serde(default)]
     pub email: String,
+    #[serde(default)]
+    pub username: Option<String>,
     pub password: String,
 }
 

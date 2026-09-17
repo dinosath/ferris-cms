@@ -1,0 +1,14 @@
+[tasks.server]
+command = "cargo"
+args = ["run"]
+env = { FERRISCMS_ENV = "development" }
+cwd = "."
+
+[tasks.web]
+command = "dx"
+args = ["serve", "--web", "--package", "ferriscms", "--port", "8081"]
+env = { FERRISCMS_API_URL = "http://127.0.0.1:8080" }
+cwd = "crates/app"
+
+[tasks.dev]
+run_task = { name = ["server", "web"], parallel = true }
