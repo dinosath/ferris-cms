@@ -17,6 +17,8 @@ jobs:
   release-pr:
     name: Open release PR
     runs-on: ubuntu-latest
+    env:
+      RELEASE_PLZ_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -26,11 +28,13 @@ jobs:
         with:
           command: release-pr
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
 
   release:
     name: Create release
     runs-on: ubuntu-latest
+    env:
+      RELEASE_PLZ_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,4 +44,4 @@ jobs:
         with:
           command: release
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
