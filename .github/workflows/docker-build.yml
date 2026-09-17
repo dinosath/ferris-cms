@@ -2,8 +2,7 @@ name: Build Docker image
 
 on:
   push:
-    tags:
-      - "v*"
+  pull_request:
   workflow_dispatch:
     inputs:
       tag:
@@ -17,7 +16,7 @@ permissions:
 
 jobs:
   image:
-    name: Publish image
+    name: Build and publish image
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

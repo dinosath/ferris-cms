@@ -1,65 +1,24 @@
-name: Build Rust release
+name: Build Rust
 
 on:
   push:
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag to rebuild
-        required: true
-        type: string
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   TARGET: x86_64-unknown-linux-gnu
-  BINARY: ferriscms
 
 jobs:
-  release:
+  build:
     name: Build server binary
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.tag || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-gnu
       - uses: Swatinem/rust-cache@v2
       - name: Build server binary
         run: cargo build --locked --release -p server-bin --target "$TARGET"
-      - name: Package release artifacts
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          VERSION="${RELEASE_TAG#v}"
-          mkdir -p dist/ferriscms-${VERSION}-${TARGET}
-          cp "target/${TARGET}/release/${BINARY}" "dist/ferriscms-${VERSION}-${TARGET}/"
-          tar -C dist -czf "dist/ferriscms-${VERSION}-${TARGET}.tar.gz" "ferriscms-${VERSION}-${TARGET}"
-          shasum -a 256 "dist/ferriscms-${VERSION}-${TARGET}.tar.gz" > "dist/SHA256SUMS"
-          printf '%s\n' \
-            '#!/usr/bin/env sh' \
-            'set -eu' \
-            "VERSION=\"${VERSION}\"" \
-            "BASE_URL=\"https://github.com/${REPOSITORY}/releases/download/${RELEASE_TAG}\"" \
-            'TMP_DIR="$(mktemp -d)"' \
-            'trap '\''rm -rf "$TMP_DIR"'\'' EXIT' \
-            "curl --fail --location \"$BASE_URL/ferriscms-$VERSION-$TARGET.tar.gz\" | tar -xz -C \"$TMP_DIR\"" \
-            'INSTALL_DIR="${PREFIX:-$HOME/.local/bin}"' \
-            'mkdir -p "$INSTALL_DIR"' \
-            'install -m 0755 "$TMP_DIR/ferriscms-"*"/ferriscms" "$INSTALL_DIR/ferriscms"' \
-            > "dist/ferriscms-installer.sh"
-          chmod +x "dist/ferriscms-installer.sh"
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ inputs.tag || github.ref_name }}
-          files: |
-            dist/*.tar.gz
-            dist/SHA256SUMS
-            dist/ferriscms-installer.sh
