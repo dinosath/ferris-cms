@@ -357,7 +357,9 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   release tag instead). release-plz bumps the workspace version and pushes the
   `<package>-v<version>` git tags, but **creates no GitHub Release** — the tags
   are internal (`git_release_enable = false`, otherwise every crate would show
-  up as its own release). The job then creates the single application tag
+  up as its own release) and are what release-plz records as "already released"
+  (with `publish = false` it never queries a registry). The job then creates the
+  single application tag
   `v<version>` and the single `v<version>` GitHub Release, with the install
   instructions in its body (`scripts/release_notes.sh`: the curl
   one-liner, the Docker image, the Helm chart and the changelog). The tag and

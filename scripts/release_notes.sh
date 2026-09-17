@@ -8,7 +8,7 @@
 # `changelog` defaults to `crates/server-bin/CHANGELOG.md`; the newest released
 # section of that file is appended at the end.
 #
-# The body is written when the release is created (draft) by
+# The body is written when the release is created by
 # `.github/workflows/release-plz.yml`. The assets referenced below are attached
 # afterwards: the shell installer / archive by cargo-dist (`release.yml`) and
 # the image + chart tarballs by `build.yml`.

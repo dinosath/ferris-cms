@@ -9,7 +9,7 @@ name: Build images & charts
 # pruned by cleanup.yml after 30 days.
 #
 # For a release it also finishes the single GitHub Release for the version
-# (`v<version>`, created as a draft by the Release-plz workflow with the
+# (`v<version>`, created by the Release-plz workflow with the
 # `curl ... | sh` / Docker / Helm instructions in its body): it attaches the
 # `docker save`d image tarball and the packaged Helm chart, next to the
 # installer and archives that cargo-dist uploads from `release.yml`.
@@ -223,9 +223,9 @@ jobs:
           ls -lh dist/
 
       # ------------------------------------------------------------------
-      # Finish the single `v<version>` GitHub Release (created as a draft by the
-      # Release-plz workflow, published by cargo-dist): attach the chart and the
-      # image tarball, next to the installer/archive cargo-dist uploads.
+      # Finish the single `v<version>` GitHub Release (created by the
+      # Release-plz workflow): attach the chart and the image tarball, next to
+      # the installer/archive cargo-dist uploads.
       # ------------------------------------------------------------------
       - name: Attach chart + image to the GitHub Release
         if: env.IS_RELEASE == 'true'

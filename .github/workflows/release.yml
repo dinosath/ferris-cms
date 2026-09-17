@@ -12,10 +12,10 @@
 #
 # The single `v<version>` release is the only GitHub Release of the project:
 # release-plz runs with `git_release_enable = false`, so its per-package tags
-# carry no release. The Release-plz workflow creates the `v<version>` release as
-# a draft (with the curl/shell-installer instructions); cargo-dist uploads the
-# archives/installer/checksums to it and undrafts it, and `build.yml` attaches
-# the image + Helm chart tarballs.
+# carry no release. The Release-plz workflow creates the `v<version>` tag and
+# release (with the curl/shell-installer instructions in the body); cargo-dist
+# uploads the archives/installer/checksums to it, and `build.yml` attaches the
+# image + Helm chart tarballs.
 
 name: Release
 permissions:

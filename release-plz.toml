@@ -8,13 +8,18 @@
 # Release per crate).
 #
 # The only GitHub Release is the single `v<version>` release for the whole
-# application. `.github/workflows/release-plz.yml` creates it as a draft with
-# the install instructions (`curl ... | sh`, Docker, Helm), cargo-dist uploads
-# the shell installer / archives and publishes it, and `build.yml` attaches the
-# image tarball and the Helm chart.
-# The per-package git tags are still needed: for packages that are not on a
-# cargo registry, release-plz falls back to the git tags to determine the
-# previous released version.
+# application. `.github/workflows/release-plz.yml` creates it (published, on the
+# `v<version>` tag it creates first) with the install instructions
+# (`curl ... | sh`, Docker, Helm) in its body; cargo-dist then uploads the shell
+# installer / archives to it and `build.yml` attaches the image tarball and the
+# Helm chart.
+#
+# The per-package git tags are kept, but they are internal: they carry no
+# GitHub Release and nothing is downloaded from them. release-plz treats
+# "tag already exists" as "this version was already released": with
+# `publish = false` it takes the git-only path in `release_package_if_needed`
+# and never queries a registry, so the tags are the record of what has been
+# released.
 #
 # `git_only` is deliberately NOT enabled. In git-only mode release-plz
 # reconstructs the workspace at the previous release tag and runs
@@ -37,10 +42,9 @@ release_always = false
 
 # Do NOT create a GitHub Release for every pushed package tag: that would show
 # up as one release per crate (14 of them per version). release-plz still pushes
-# the git tags, but the single user-facing `v<version>` release is created as a
-# draft by `.github/workflows/release-plz.yml` (body from
-# `scripts/release_notes.sh`), filled in by cargo-dist (`release.yml`) and
-# `build.yml`, and published by cargo-dist.
+# the git tags, but the single user-facing `v<version>` release is created by
+# `.github/workflows/release-plz.yml` (body from `scripts/release_notes.sh`) and
+# filled in by cargo-dist (`release.yml`) and `build.yml`.
 git_release_enable = false
 
 # Do NOT run cargo-semver-checks from release-plz. With `publish = false` the
