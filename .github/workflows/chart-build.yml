@@ -1,0 +1,52 @@
+name: Build Helm chart
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to rebuild
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  CHART_REPOSITORY: ${{ github.repository_owner }}/ferriscms-charts
+
+jobs:
+  chart:
+    name: Publish Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: azure/setup-helm@v5
+        with:
+          version: v3.15.4
+      - name: Lint and package chart
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          helm lint deploy/helm/ferriscms
+          mkdir -p dist
+          helm package deploy/helm/ferriscms \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
+            --destination dist
+      - name: Login to GHCR
+        env:
+          HELM_REGISTRY_USERNAME: ${{ github.actor }}
+          HELM_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: helm registry login "$REGISTRY" --username "$HELM_REGISTRY_USERNAME" --password-stdin <<<"$HELM_REGISTRY_PASSWORD"
+      - name: Push chart to GHCR
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: helm push "dist/ferriscms-${RELEASE_TAG#v}.tgz" "oci://${REGISTRY}/${CHART_REPOSITORY}"

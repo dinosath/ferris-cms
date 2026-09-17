@@ -8,27 +8,14 @@ cargo-dist-version = "0.33.0"
 # CI backends to support
 ci = "github"
 # The installers to generate for each app
-installers = ["shell"]
+installers = ["shell", "powershell"]
 # Target platforms to build apps for (Rust target-triple syntax)
-targets = ["x86_64-unknown-linux-gnu"]
+targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
 # Path that installers should place binaries in
 install-path = "CARGO_HOME"
-# Where to host releases
-hosting = "github"
-# `release.yml` is generated but customized after generation (tag trigger
-# limited to the `v<version>` application tag plus a `workflow_dispatch`
-# trigger, because the tag is created with the default GITHUB_TOKEN and
-# therefore does not trigger workflows). Re-apply those edits with
-# `python3 scripts/patch_release_workflow.py` after regenerating, and keep
-# `allow-dirty` so cargo-dist accepts the difference from its template.
-allow-dirty = ["ci"]
-# The Release-plz workflow creates the single GitHub Release `v<version>` for
-# the whole application (release-plz.toml runs with `git_release_enable =
-# false`, so it never creates a release per crate). With `create-release = false`
-# cargo-dist assumes that release exists and uploads the shell installer /
-# archive / checksums to it; `build.yml` then attaches the image + Helm chart
-# tarballs to the same release.
+# release-plz creates the single application tag and GitHub Release. cargo-dist
+# only builds and uploads CLI artifacts to that existing release.
 create-release = false
-
+allow-dirty = ["ci"]
 # Whether to install an updater program
 install-updater = false

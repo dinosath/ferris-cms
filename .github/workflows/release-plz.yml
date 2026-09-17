@@ -1,17 +1,5 @@
 name: Release-plz
 
-# Creates release PRs (version bumps + changelogs) on every push to main, and
-# finalizes a release when such a PR is merged.
-#
-# Note: `publish = false` (see release-plz.toml) means nothing is ever
-# published to crates.io. release-plz also runs with `git_tag_enable = false`
-# and `git_release_enable = false`, so it creates neither tags nor GitHub
-# Releases. This workflow owns both: it creates the single tag `v<version>`
-# when the version in Cargo.toml is not tagged yet, creates the single GitHub
-# Release for it, and dispatches the stable image/chart build (build.yml) and
-# the cargo-dist binary release (release.yml), which together produce exactly
-# ONE tag and ONE GitHub Release per version.
-
 on:
   push:
     branches:
@@ -21,252 +9,35 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-plz-main
+  cancel-in-progress: false
+
 jobs:
-  # Finalize a release after a release-plz PR has been merged.
-  release-plz-release:
-    name: Release-plz release
+  release-pr:
+    name: Open release PR
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: read
-      # Needed to dispatch the build/release workflows below.
-      actions: write
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run release-plz release
-        uses: release-plz/action@v0.5
+  release:
+    name: Create release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
-
-      # release-plz's tags are created via its API/pat, so they are not
-      # guaranteed to trigger workflows. Explicitly dispatch the image/chart
-      # build and the cargo-dist binary release for the single `v<version>`
-      # tag, which we create here first.
-      #
-      # The dispatch ref is `main`, not the tag: workflows are always read from
-      # the ref they are dispatched on, and the workflow file stored at an old
-      # tag's commit has no `workflow_dispatch` trigger. The tag is passed as
-      # an input instead, and the workflows check out / build that tag.
-      - name: Trigger release builds
-        if: success()
-        # Use the workflow's own GITHUB_TOKEN (not the release-plz PAT): tags
-        # created with it never trigger workflows, so the dispatches below stay
-        # the *only* release trigger and a release can never be started twice.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
-          REL_TAG="v$VER"                # the single application release tag
-
-          # Decide whether the release still needs its builds.
-          #
-          # Skipping as soon as the release exists would be unsound: if the
-          # first dispatch ever failed, the release would stay empty forever,
-          # because every later run would find it and skip. So a pre-existing
-          # release is only accepted once it actually carries the installer
-          # (cargo-dist) and the image + chart tarballs (build.yml).
-          REL_EXISTS=false
-          if gh release view "$REL_TAG" >/dev/null 2>&1; then
-            REL_EXISTS=true
-            assets=$(gh release view "$REL_TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
-            missing=""
-            for want in server-bin-installer.sh "ferriscms-image-$VER.tgz" "ferriscms-$VER.tgz"; do
-              printf '%s\n' "$assets" | grep -qx "$want" || missing="$missing $want"
-            done
-            if [ -z "$missing" ]; then
-              echo "::notice::release $REL_TAG already has the installer, image and chart; nothing to dispatch"
-              exit 0
-            fi
-            # A build takes ~20 minutes. Give the run that created the release
-            # time to finish before considering its artifacts missing, so that
-            # ordinary pushes to main do not queue duplicate builds.
-            #
-            # Use `publishedAt`, not `createdAt`: for a release created on an
-            # already-existing tag, GitHub reports `createdAt` as the *tag's
-            # commit date* (verified: a release created today on a tag pointing
-            # at an older commit came back with that commit's timestamp), which
-            # would make a brand-new release look days old and re-dispatch on
-            # every push. `publishedAt` is set when the release is published,
-            # which is exactly when this job creates it. It is empty for a
-            # draft, and a draft is treated as needing its builds.
-            published=$(gh release view "$REL_TAG" --json publishedAt -q '.publishedAt' || true)
-            if [ -n "$published" ]; then
-              age=$(( $(date +%s) - $(date -d "$published" +%s) ))
-              if [ "$age" -lt 2700 ]; then
-                echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - assuming its build is still running"
-                exit 0
-              fi
-              echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - re-dispatching the builds"
-            else
-              echo "::notice::release $REL_TAG is an unpublished draft and is missing:$missing - re-dispatching the builds"
-            fi
-          fi
-
-          # A release is due exactly when this version is not tagged yet: the
-          # workspace version only changes when a release PR is merged, and the
-          # first push afterwards creates the `v<version>` tag, so every later
-          # push to main finds it and falls through to the checks above.
-          #
-          # The release commit is the commit that was just pushed
-          # (`GITHUB_SHA`). release-plz no longer tags anything
-          # (`git_tag_enable = false`), so there is no internal tag to resolve
-          # the released commit from any more.
-          SHA="$GITHUB_SHA"
-          # Create the single application tag if it is not there yet.
-          # release.yml/build.yml check this tag out, so it must exist before
-          # they are dispatched.
-          if gh api "repos/${{ github.repository }}/git/ref/tags/$REL_TAG" >/dev/null 2>&1; then
-            echo "tag $REL_TAG already exists"
-          elif [ "$REL_EXISTS" = "true" ]; then
-            # GitHub will not give a release a new tag once it exists.
-            echo "::error::release $REL_TAG exists without its tag; delete the release and push again"
-            exit 1
-          else
-            echo "creating tag $REL_TAG at $SHA"
-            gh api --method POST "repos/${{ github.repository }}/git/refs" \
-              -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
-          fi
-
-          # Create the one and only GitHub Release for this version. It is
-          # created published (not as a draft): the `v<version>` tag already
-          # exists at $SHA, and publishing a draft that carries a different
-          # `target_commitish` would make GitHub try to move the tag, which the
-          # workflow token is not allowed to do. The body is where the
-          # curl/docker/helm install instructions live; it is written fully here
-          # so it does not depend on the source checked out at the tag.
-          if [ "$REL_EXISTS" = "true" ]; then
-            echo "release $REL_TAG already exists; not recreating it"
-          else
-            bash scripts/release_notes.sh "$VER" "${{ github.repository }}" > dist-release-notes.md
-            echo "creating release $REL_TAG"
-            # No `--target`: the tag was just created above, and a target would
-            # make GitHub try to (re)create/move it while publishing.
-            gh release create "$REL_TAG" \
-              --title "$REL_TAG" --notes-file dist-release-notes.md
-          fi
-
-          echo "Dispatching release builds for $REL_TAG"
-          for wf in build.yml release.yml; do
-            # Retry: a freshly pushed workflow file can take a few seconds to
-            # become dispatchable.
-            for attempt in 1 2 3 4 5; do
-              if gh workflow run "$wf" --ref main -f "tag=$REL_TAG"; then
-                break
-              fi
-              if [ "$attempt" = 5 ]; then
-                echo "::error::could not dispatch $wf for $REL_TAG"
-                exit 1
-              fi
-              echo "$wf dispatch failed (attempt $attempt); retrying in 15s"
-              sleep 15
-            done
-          done
-
-  # Open/update the release PR preparing the next version.
-  # Concurrency on this job only: if a new commit lands while the PR job is
-  # running, the pending PR job waits (no cancellation), avoiding PR conflicts.
-  # The `release` job is intentionally left unconstrained so a release is never
-  # delayed or cancelled by PR updates.
-  release-plz-pr:
-    name: Release-plz PR
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-      # Needed to dispatch the validation runs for the release PR below.
-      actions: write
-    concurrency:
-      group: release-plz-pr-${{ github.ref }}
-      cancel-in-progress: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Run release-plz release-pr
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
-        env:
-          # The action opens the PR using `--git-token ${GITHUB_TOKEN}`.
-          # If the repo disables "Allow GitHub Actions to create and approve
-          # pull requests" (which blocks the default GITHUB_TOKEN with a 403),
-          # set a fine-grained/classic PAT as RELEASE_PLZ_TOKEN — a PAT can
-          # open PRs regardless of that setting. Falls back to GITHUB_TOKEN.
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
-
-      # GitHub creates the workflow runs for a PR opened by the default
-      # GITHUB_TOKEN in the `action_required` state, and GITHUB_TOKEN is not
-      # allowed to approve them ("Resource not accessible by integration"), so
-      # they would sit there forever and the required status checks (Checks +
-      # Build image & chart) would never be reported - leaving the release PR
-      # unmergeable. A PAT can approve them, so do that when RELEASE_PLZ_TOKEN
-      # is configured; otherwise a human has to click "Approve and run" once.
-      - name: Approve pending workflow runs for the release PR
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
-          HAS_PAT: ${{ secrets.RELEASE_PLZ_TOKEN != '' }}
-        run: |
-          if [ "$HAS_PAT" != "true" ]; then
-            echo "::notice::RELEASE_PLZ_TOKEN is not set: approve the release PR's workflow runs manually (or set a PAT secret) so its required checks can run."
-            exit 0
-          fi
-          for attempt in 1 2 3 4 5; do
-            RUN_IDS=$(gh api "repos/${{ github.repository }}/actions/runs?status=action_required&per_page=100" \
-              --jq '.workflow_runs[] | select(.head_branch | startswith("release-plz-")) | .id')
-            if [ -z "$RUN_IDS" ]; then
-              echo "no workflow runs waiting for approval"
-              break
-            fi
-            for run_id in $RUN_IDS; do
-              echo "approving workflow run $run_id"
-              gh api -X POST "repos/${{ github.repository }}/actions/runs/$run_id/approve" || true
-            done
-            sleep 10
-          done
-
-      # Without a PAT the release PR's own runs stay unapproved, so run the same
-      # workflows on the PR branch explicitly: a dispatched run does not need
-      # approval and its check runs are attached to the PR's head commit, which
-      # is all the required status checks look at. `build.yml` is told it is a
-      # PR build so it validates without pushing anything.
-      - name: Validate the release PR
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
-          HAS_PAT: ${{ secrets.RELEASE_PLZ_TOKEN != '' }}
-        run: |
-          if [ "$HAS_PAT" = "true" ]; then
-            echo "RELEASE_PLZ_TOKEN is set; the PR's own workflow runs handle this."
-            exit 0
-          fi
-          PR_BRANCH=$(gh pr list --state open --json number,headRefName \
-            --jq '.[] | select(.headRefName | startswith("release-plz-")) | "\(.number) \(.headRefName)"' | head -1)
-          PR=$(printf '%s' "$PR_BRANCH" | cut -d' ' -f1)
-          BRANCH=$(printf '%s' "$PR_BRANCH" | cut -d' ' -f2)
-          if [ -z "$BRANCH" ]; then
-            echo "::notice::no open release PR found; nothing to validate"
-            exit 0
-          fi
-          echo "Validating release PR #$PR on $BRANCH"
-          gh workflow run checks.yml --ref "$BRANCH"
-          gh workflow run release.yml --ref "$BRANCH"
-          gh workflow run build.yml --ref "$BRANCH" -f "pr=$PR"

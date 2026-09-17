@@ -7,15 +7,11 @@
 #
 # * checks for a Git Tag that looks like a release
 # * builds artifacts with dist (archives, installers, hashes)
-# * uploads those artifacts to temporary workflow zip
-# * on success, uploads the artifacts to a GitHub Release
+# * uploads those artifacts to temporary workflow storage
+# * on success, uploads the artifacts to the existing GitHub Release
 #
-# The single `v<version>` release is the only GitHub Release of the project:
-# release-plz runs with `git_release_enable = false`, so its per-package tags
-# carry no release. The Release-plz workflow creates the `v<version>` tag and
-# release (with the curl/shell-installer instructions in the body); cargo-dist
-# uploads the archives/installer/checksums to it, and `build.yml` attaches the
-# image + Helm chart tarballs.
+# release-plz owns the single application tag and GitHub Release. This workflow
+# is intentionally customized with create-release = false.
 
 name: Release
 permissions:
@@ -43,30 +39,9 @@ permissions:
 # If there's a prerelease-style suffix to the version, then the release(s)
 # will be marked as a prerelease.
 on:
-  # NOTE: manual edits below are re-applied by
-  # `python3 scripts/patch_release_workflow.py` after `dist generate`.
-  #
-  # Dispatched by the Release-plz workflow after it created the `v<version>`
-  # tag for a new release: tags created with the default GITHUB_TOKEN do not
-  # trigger workflows. The release tag is passed as an input because workflows
-  # are read from the dispatched ref, and the workflow file stored at an old
-  # tag's commit may predate this trigger.
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Release tag to publish (must already exist), e.g. v0.3.1"
-        required: false
-        type: string
-  # Run on pull requests too (`dist plan` only, nothing is published) so the
-  # release PR exercises the same workflow that publishes the binaries.
-  pull_request:
   push:
     tags:
-      # Only the single application tag (`v<version>`) publishes a release.
-      # release-plz's per-package `<crate>-v<version>` tags are internal (they
-      # carry no GitHub Release) and must NOT trigger a build, otherwise every
-      # crate would produce its own release.
-      - 'v[0-9]+.[0-9]+.[0-9]+*'
+      - 'v*'
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -74,9 +49,9 @@ jobs:
     runs-on: "ubuntu-22.04"
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ (!github.event.pull_request && (github.event.inputs.tag != '' || github.ref_type == 'tag')) && (github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name) || '' }}
-      tag-flag: ${{ (!github.event.pull_request && (github.event.inputs.tag != '' || github.ref_type == 'tag')) && format('--tag={0}', (github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name)) || '' }}
-      publishing: ${{ (!github.event.pull_request && (github.event.inputs.tag != '' || github.ref_type == 'tag')) }}
+      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
+      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
+      publishing: ${{ !github.event.pull_request }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -84,8 +59,6 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-          # Build the source of the release tag when dispatched manually.
-          ref: ${{ github.event.inputs.tag || github.ref }}
       - name: Install dist
         # we specify bash to get pipefail; it guards against the `curl` command
         # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -103,7 +76,7 @@ jobs:
       # but also really annoying to build CI around when it needs secrets to work right.)
       - id: plan
         run: |
-          dist ${{ ((!github.event.pull_request && (github.event.inputs.tag != '' || github.ref_type == 'tag')) && format('host --steps=create --tag={0}', (github.event.inputs.tag != '' && github.event.inputs.tag || github.ref_name))) || 'plan' }} --output-format=json > plan-dist-manifest.json
+          dist ${{ (!github.event.pull_request && format('host --steps=create --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
           echo "dist ran successfully"
           cat plan-dist-manifest.json
           echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -122,7 +95,7 @@ jobs:
     if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
-      # Target platforms/runners are computed by dist in create-release.
+      # Target platforms/runners are computed by dist in the plan step.
       # Each member of the matrix has the following arguments:
       #
       # - runner: the github runner
@@ -271,7 +244,7 @@ jobs:
       - id: host
         shell: bash
         run: |
-          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --output-format=json > dist-manifest.json
           echo "artifacts uploaded and released successfully"
           cat dist-manifest.json
           echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
@@ -281,7 +254,7 @@ jobs:
           # Overwrite the previous copy
           name: artifacts-dist-manifest
           path: dist-manifest.json
-      # Create a GitHub Release while uploading all files to it
+      # Upload CLI artifacts to the release created by release-plz.
       - name: "Download GitHub Artifacts"
         uses: actions/download-artifact@v8
         with:
@@ -292,34 +265,14 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
-      # NOTE: manual edits below are re-applied by
-      # `python3 scripts/patch_release_workflow.py` after `dist generate`.
-      #
-      # The single `v<version>` release is created by the Release-plz workflow,
-      # pointing at the existing `v<version>` tag. dist uploaded the artifacts in
-      # the step above; this step only makes sure nothing is missing and
-      # publishes the release (in case it was created as a draft).
-      - name: Publish GitHub Release
+      - name: Upload CLI artifacts to GitHub Release
         env:
-          PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
+          TAG: ${{ needs.plan.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${{ needs.plan.outputs.tag }}"
-
-          # Upload only what is missing: `gh release upload` errors on an asset
-          # that is already attached, and published assets are immutable.
-          for f in artifacts/*; do
-            gh release upload "$TAG" "$f" || echo "::notice::$f already attached"
+          for artifact in artifacts/*; do
+            gh release upload "$TAG" "$artifact" --clobber
           done
-
-          # Never pass `--target`: the `v<version>` tag already exists (created
-          # by the Release-plz workflow, possibly at an older release commit)
-          # and GitHub rejects moving it while publishing a draft
-          # ("Resource not accessible by integration").
-          if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
-            gh release edit "$TAG" $PRERELEASE_FLAG --draft=false
-          else
-            echo "release $TAG is already published"
-          fi
 
   announce:
     needs:
