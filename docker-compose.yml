@@ -31,7 +31,7 @@ services:
     profiles: ["local"]
     build:
       context: .
-    image: ferriscms-server:local
+    image: ferriscms:local
     depends_on:
       postgres:
         condition: service_healthy

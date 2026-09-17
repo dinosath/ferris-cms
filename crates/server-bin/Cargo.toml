@@ -6,7 +6,7 @@ license.workspace = true
 repository = "https://github.com/dinosath/ferris-cms"
 
 [[bin]]
-name = "ferriscms-server"
+name = "ferriscms"
 path = "src/main.rs"
 
 [dependencies]
@@ -15,8 +15,6 @@ api-rest = { workspace = true }
 db = { workspace = true }
 sea-orm-migration = { workspace = true }
 axum = { workspace = true }
-# `tls-rustls-no-provider` avoids axum-server forcing rustls/aws-lc-rs;
-# the ring provider is installed in main.rs.
 axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 tokio = { workspace = true }
 tracing = { workspace = true }

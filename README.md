@@ -6,8 +6,9 @@ ferriscms reproduces Strapi's core headless-CMS workflow with a single Rust
 codebase that runs in two modes:
 
 - **Offline desktop** — an embedded SQLite database, no server, no config.
-- **Online server** — an Axum server on PostgreSQL serving a
-  Strapi-compatible REST API plus the Dioxus admin UI.
+- **Online server** — an Axum server (SQLite by default, PostgreSQL when
+  `DATABASE_URL` says so) serving a Strapi-compatible REST API plus the
+  Dioxus admin UI.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -63,7 +64,7 @@ system, or GraphQL yet):
 | Web server | [Axum](https://docs.rs/axum) 0.8 |
 | ORM / query builder | [SeaORM](https://www.sea-ql.org) 2.0 + [SeaQuery](https://docs.rs/sea-query) 1.0 |
 | Migrations | `sea-orm-migration` (system) + runtime DDL (user content-types) |
-| Database | PostgreSQL 14+ (online) / SQLite (offline, embedded) |
+| Database | SQLite (default, embedded) / PostgreSQL 14+ (`DATABASE_URL`, online) |
 | UI | [Dioxus](https://dioxuslabs.com) 0.7 (native desktop + WASM web) |
 | Async runtime | Tokio |
 | Auth | JWT (`jsonwebtoken`) + `argon2` password hashing |
@@ -90,7 +91,7 @@ ferriscms/
 │  ├─ client-core/             # transport-abstract client the UI calls
 │  ├─ ui/                      # design system: tokens, widgets, screens (framework-agnostic)
 │  ├─ app/                     # Dioxus admin UI (web + desktop), calls client-core
-│  ├─ server-bin/              # binary: online Axum server (ferriscms-server)
+│  ├─ server-bin/              # binary: online Axum server (ferriscms)
 │  └─ desktop-bin/             # binary: offline desktop + embedded server (ferriscms-desktop)
 ```
 
@@ -106,8 +107,10 @@ ferriscms/
   ```bash
   cargo install dioxus-cli
   ```
-- **PostgreSQL** — required for the webserver (`server-bin`); the desktop app
-  uses embedded SQLite.
+- **PostgreSQL** — *optional*. The webserver (`server-bin`) defaults to a
+  local SQLite file (`ferriscms.db`); set `DATABASE_URL` to a `postgres://…`
+  URL to run it on PostgreSQL instead. The desktop app always uses embedded
+  SQLite.
 
 ### Build
 
@@ -154,10 +157,13 @@ integration tests.
 
 ## Running
 
-### Online server (`ferriscms-server`)
+### Online server (`ferriscms`)
 
 Starts the Axum REST API + admin API on the configured port, running
-migrations and seeding roles/locales on boot. The webserver uses **PostgreSQL**.
+migrations and seeding roles/locales on boot. With no configuration it uses a
+local **SQLite** file (`ferriscms.db` in the working directory, gitignored), so
+`cargo run -p server-bin` works out of the box; set `DATABASE_URL` to a
+`postgres://…` URL to use **PostgreSQL**.
 
 ```bash
 cargo run -p server-bin
@@ -165,7 +171,7 @@ cargo run -p server-bin
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `postgres://postgres:postgres@localhost:5432/ferriscms` | PostgreSQL connection URL (the webserver requires Postgres) |
+| `DATABASE_URL` | `sqlite://ferriscms.db?mode=rwc` | Local SQLite file by default; set a `postgres://…` URL for PostgreSQL |
 | `BIND_ADDR` | `0.0.0.0:1337` | HTTP listen address |
 | `JWT_SECRET` | `change-me-in-production` | HS256 signing secret (set in production!) |
 | `MEDIA_STORAGE_DIR` | `media` | Directory for uploaded files |
@@ -227,12 +233,12 @@ CMS can be deployed to Kubernetes.
 
 ### Docker image
 
-Build the `ferriscms-server` image locally. The build produces a **single
+Build the `ferriscms` image locally. The build produces a **single
 self-contained binary** that embeds both the Axum webserver and the Dioxus WASM
 admin UI (via `rust-embed`):
 
 ```bash
-docker build -t ferriscms-server .
+docker build -t ferriscms .
 ```
 
 The image is the webserver and uses **PostgreSQL** (external). The one binary
@@ -246,7 +252,7 @@ docker run --rm -p 1337:1337 \
   -e JWT_SECRET='a-strong-secret' \
   -e MEDIA_STORAGE_DIR=/data/media \
   -v ferriscms-media:/data/media \
-  ferriscms-server
+  ferriscms
 ```
 
 For development, you can serve the UI from a directory instead of the embedded
@@ -300,7 +306,7 @@ CI lives in [`.github/workflows/`](.github/workflows/). It builds the Docker
 image and Helm chart, publishes them to **GitHub Container Registry (GHCR)**,
 and integrates [release-plz](https://release-plz.dev) for versioning. Nothing
 is ever published to **crates.io**. All HTTP/TLS in the shipped crates uses
-**rustls** (no OpenSSL/native-tls dependency in `ferriscms-server`).
+**rustls** (no OpenSSL/native-tls dependency in `ferriscms`).
 
 | Event | Image tag | Chart version | Kept |
 |---|---|---|---|
@@ -313,7 +319,7 @@ Images and charts are published to:
 - Image: `ghcr.io/<owner>/ferris-cms:<tag>`
 - Chart (OCI): `ghcr.io/<owner>/ferriscms-charts`
 
-The runtime image is a **statically linked (musl)** `ferriscms-server` on
+The runtime image is a **statically linked (musl)** `ferriscms` on
 `gcr.io/distroless/static-debian13` — no libc, no shell, no package manager,
 ~1 MiB base — with the binary stripped (`strip` + thin LTO). The admin UI is
 embedded in the binary, so no assets are copied alongside it. The server links
@@ -354,14 +360,16 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   (`publish = false`, so nothing is published to a registry and release-plz's own
   semver check is disabled — it would compare against the long-since-superseded
   published versions; `checks.yml` runs cargo-semver-checks against the last
-  release tag instead). release-plz bumps the workspace version and pushes the
-  `<package>-v<version>` git tags, but **creates no GitHub Release** — the tags
-  are internal (`git_release_enable = false`, otherwise every crate would show
-  up as its own release) and are what release-plz records as "already released"
-  (with `publish = false` it never queries a registry). The job then creates the
-  single application tag
-  `v<version>` and the single `v<version>` GitHub Release, with the install
-  instructions in its body (`scripts/release_notes.sh`: the curl
+  release tag instead). release-plz bumps the
+  workspace version and the changelogs, but **creates no tags and no GitHub
+  Releases** (`git_tag_enable = false`, `git_release_enable = false`): a release
+  exists exactly once, as the `v<version>` tag and release. `git_tag_name` is
+  set to `v{{ version }}` so every package still resolves its previous released
+  version from that single tag, which is what keeps the changelogs from
+  re-listing the whole history for the packages that also exist on crates.io.
+  The job then creates
+  the single `v<version>` tag and the single `v<version>` GitHub Release, with
+  the install instructions in its body (`scripts/release_notes.sh`: the curl
   one-liner, the Docker image, the Helm chart and the changelog). The tag and
   the release are created with the workflow's own `GITHUB_TOKEN`, which never
   triggers another workflow run, so the explicit dispatches of `build.yml` and
@@ -372,7 +380,7 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   old tag's commit can predate the `workflow_dispatch` trigger.
 - **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on
   pull requests it only runs `dist plan` (nothing is published); for a
-  `v<version>` tag it builds the `ferriscms-server` binary (x86_64 Linux), a
+  `v<version>` tag it builds the `ferriscms` binary (x86_64 Linux), a
   shell installer and checksums and uploads them to the `v<version>` release
   (`create-release = false`: dist assumes the release exists and only attaches
   artifacts to it). The installer it uploads is the one
@@ -391,12 +399,12 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
    and updating changelogs.
 3. Merge that release PR (it cannot be merged until the `checks.yml` statuses
    pass — they are required by branch protection on `main`). `release-plz`
-   pushes the internal `<package>-vX.Y.Z` git tags (no GitHub Release).
+   creates no tags and no GitHub Releases.
 4. `release-plz.yml` creates the single application tag `vX.Y.Z` plus the
    single `vX.Y.Z` GitHub Release (body built by
    `scripts/release_notes.sh`), then dispatches `release.yml` (cargo-dist) and
    `build.yml` for it. That is the **only** GitHub Release of the version.
-5. `release.yml` builds the `ferriscms-server` binary + shell installer and
+5. `release.yml` builds the `ferriscms` binary + shell installer and
    uploads them to that release, which it then publishes.
 6. `build.yml` builds the stable `vX.Y.Z` image + `X.Y.Z` chart and publishes
    them to GHCR, and attaches the chart/image tarballs to the same `vX.Y.Z`

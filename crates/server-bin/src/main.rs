@@ -1,9 +1,3 @@
-//! ferriscms server binary — online Axum server (design Part II §1).
-//!
-//! Starts the REST API + admin endpoints on the configured port, and serves
-//! the embedded Dioxus WASM admin UI at the site root.
-//! Uses PostgreSQL (or SQLite).
-
 use api_rest::{build_router, AppState};
 use db::{connect, seed, Migrator};
 use sea_orm_migration::MigratorTrait;
@@ -18,8 +12,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    // Default to a local SQLite file next to the working directory.
+    // `mode=rwc` is required: without it sqlx refuses to create the file.
     let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/ferriscms".into());
+        .unwrap_or_else(|_| "sqlite://ferriscms.db?mode=rwc".into());
 
     tracing::info!("connecting to database: {database_url}");
     let db = connect(&database_url).await?;
@@ -79,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(state);
 
     let addr: SocketAddr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:1337".into())
+        .unwrap_or_else(|_| "0.0.0.0:8080".into())
         .parse()?;
 
     // Optional HTTPS: when TLS_CERT_FILE and TLS_KEY_FILE point at a cert/key

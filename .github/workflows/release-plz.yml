@@ -1,16 +1,16 @@
 name: Release-plz
 
 # Creates release PRs (version bumps + changelogs) on every push to main, and
-# finalizes a release when such a PR is merged (bumps the workspace version and
-# pushes the `<package>-v<version>` git tags).
+# finalizes a release when such a PR is merged.
 #
 # Note: `publish = false` (see release-plz.toml) means nothing is ever
-# published to crates.io. release-plz also runs with `git_release_enable =
-# false`, so it creates no GitHub Release at all: the per-crate tags are
-# internal. This workflow then creates the single application tag `v<version>`
-# and dispatches the stable image/chart build (build.yml) and the cargo-dist
-# binary release (release.yml), which together produce exactly ONE GitHub
-# Release per version.
+# published to crates.io. release-plz also runs with `git_tag_enable = false`
+# and `git_release_enable = false`, so it creates neither tags nor GitHub
+# Releases. This workflow owns both: it creates the single tag `v<version>`
+# when the version in Cargo.toml is not tagged yet, creates the single GitHub
+# Release for it, and dispatches the stable image/chart build (build.yml) and
+# the cargo-dist binary release (release.yml), which together produce exactly
+# ONE tag and ONE GitHub Release per version.
 
 on:
   push:
@@ -68,7 +68,6 @@ jobs:
         run: |
           VER=$(sed -n '/\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | cut -d'"' -f2)
           REL_TAG="v$VER"                # the single application release tag
-          BASE_TAG="server-bin-v$VER"    # internal release-plz tag (dist-able crate)
 
           # Decide whether the release still needs its builds.
           #
@@ -114,40 +113,29 @@ jobs:
             fi
           fi
 
-          # release-plz only creates its tags when it actually released the
-          # version in Cargo.toml; on any other push to main the tag for the
-          # current version is missing (not released yet). Look the tag up
-          # through the API - `actions/checkout` does not fetch tags, so
-          # `git rev-parse` would not find it.
-          TAG_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/$BASE_TAG" 2>/dev/null || true)
-          SHA=""
-          if [ -z "$TAG_JSON" ]; then
-            # Not a release run. (For an existing release we only get here when
-            # it is missing artifacts, and then its tag already exists.)
-            if [ "$REL_EXISTS" = "false" ]; then
-              echo "::notice::tag $BASE_TAG not found; nothing to release"
-              exit 0
-            fi
-          else
-            SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
-            if [ "$(printf '%s' "$TAG_JSON" | jq -r '.object.type')" = "tag" ]; then
-              # annotated tag: resolve it to the commit it points at
-              SHA=$(gh api "repos/${{ github.repository }}/git/tags/$SHA" --jq '.object.sha')
-            fi
-          fi
-
-          # Create the single application tag at the released commit if it is
-          # not there yet. release.yml/build.yml check this tag out, so it must
-          # exist before they are dispatched.
+          # A release is due exactly when this version is not tagged yet: the
+          # workspace version only changes when a release PR is merged, and the
+          # first push afterwards creates the `v<version>` tag, so every later
+          # push to main finds it and falls through to the checks above.
+          #
+          # The release commit is the commit that was just pushed
+          # (`GITHUB_SHA`). release-plz no longer tags anything
+          # (`git_tag_enable = false`), so there is no internal tag to resolve
+          # the released commit from any more.
+          SHA="$GITHUB_SHA"
+          # Create the single application tag if it is not there yet.
+          # release.yml/build.yml check this tag out, so it must exist before
+          # they are dispatched.
           if gh api "repos/${{ github.repository }}/git/ref/tags/$REL_TAG" >/dev/null 2>&1; then
             echo "tag $REL_TAG already exists"
-          elif [ -n "$SHA" ]; then
+          elif [ "$REL_EXISTS" = "true" ]; then
+            # GitHub will not give a release a new tag once it exists.
+            echo "::error::release $REL_TAG exists without its tag; delete the release and push again"
+            exit 1
+          else
             echo "creating tag $REL_TAG at $SHA"
             gh api --method POST "repos/${{ github.repository }}/git/refs" \
               -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
-          else
-            echo "::error::tag $REL_TAG is missing and $BASE_TAG could not be resolved"
-            exit 1
           fi
 
           # Create the one and only GitHub Release for this version. It is
