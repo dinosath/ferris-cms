@@ -40,3 +40,7 @@ crates/api-rest/ui/
 
 # Local Obscura headless browser installed by scripts/install-obscura.sh
 bin/
+
+# Python bytecode (scripts/*.py)
+__pycache__/
+*.pyc
