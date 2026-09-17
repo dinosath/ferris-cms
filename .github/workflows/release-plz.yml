@@ -70,10 +70,35 @@ jobs:
           REL_TAG="v$VER"                # the single application release tag
           BASE_TAG="server-bin-v$VER"    # internal release-plz tag (dist-able crate)
 
-          # Already released (also matches a draft release): nothing to do.
+          # Decide whether the release still needs its builds.
+          #
+          # Skipping as soon as the release exists would be unsound: if the
+          # first dispatch ever failed, the release would stay empty forever,
+          # because every later run would find it and skip. So a pre-existing
+          # release is only accepted once it actually carries the installer
+          # (cargo-dist) and the image + chart tarballs (build.yml).
+          REL_EXISTS=false
           if gh release view "$REL_TAG" >/dev/null 2>&1; then
-            echo "::notice::release $REL_TAG already exists; nothing to dispatch"
-            exit 0
+            REL_EXISTS=true
+            assets=$(gh release view "$REL_TAG" --json assets -q '.assets[].name' 2>/dev/null || true)
+            missing=""
+            for want in server-bin-installer.sh "ferriscms-image-$VER.tgz" "ferriscms-$VER.tgz"; do
+              printf '%s\n' "$assets" | grep -qx "$want" || missing="$missing $want"
+            done
+            if [ -z "$missing" ]; then
+              echo "::notice::release $REL_TAG already has the installer, image and chart; nothing to dispatch"
+              exit 0
+            fi
+            # A build takes ~20 minutes. Give the run that created the release
+            # time to finish before considering its artifacts missing, so that
+            # ordinary pushes to main do not queue duplicate builds.
+            created=$(gh release view "$REL_TAG" --json createdAt -q '.createdAt')
+            age=$(( $(date +%s) - $(date -d "$created" +%s) ))
+            if [ "$age" -lt 2700 ]; then
+              echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - assuming its build is still running"
+              exit 0
+            fi
+            echo "::notice::release $REL_TAG is ${age}s old and is missing:$missing - re-dispatching the builds"
           fi
 
           # release-plz only creates its tags when it actually released the
@@ -82,14 +107,20 @@ jobs:
           # through the API - `actions/checkout` does not fetch tags, so
           # `git rev-parse` would not find it.
           TAG_JSON=$(gh api "repos/${{ github.repository }}/git/ref/tags/$BASE_TAG" 2>/dev/null || true)
+          SHA=""
           if [ -z "$TAG_JSON" ]; then
-            echo "::notice::tag $BASE_TAG not found; nothing to release"
-            exit 0
-          fi
-          SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
-          if [ "$(printf '%s' "$TAG_JSON" | jq -r '.object.type')" = "tag" ]; then
-            # annotated tag: resolve it to the commit it points at
-            SHA=$(gh api "repos/${{ github.repository }}/git/tags/$SHA" --jq '.object.sha')
+            # Not a release run. (For an existing release we only get here when
+            # it is missing artifacts, and then its tag already exists.)
+            if [ "$REL_EXISTS" = "false" ]; then
+              echo "::notice::tag $BASE_TAG not found; nothing to release"
+              exit 0
+            fi
+          else
+            SHA=$(printf '%s' "$TAG_JSON" | jq -r '.object.sha')
+            if [ "$(printf '%s' "$TAG_JSON" | jq -r '.object.type')" = "tag" ]; then
+              # annotated tag: resolve it to the commit it points at
+              SHA=$(gh api "repos/${{ github.repository }}/git/tags/$SHA" --jq '.object.sha')
+            fi
           fi
 
           # Create the single application tag at the released commit if it is
@@ -97,10 +128,13 @@ jobs:
           # exist before they are dispatched.
           if gh api "repos/${{ github.repository }}/git/ref/tags/$REL_TAG" >/dev/null 2>&1; then
             echo "tag $REL_TAG already exists"
-          else
+          elif [ -n "$SHA" ]; then
             echo "creating tag $REL_TAG at $SHA"
             gh api --method POST "repos/${{ github.repository }}/git/refs" \
               -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
+          else
+            echo "::error::tag $REL_TAG is missing and $BASE_TAG could not be resolved"
+            exit 1
           fi
 
           # Create the one and only GitHub Release for this version. It is
@@ -110,12 +144,16 @@ jobs:
           # workflow token is not allowed to do. The body is where the
           # curl/docker/helm install instructions live; it is written fully here
           # so it does not depend on the source checked out at the tag.
-          bash scripts/release_notes.sh "$VER" "${{ github.repository }}" > dist-release-notes.md
-          echo "creating release $REL_TAG"
-          # No `--target`: the tag was just created above, and a target would
-          # make GitHub try to (re)create/move it while publishing.
-          gh release create "$REL_TAG" \
-            --title "$REL_TAG" --notes-file dist-release-notes.md
+          if [ "$REL_EXISTS" = "true" ]; then
+            echo "release $REL_TAG already exists; not recreating it"
+          else
+            bash scripts/release_notes.sh "$VER" "${{ github.repository }}" > dist-release-notes.md
+            echo "creating release $REL_TAG"
+            # No `--target`: the tag was just created above, and a target would
+            # make GitHub try to (re)create/move it while publishing.
+            gh release create "$REL_TAG" \
+              --title "$REL_TAG" --notes-file dist-release-notes.md
+          fi
 
           echo "Dispatching release builds for $REL_TAG"
           for wf in build.yml release.yml; do
