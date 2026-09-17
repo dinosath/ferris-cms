@@ -20,6 +20,14 @@ jobs:
     env:
       RELEASE_PLZ_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
     steps:
+      - name: Install native dependencies for semver checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -36,6 +44,14 @@ jobs:
     env:
       RELEASE_PLZ_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
     steps:
+      - name: Install native dependencies for semver checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
