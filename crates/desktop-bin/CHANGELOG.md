@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/dinosath/ferris-cms/compare/desktop-bin-v0.3.1...desktop-bin-v0.3.2) - 2026-09-17
+
+### Other
+
+- release v0.3.1
+- release v0.3.0
+- release v0.2.0
+- add cargo-dist release workflow
+- run cargo fmt across the workspace
+- Implement Media Library: backend storage + upload route + UI
+- Initial commit: ferriscms — offline-first Strapi clone in Rust (Dioxus multiplatform UI + Axum backend)
+
 ## [0.3.1](https://github.com/dinosath/ferris-cms/compare/desktop-bin-v0.3.0...desktop-bin-v0.3.1) - 2026-09-15
 
 ### Other

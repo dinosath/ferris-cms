@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/dinosath/ferris-cms/compare/core-schema-v0.3.1...core-schema-v0.3.2) - 2026-09-17
+
+### Added
+
+- *(computed)* tested expression evaluator + CTB syntax highlighting/preview
+- *(ctb)* computed/generated fields end-to-end
+- *(metadata)* Kubernetes-style labels/namespace on content types and workflows
+- validate payload constraints (required/min/max/length/pattern/enum) before handling
+- conditional field visibility (Strapi conditional fields)
+
+### Other
+
+- release v0.3.1
+- release v0.3.0
+- release v0.2.0
+- *(computed)* assert remaining public outputs (JSON contract, defaults, DDL)
+- run cargo fmt across the workspace
+- Initial commit: ferriscms — offline-first Strapi clone in Rust (Dioxus multiplatform UI + Axum backend)
+
 ## [0.3.1](https://github.com/dinosath/ferris-cms/compare/core-schema-v0.3.0...core-schema-v0.3.1) - 2026-09-15
 
 ### Added

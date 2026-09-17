@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2](https://github.com/dinosath/ferris-cms/compare/workflow-v0.3.1...workflow-v0.3.2) - 2026-09-17
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.3.1](https://github.com/dinosath/ferris-cms/compare/workflow-v0.3.0...workflow-v0.3.1) - 2026-09-15
 
 ### Other
