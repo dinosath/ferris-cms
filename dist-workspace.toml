@@ -22,12 +22,12 @@ hosting = "github"
 # `python3 scripts/patch_release_workflow.py` after regenerating, and keep
 # `allow-dirty` so cargo-dist accepts the difference from its template.
 allow-dirty = ["ci"]
-# The Release-plz workflow creates the single GitHub Release `v<version>` as a
-# *draft* (release-plz.toml runs with `git_release_enable = false`, so it never
-# creates a release per crate). With `create-release = false` cargo-dist assumes
-# that draft exists, uploads the shell installer / archive / checksums to it and
-# publishes it (`gh release edit --draft=false`). `build.yml` then attaches the
-# image + Helm chart tarballs to the same release.
+# The Release-plz workflow creates the single GitHub Release `v<version>` for
+# the whole application (release-plz.toml runs with `git_release_enable =
+# false`, so it never creates a release per crate). With `create-release = false`
+# cargo-dist assumes that release exists and uploads the shell installer /
+# archive / checksums to it; `build.yml` then attaches the image + Helm chart
+# tarballs to the same release.
 create-release = false
 
 # Whether to install an updater program

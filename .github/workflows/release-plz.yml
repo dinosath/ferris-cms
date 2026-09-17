@@ -103,15 +103,19 @@ jobs:
               -f "ref=refs/tags/$REL_TAG" -f "sha=$SHA" >/dev/null
           fi
 
-          # Create the one and only GitHub Release for this version, as a draft
-          # (cargo-dist publishes it once the binaries are uploaded). The body
-          # is where the curl/docker/helm install instructions live; it is
-          # written fully here so it does not depend on the source checked out
-          # at the tag.
+          # Create the one and only GitHub Release for this version. It is
+          # created published (not as a draft): the `v<version>` tag already
+          # exists at $SHA, and publishing a draft that carries a different
+          # `target_commitish` would make GitHub try to move the tag, which the
+          # workflow token is not allowed to do. The body is where the
+          # curl/docker/helm install instructions live; it is written fully here
+          # so it does not depend on the source checked out at the tag.
           bash scripts/release_notes.sh "$VER" "${{ github.repository }}" > dist-release-notes.md
-          echo "creating draft release $REL_TAG"
+          echo "creating release $REL_TAG"
+          # No `--target`: the tag was just created above, and a target would
+          # make GitHub try to (re)create/move it while publishing.
           gh release create "$REL_TAG" \
-            --draft --title "$REL_TAG" --notes-file dist-release-notes.md
+            --title "$REL_TAG" --notes-file dist-release-notes.md
 
           echo "Dispatching release builds for $REL_TAG"
           for wf in build.yml release.yml; do

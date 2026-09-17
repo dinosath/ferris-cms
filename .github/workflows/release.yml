@@ -292,15 +292,34 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
-      - name: Create GitHub Release
+      # NOTE: manual edits below are re-applied by
+      # `python3 scripts/patch_release_workflow.py` after `dist generate`.
+      #
+      # The single `v<version>` release is created by the Release-plz workflow,
+      # pointing at the existing `v<version>` tag. dist uploaded the artifacts in
+      # the step above; this step only makes sure nothing is missing and
+      # publishes the release (in case it was created as a draft).
+      - name: Publish GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-          RELEASE_COMMIT: "${{ github.sha }}"
         run: |
-          # If we're editing a release in place, we need to upload things ahead of time
-          gh release upload "${{ needs.plan.outputs.tag }}" artifacts/*
+          TAG="${{ needs.plan.outputs.tag }}"
 
-          gh release edit "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --draft=false
+          # Upload only what is missing: `gh release upload` errors on an asset
+          # that is already attached, and published assets are immutable.
+          for f in artifacts/*; do
+            gh release upload "$TAG" "$f" || echo "::notice::$f already attached"
+          done
+
+          # Never pass `--target`: the `v<version>` tag already exists (created
+          # by the Release-plz workflow, possibly at an older release commit)
+          # and GitHub rejects moving it while publishing a draft
+          # ("Resource not accessible by integration").
+          if [ "$(gh release view "$TAG" --json isDraft -q .isDraft)" = "true" ]; then
+            gh release edit "$TAG" $PRERELEASE_FLAG --draft=false
+          else
+            echo "release $TAG is already published"
+          fi
 
   announce:
     needs:

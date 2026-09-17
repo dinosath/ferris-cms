@@ -358,8 +358,8 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
   `<package>-v<version>` git tags, but **creates no GitHub Release** — the tags
   are internal (`git_release_enable = false`, otherwise every crate would show
   up as its own release). The job then creates the single application tag
-  `v<version>` and the single `v<version>` GitHub Release, as a **draft**, with
-  the install instructions in its body (`scripts/release_notes.sh`: the curl
+  `v<version>` and the single `v<version>` GitHub Release, with the install
+  instructions in its body (`scripts/release_notes.sh`: the curl
   one-liner, the Docker image, the Helm chart and the changelog). The tag and
   the release are created with the workflow's own `GITHUB_TOKEN`, which never
   triggers another workflow run, so the explicit dispatches of `build.yml` and
@@ -371,9 +371,9 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
 - **`release.yml`** — [cargo-dist](https://opensource.axo.dev/cargo-dist/): on
   pull requests it only runs `dist plan` (nothing is published); for a
   `v<version>` tag it builds the `ferriscms-server` binary (x86_64 Linux), a
-  shell installer and checksums, uploads them to the draft `v<version>` release
-  and publishes it (`create-release = false`: dist assumes the draft exists and
-  undrafts it once the artifacts are up). The installer it uploads is the one
+  shell installer and checksums and uploads them to the `v<version>` release
+  (`create-release = false`: dist assumes the release exists and only attaches
+  artifacts to it). The installer it uploads is the one
   referenced by the `curl --proto '=https' --tlsv1.2 -LsSf … | sh` line in the
   release body. Configuration lives in `dist-workspace.toml`. The generated
   workflow carries a few local edits (tag trigger limited to `v<version>` +
@@ -391,7 +391,7 @@ Measured: ~27 MiB static binary (+~3 MiB embedded UI) on a ~1 MiB base
    pass — they are required by branch protection on `main`). `release-plz`
    pushes the internal `<package>-vX.Y.Z` git tags (no GitHub Release).
 4. `release-plz.yml` creates the single application tag `vX.Y.Z` plus the
-   single `vX.Y.Z` GitHub Release (a draft, body built by
+   single `vX.Y.Z` GitHub Release (body built by
    `scripts/release_notes.sh`), then dispatches `release.yml` (cargo-dist) and
    `build.yml` for it. That is the **only** GitHub Release of the version.
 5. `release.yml` builds the `ferriscms-server` binary + shell installer and
