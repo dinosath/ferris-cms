@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/dinosath/ferris-cms/compare/v0.3.1...v0.4.0) - 2026-09-18
+
+### Added
+
+- add bulk import for content types and workflows
+- add migration for admin credentials in dev mode
+
 ## [0.3.1](https://github.com/dinosath/ferris-cms/compare/api-rest-v0.3.0...api-rest-v0.3.1) - 2026-09-15
 
 ### Added
