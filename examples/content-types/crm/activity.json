@@ -1,0 +1,25 @@
+{
+  "uid": "api::activity.activity",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "activity",
+    "pluralName": "activities",
+    "displayName": "CRM Activity"
+  },
+  "metadata": {
+    "namespace": "crm",
+    "labels": { "application": "crm", "domain": "engagement" }
+  },
+  "options": { "draftAndPublish": false },
+  "attributes": {
+    "subject": { "type": "string", "required": true },
+    "activity_type": { "type": "enumeration", "enum": ["call", "email", "meeting", "task", "note"] },
+    "status": { "type": "enumeration", "enum": ["planned", "open", "completed", "cancelled"] },
+    "scheduled_at": { "type": "datetime" },
+    "completed_at": { "type": "datetime" },
+    "assigned_to": { "type": "string" },
+    "organization": { "type": "relation", "relation": "manyToOne", "target": "api::organization.organization" },
+    "contact": { "type": "relation", "relation": "manyToOne", "target": "api::contact.contact" },
+    "details": { "type": "richtext" }
+  }
+}

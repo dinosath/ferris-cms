@@ -27,6 +27,8 @@ enum ModalKind {
     FieldConfig {
         ct_uid: String,
         field_type: FieldType,
+        field_name: Option<String>,
+        initial: Option<Attribute>,
     },
     Metadata {
         ct_uid: String,
@@ -107,6 +109,7 @@ enum CtbAction {
     Create(Schema),
     Duplicate(String),
     Delete(String),
+    Import(serde_json::Value),
 }
 
 /// Content-Type Builder landing page — a table-first listing of every content
@@ -126,6 +129,9 @@ pub fn ContentTypeBuilder() -> Element {
     let mut action: Signal<Option<CtbAction>> = use_signal(|| None);
     let mut route = global.route;
     let mut status = use_signal(|| None::<String>);
+    let mut show_import = use_signal(|| false);
+    let mut import_text = use_signal(String::new);
+    let mut importing = use_signal(|| false);
 
     // Load the schema list once and register content-type names for breadcrumbs.
     let g_load = global.clone();
@@ -241,6 +247,36 @@ pub fn ContentTypeBuilder() -> Element {
                         del.set(None);
                     });
                 }
+                Some(CtbAction::Import(value)) => {
+                    let client = client.clone();
+                    let mut g = g.clone();
+                    let mut w = working;
+                    let mut importing2 = importing;
+                    let mut show = show_import;
+                    spawn(async move {
+                        importing2.set(true);
+                        match client.ctb_bulk_import(&value).await {
+                            Ok(response) => {
+                                if let Some(imported) = response["data"]["schemas"].as_array() {
+                                    let imported: Vec<Schema> = imported
+                                        .iter()
+                                        .filter_map(|schema| serde_json::from_value(schema.clone()).ok())
+                                        .collect();
+                                    let names: Vec<(String, String)> = imported
+                                        .iter()
+                                        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                        .collect();
+                                    g.ct_names.set(names);
+                                    w.set(imported);
+                                }
+                                g.toast("Content types imported", "success");
+                            }
+                            Err(e) => g.toast(format!("Import failed: {e}"), "danger"),
+                        }
+                        importing2.set(false);
+                        show.set(false);
+                    });
+                }
                 None => {}
             }
         }
@@ -328,7 +364,10 @@ pub fn ContentTypeBuilder() -> Element {
                     span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "Content-Type Builder" }
                     span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Define and manage the structure of your content." }
                 }
-                Button { label: "Create content type".to_string(), on_click: move |_| show_create.set(true) }
+                div { style: "display:flex; gap:8px;",
+                    Button { label: "Import".to_string(), variant: "secondary".to_string(), on_click: move |_| show_import.set(true) }
+                    Button { label: "Create content type".to_string(), on_click: move |_| show_create.set(true) }
+                }
             }
 
             // Toolbar: search + type tabs
@@ -405,6 +444,34 @@ pub fn ContentTypeBuilder() -> Element {
                 confirm_label: "Delete".to_string(),
                 on_cancel: move |_| to_delete.set(None),
                 on_confirm: move |_| action.set(Some(CtbAction::Delete(uid.clone()))),
+            }
+        }
+
+        if show_import() {
+            Modal {
+                title: "Import Content Types".to_string(),
+                on_close: move |_| show_import.set(false),
+                div { style: "display:flex; flex-direction:column; gap:16px;",
+                    TextArea {
+                        value: import_text(),
+                        label: "Content-type bundle JSON".to_string(),
+                        rows: 12,
+                        hint: "Paste a content-type bundle or schema JSON exported from Ferris.".to_string(),
+                        oninput: move |v| import_text.set(v),
+                    }
+                    div { style: "display:flex; justify-content:flex-end; gap:12px;",
+                        Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| show_import.set(false) }
+                        Button {
+                            label: "Import".to_string(),
+                            loading: importing(),
+                            disabled: import_text().trim().is_empty(),
+                            on_click: move |_| {
+                                let parsed = serde_json::from_str::<serde_json::Value>(&import_text()).unwrap_or(serde_json::Value::Null);
+                                action.set(Some(CtbAction::Import(parsed)));
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -508,12 +575,12 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
         .as_ref()
         .map(|s| s.attributes.keys().cloned().collect())
         .unwrap_or_default();
-    let selected_attrs: Vec<(String, String, FieldType, bool)> = selected
+    let selected_attrs: Vec<(String, String, Attribute, FieldType, bool)> = selected
         .as_ref()
         .map(|s| {
             s.attributes
                 .iter()
-                .map(|(n, a)| (s.uid.as_str().to_string(), n.clone(), a.attr_type, a.required))
+                .map(|(n, a)| (s.uid.as_str().to_string(), n.clone(), a.clone(), a.attr_type, a.required))
                 .collect()
         })
         .unwrap_or_default();
@@ -604,7 +671,7 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                             }
                         } else {
                             div { style: "display:flex; flex-direction:column;",
-                                for (row_uid, name, ft, req) in selected_attrs.into_iter() {
+                                for (row_uid, name, attr, ft, req) in selected_attrs.into_iter() {
                                     div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
                                         Icon { name: icon_for(ft), size: 18 }
                                         div { style: "display:flex; flex-direction:column; flex:1;",
@@ -615,7 +682,12 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                                             Badge { text: "required".to_string(), kind: "new".to_string() }
                                         }
                                         IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
-                                            on_click: move |_| modal.set(ModalKind::FieldConfig { ct_uid: row_uid.clone(), field_type: ft }) }
+                                            on_click: move |_| modal.set(ModalKind::FieldConfig {
+                                                ct_uid: row_uid.clone(),
+                                                field_type: ft,
+                                                field_name: Some(name.clone()),
+                                                initial: Some(attr.clone()),
+                                            }) }
                                     }
                                 }
                             }
@@ -653,18 +725,31 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
         if let ModalKind::FieldPicker { ct_uid } = modal() {
             FieldPickerModal {
                 on_close: move |_| modal.set(ModalKind::None),
-                on_pick: move |ft| modal.set(ModalKind::FieldConfig { ct_uid: ct_uid.clone(), field_type: ft }),
+                on_pick: move |ft| modal.set(ModalKind::FieldConfig {
+                    ct_uid: ct_uid.clone(),
+                    field_type: ft,
+                    field_name: None,
+                    initial: None,
+                }),
             }
         }
-        if let ModalKind::FieldConfig { ct_uid, field_type } = modal() {
+        if let ModalKind::FieldConfig { ct_uid, field_type, field_name, initial } = modal() {
             FieldConfigModal {
+                key: "{ct_uid}-{field_name.clone().unwrap_or_default()}",
                 field_type,
+                field_name: field_name.clone(),
+                initial,
                 target_types: target_types.clone(),
                 component_types: component_types.clone(),
                 sibling_fields: sibling_fields.clone(),
                 on_close: move |_| modal.set(ModalKind::None),
                 on_save: move |(name, attr): (String, Attribute)| {
                     if let Some(schema) = working.write().iter_mut().find(|s| s.uid.as_str() == ct_uid) {
+                        if let Some(old_name) = field_name.as_ref() {
+                            if old_name != &name {
+                                schema.attributes.shift_remove(old_name);
+                            }
+                        }
                         schema.attributes.insert(name, attr);
                     }
                     is_dirty.set(true);
@@ -996,43 +1081,47 @@ fn resolve_type(field_type: FieldType, num_format: &str, date_type: &str) -> Fie
 #[component]
 fn FieldConfigModal(
     field_type: FieldType,
+    field_name: Option<String>,
+    initial: Option<Attribute>,
     target_types: Vec<String>,
     component_types: Vec<(String, String)>,
     sibling_fields: Vec<String>,
     on_close: EventHandler<MouseEvent>,
     on_save: EventHandler<(String, Attribute)>,
 ) -> Element {
-    let mut name = use_signal(String::new);
-    let mut required = use_signal(|| false);
-    let mut unique = use_signal(|| false);
-    let mut private = use_signal(|| false);
-    let mut num_format = use_signal(|| "integer".to_string());
-    let mut date_type = use_signal(|| "datetime".to_string());
-    let mut enum_values = use_signal(String::new);
+    let initial_attr = initial.unwrap_or_else(|| Attribute::new(field_type));
+    let editing = field_name.is_some();
+    let mut name = use_signal(|| field_name.clone().unwrap_or_default());
+    let mut required = use_signal(|| initial_attr.required);
+    let mut unique = use_signal(|| initial_attr.unique);
+    let mut private = use_signal(|| initial_attr.private);
+    let mut num_format = use_signal(|| number_format(initial_attr.attr_type));
+    let mut date_type = use_signal(|| date_format(initial_attr.attr_type));
+    let mut enum_values = use_signal(|| initial_attr.enum_values.join("\n"));
     // Relation config.
-    let mut relation_kind = use_signal(|| "oneToOne".to_string());
-    let mut relation_target = use_signal(String::new);
+    let mut relation_kind = use_signal(|| relation_key(initial_attr.relation));
+    let mut relation_target = use_signal(|| initial_attr.target.as_ref().map(|u| u.as_str().to_string()).unwrap_or_default());
     // Component config.
-    let mut component_repeatable = use_signal(|| false);
-    let mut component_uid = use_signal(String::new);
+    let mut component_repeatable = use_signal(|| initial_attr.repeatable.unwrap_or(false));
+    let mut component_uid = use_signal(|| initial_attr.component.as_ref().map(|u| u.as_str().to_string()).unwrap_or_default());
     // Dynamic zone config.
-    let mut dz_components = use_signal(Vec::<String>::new);
+    let mut dz_components: Signal<Vec<String>> = use_signal(|| initial_attr.components.iter().map(|u| u.as_str().to_string()).collect());
     let mut dz_components_sel = use_signal(String::new);
     // Media config.
-    let mut media_multiple = use_signal(|| false);
-    let mut media_allowed = use_signal(|| "images".to_string());
+    let mut media_multiple = use_signal(|| initial_attr.multiple.unwrap_or(false));
+    let mut media_allowed = use_signal(|| initial_attr.allowed_types.first().cloned().unwrap_or_else(|| "images".to_string()));
     // UID config.
-    let mut uid_target = use_signal(String::new);
+    let mut uid_target = use_signal(|| initial_attr.target_field.clone().unwrap_or_default());
     // Conditional visibility (Strapi conditional fields).
-    let mut cond_enabled = use_signal(|| false);
-    let mut cond_field = use_signal(String::new);
-    let mut cond_operator = use_signal(|| "is".to_string());
-    let mut cond_value = use_signal(String::new);
+    let mut cond_enabled = use_signal(|| initial_attr.visible_when.is_some());
+    let mut cond_field = use_signal(|| initial_attr.visible_when.as_ref().map(|c| c.field.clone()).unwrap_or_default());
+    let mut cond_operator = use_signal(|| initial_attr.visible_when.as_ref().map(|c| match c.operator { core_schema::FieldConditionOperator::Is => "is", core_schema::FieldConditionOperator::IsNot => "isNot" }).unwrap_or("is").to_string());
+    let mut cond_value = use_signal(|| initial_attr.visible_when.as_ref().map(|c| condition_value_text(&c.value)).unwrap_or_default());
 
     // Computed / database-generated column config.
-    let mut computed = use_signal(|| false);
-    let mut expression = use_signal(String::new);
-    let mut computed_stored = use_signal(|| true);
+    let mut computed = use_signal(|| initial_attr.computed);
+    let mut expression = use_signal(|| initial_attr.expression.clone().unwrap_or_default());
+    let mut computed_stored = use_signal(|| initial_attr.stored.unwrap_or(true));
     let supports_computed = matches!(
         field_type,
         FieldType::Integer
@@ -1096,7 +1185,11 @@ fn FieldConfigModal(
         "virtual".to_string()
     };
 
-    let title = format!("Add a new {} field", field_type.as_str());
+    let title = if editing {
+        format!("Edit {} field", field_type.as_str())
+    } else {
+        format!("Add a new {} field", field_type.as_str())
+    };
     let is_number = matches!(
         field_type,
         FieldType::Integer | FieldType::Biginteger | FieldType::Decimal | FieldType::Float
@@ -1146,7 +1239,8 @@ fn FieldConfigModal(
 
     let finish = move |_| {
         let attr_type = resolve_type(field_type, &num_format(), &date_type());
-        let mut attr = Attribute::new(attr_type);
+        let mut attr = initial_attr.clone();
+        attr.attr_type = attr_type;
         attr.required = required();
         attr.unique = unique();
         attr.private = private();
@@ -1212,6 +1306,11 @@ fn FieldConfigModal(
             attr.required = false;
             attr.unique = false;
             attr.default = None;
+        } else {
+            attr.computed = false;
+            attr.expression = None;
+            attr.stored = None;
+            attr.dependencies.clear();
         }
         on_save.call((name(), attr));
     };
@@ -1465,6 +1564,44 @@ fn icon_for(ft: FieldType) -> String {
         _ => "text",
     }
     .to_string()
+}
+
+fn number_format(field_type: FieldType) -> String {
+    match field_type {
+        FieldType::Biginteger => "bigint",
+        FieldType::Decimal => "decimal",
+        FieldType::Float => "float",
+        _ => "integer",
+    }
+    .to_string()
+}
+
+fn date_format(field_type: FieldType) -> String {
+    match field_type {
+        FieldType::Date => "date",
+        FieldType::Time => "time",
+        _ => "datetime",
+    }
+    .to_string()
+}
+
+fn relation_key(relation: Option<core_domain::RelationKind>) -> String {
+    match relation.unwrap_or(core_domain::RelationKind::OneToOne) {
+        core_domain::RelationKind::OneWay => "oneWay",
+        core_domain::RelationKind::OneToOne => "oneToOne",
+        core_domain::RelationKind::OneToMany => "oneToMany",
+        core_domain::RelationKind::ManyToOne => "manyToOne",
+        core_domain::RelationKind::ManyToMany => "manyToMany",
+        core_domain::RelationKind::ManyWay => "manyWay",
+    }
+    .to_string()
+}
+
+fn condition_value_text(value: &serde_json::Value) -> String {
+    value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
 }
 
 #[cfg(test)]

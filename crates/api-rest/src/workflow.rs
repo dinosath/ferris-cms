@@ -168,6 +168,21 @@ pub async fn import_workflow(
     Ok(Json(serde_json::json!({ "data": wf })))
 }
 
+pub async fn export_workflows_bulk(
+    admin: AdminCtx,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let bundle = services::workflow::workflow_export_bulk(&admin.0).await?;
+    Ok(Json(bundle))
+}
+
+pub async fn import_workflows_bulk(
+    admin: AdminCtx,
+    Json(value): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let workflows = services::workflow::workflow_import_bulk(&admin.0, &value).await?;
+    Ok(Json(serde_json::json!({ "data": { "workflows": workflows } })))
+}
+
 pub async fn execute_workflow_handler(
     admin: AdminCtx,
     Path(id): Path<i64>,

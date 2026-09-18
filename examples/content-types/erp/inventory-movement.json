@@ -1,0 +1,29 @@
+{
+  "uid": "api::inventory-movement.inventory-movement",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "inventory-movement",
+    "pluralName": "inventory-movements",
+    "displayName": "Inventory Movement"
+  },
+  "metadata": {
+    "namespace": "erp",
+    "labels": { "application": "erp", "domain": "inventory", "audit": "true" }
+  },
+  "options": { "draftAndPublish": false },
+  "attributes": {
+    "movement_number": { "type": "uid", "required": true, "unique": true, "targetField": "movement_number" },
+    "product": { "type": "relation", "relation": "manyToOne", "target": "api::product.product", "required": true },
+    "warehouse": { "type": "relation", "relation": "manyToOne", "target": "api::warehouse.warehouse", "required": true },
+    "movement_type": { "type": "enumeration", "enum": ["purchase_receipt", "sale_issue", "return_in", "return_out", "transfer_in", "transfer_out", "adjustment", "stocktake", "reservation", "release"] },
+    "quantity": { "type": "decimal", "required": true },
+    "unit_cost": { "type": "decimal" },
+    "occurred_at": { "type": "datetime", "required": true },
+    "reference_type": { "type": "enumeration", "enum": ["purchase_invoice", "sales_invoice", "stocktake", "manual", "transfer", "other"] },
+    "reference_id": { "type": "string" },
+    "lot_number": { "type": "string" },
+    "serial_number": { "type": "string" },
+    "expiry_date": { "type": "date" },
+    "notes": { "type": "text" }
+  }
+}

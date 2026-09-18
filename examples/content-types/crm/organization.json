@@ -1,0 +1,26 @@
+{
+  "uid": "api::organization.organization",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "organization",
+    "pluralName": "organizations",
+    "displayName": "Organization"
+  },
+  "metadata": {
+    "namespace": "crm",
+    "labels": { "application": "crm", "domain": "party" }
+  },
+  "options": { "draftAndPublish": true },
+  "attributes": {
+    "legal_name": { "type": "string", "required": true },
+    "trade_name": { "type": "string" },
+    "tax_id": { "type": "string", "unique": true },
+    "tax_country": { "type": "string" },
+    "email": { "type": "email" },
+    "phone": { "type": "string" },
+    "website": { "type": "string" },
+    "address": { "type": "json" },
+    "status": { "type": "enumeration", "enum": ["prospect", "customer", "supplier", "partner", "inactive"] },
+    "notes": { "type": "richtext" }
+  }
+}

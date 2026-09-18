@@ -1,0 +1,924 @@
+{
+    "format": "ferriscms-content-types",
+    "version": 1,
+    "schemas": [
+        {
+            "uid": "api::customer-group.customer-group",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "customer-group",
+                "pluralName": "customer-groups",
+                "displayName": "Customer Group"
+            },
+            "metadata": {
+                "namespace": "crm",
+                "labels": {
+                    "application": "crm",
+                    "domain": "segmentation",
+                    "pricing": "true"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "code": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "code"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "description": {
+                    "type": "text"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "active": {
+                    "type": "boolean"
+                }
+            }
+        },
+        {
+            "uid": "api::organization.organization",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "organization",
+                "pluralName": "organizations",
+                "displayName": "Organization"
+            },
+            "metadata": {
+                "namespace": "crm",
+                "labels": {
+                    "application": "crm",
+                    "domain": "party"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "legal_name": {
+                    "type": "string",
+                    "required": true
+                },
+                "trade_name": {
+                    "type": "string"
+                },
+                "tax_id": {
+                    "type": "string",
+                    "unique": true
+                },
+                "tax_country": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "email"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "website": {
+                    "type": "string"
+                },
+                "address": {
+                    "type": "json"
+                },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "prospect",
+                        "customer",
+                        "supplier",
+                        "partner",
+                        "inactive"
+                    ]
+                },
+                "notes": {
+                    "type": "richtext"
+                }
+            }
+        },
+        {
+            "uid": "api::customer-price-rule.customer-price-rule",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "customer-price-rule",
+                "pluralName": "customer-price-rules",
+                "displayName": "Customer Price Rule"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "pricing"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "product": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "customer": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::organization.organization"
+                },
+                "customer_group": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::customer-group.customer-group"
+                },
+                "price_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "fixed",
+                        "discount_percent",
+                        "discount_amount"
+                    ]
+                },
+                "value": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "minimum_quantity": {
+                    "type": "decimal"
+                },
+                "valid_from": {
+                    "type": "datetime"
+                },
+                "valid_until": {
+                    "type": "datetime"
+                },
+                "priority": {
+                    "type": "integer"
+                },
+                "active": {
+                    "type": "boolean"
+                }
+            }
+        },
+        {
+            "uid": "api::e-invoice-submission.e-invoice-submission",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "e-invoice-submission",
+                "pluralName": "e-invoice-submissions",
+                "displayName": "Electronic Invoice Submission"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "fiscal",
+                    "integration": "mydata"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "invoice": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::sales-invoice.sales-invoice"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "submission_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "invoice",
+                        "receipt",
+                        "credit_note",
+                        "cancellation"
+                    ]
+                },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "queued",
+                        "submitted",
+                        "accepted",
+                        "rejected",
+                        "cancelled"
+                    ]
+                },
+                "external_id": {
+                    "type": "string"
+                },
+                "mark": {
+                    "type": "string"
+                },
+                "submitted_at": {
+                    "type": "datetime"
+                },
+                "response_at": {
+                    "type": "datetime"
+                },
+                "error_code": {
+                    "type": "string"
+                },
+                "error_message": {
+                    "type": "text"
+                },
+                "request_payload": {
+                    "type": "json"
+                },
+                "response_payload": {
+                    "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::inventory-item.inventory-item",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "inventory-item",
+                "pluralName": "inventory-items",
+                "displayName": "Inventory Balance"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "inventory"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "product": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product"
+                },
+                "warehouse": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::warehouse.warehouse"
+                },
+                "quantity_on_hand": {
+                    "type": "decimal"
+                },
+                "quantity_reserved": {
+                    "type": "decimal"
+                },
+                "quantity_available": {
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "quantity_on_hand - quantity_reserved",
+                    "stored": true,
+                    "dependencies": [
+                        "quantity_on_hand",
+                        "quantity_reserved"
+                    ]
+                },
+                "reorder_point": {
+                    "type": "decimal"
+                },
+                "average_cost": {
+                    "type": "decimal"
+                },
+                "last_counted_at": {
+                    "type": "datetime"
+                }
+            }
+        },
+        {
+            "uid": "api::inventory-movement.inventory-movement",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "inventory-movement",
+                "pluralName": "inventory-movements",
+                "displayName": "Inventory Movement"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "inventory",
+                    "audit": "true"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "movement_number": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "movement_number"
+                },
+                "product": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "warehouse": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::warehouse.warehouse",
+                    "required": true
+                },
+                "movement_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "purchase_receipt",
+                        "sale_issue",
+                        "return_in",
+                        "return_out",
+                        "transfer_in",
+                        "transfer_out",
+                        "adjustment",
+                        "stocktake",
+                        "reservation",
+                        "release"
+                    ]
+                },
+                "quantity": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "unit_cost": {
+                    "type": "decimal"
+                },
+                "occurred_at": {
+                    "type": "datetime",
+                    "required": true
+                },
+                "reference_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "purchase_invoice",
+                        "sales_invoice",
+                        "stocktake",
+                        "manual",
+                        "transfer",
+                        "other"
+                    ]
+                },
+                "reference_id": {
+                    "type": "string"
+                },
+                "lot_number": {
+                    "type": "string"
+                },
+                "serial_number": {
+                    "type": "string"
+                },
+                "expiry_date": {
+                    "type": "date"
+                },
+                "notes": {
+                    "type": "text"
+                }
+            }
+        },
+        {
+            "uid": "api::payment.payment",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "payment",
+                "pluralName": "payments",
+                "displayName": "Payment"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "finance"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "payment_number": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "payment_number"
+                },
+                "invoice": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::sales-invoice.sales-invoice"
+                },
+                "amount": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "method": {
+                    "type": "enumeration",
+                    "enum": [
+                        "cash",
+                        "card",
+                        "bank_transfer",
+                        "direct_debit",
+                        "other"
+                    ]
+                },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "pending",
+                        "authorized",
+                        "captured",
+                        "failed",
+                        "refunded"
+                    ]
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "provider_reference": {
+                    "type": "string"
+                },
+                "paid_at": {
+                    "type": "datetime"
+                },
+                "metadata": {
+                    "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::product.product",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "product",
+                "pluralName": "products",
+                "displayName": "Product or Service"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "sku": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "sku"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "description": {
+                    "type": "text"
+                },
+                "kind": {
+                    "type": "enumeration",
+                    "enum": [
+                        "product",
+                        "service",
+                        "bundle"
+                    ]
+                },
+                "unit": {
+                    "type": "string"
+                },
+                "vat_rate": {
+                    "type": "decimal"
+                },
+                "sale_price": {
+                    "type": "decimal"
+                },
+                "cost_price": {
+                    "type": "decimal"
+                },
+                "track_stock": {
+                    "type": "boolean"
+                },
+                "barcode": {
+                    "type": "string",
+                    "unique": true
+                },
+                "attributes": {
+                    "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::purchase-invoice-line.purchase-invoice-line",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "purchase-invoice-line",
+                "pluralName": "purchase-invoice-lines",
+                "displayName": "Purchase Invoice Line"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "purchasing",
+                    "document": "line"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "invoice": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::purchase-invoice.purchase-invoice"
+                },
+                "product": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "unit_cost": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "discount_rate": {
+                    "type": "decimal"
+                },
+                "tax_rate": {
+                    "type": "decimal"
+                },
+                "net_amount": {
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "quantity * unit_cost",
+                    "stored": true,
+                    "dependencies": [
+                        "quantity",
+                        "unit_cost"
+                    ]
+                },
+                "tax_amount": {
+                    "type": "decimal"
+                },
+                "line_total": {
+                    "type": "decimal"
+                },
+                "lot_number": {
+                    "type": "string"
+                },
+                "expiry_date": {
+                    "type": "date"
+                }
+            }
+        },
+        {
+            "uid": "api::purchase-invoice.purchase-invoice",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "purchase-invoice",
+                "pluralName": "purchase-invoices",
+                "displayName": "Purchase Invoice"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "purchasing",
+                    "document": "fiscal"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "document_number": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "document_number"
+                },
+                "supplier_document_number": {
+                    "type": "string"
+                },
+                "document_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "purchase_invoice",
+                        "credit_note",
+                        "receipt"
+                    ]
+                },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "draft",
+                        "received",
+                        "approved",
+                        "cancelled",
+                        "paid",
+                        "partially_paid"
+                    ]
+                },
+                "received_at": {
+                    "type": "datetime"
+                },
+                "due_at": {
+                    "type": "datetime"
+                },
+                "supplier": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::organization.organization",
+                    "required": true
+                },
+                "warehouse": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::warehouse.warehouse"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "net_amount": {
+                    "type": "decimal"
+                },
+                "tax_amount": {
+                    "type": "decimal"
+                },
+                "discount_amount": {
+                    "type": "decimal"
+                },
+                "total_amount": {
+                    "type": "decimal"
+                },
+                "amount_paid": {
+                    "type": "decimal"
+                },
+                "payment_status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "unpaid",
+                        "partially_paid",
+                        "paid",
+                        "refunded"
+                    ]
+                },
+                "notes": {
+                    "type": "text"
+                },
+                "fiscal_data": {
+                    "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::sales-invoice-line.sales-invoice-line",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "sales-invoice-line",
+                "pluralName": "sales-invoice-lines",
+                "displayName": "Sales Invoice Line"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "sales",
+                    "document": "line"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "invoice": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::sales-invoice.sales-invoice"
+                },
+                "product": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "quantity": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "unit_price": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "price_rule": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::customer-price-rule.customer-price-rule"
+                },
+                "price_source": {
+                    "type": "enumeration",
+                    "enum": [
+                        "customer",
+                        "customer_group",
+                        "default",
+                        "manual"
+                    ]
+                },
+                "discount_rate": {
+                    "type": "decimal"
+                },
+                "tax_rate": {
+                    "type": "decimal"
+                },
+                "net_amount": {
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "quantity * unit_price",
+                    "stored": true,
+                    "dependencies": [
+                        "quantity",
+                        "unit_price"
+                    ]
+                },
+                "tax_amount": {
+                    "type": "decimal"
+                },
+                "line_total": {
+                    "type": "decimal"
+                }
+            }
+        },
+        {
+            "uid": "api::sales-invoice.sales-invoice",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "sales-invoice",
+                "pluralName": "sales-invoices",
+                "displayName": "Sales Invoice or Receipt"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "sales",
+                    "document": "fiscal"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "document_number": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "document_number"
+                },
+                "document_type": {
+                    "type": "enumeration",
+                    "enum": [
+                        "retail_receipt",
+                        "invoice",
+                        "credit_note",
+                        "proforma"
+                    ]
+                },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "draft",
+                        "issued",
+                        "cancelled",
+                        "paid",
+                        "partially_paid"
+                    ]
+                },
+                "issued_at": {
+                    "type": "datetime"
+                },
+                "due_at": {
+                    "type": "datetime"
+                },
+                "customer": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::organization.organization"
+                },
+                "lines": {
+                    "type": "relation",
+                    "relation": "manyToMany",
+                    "target": "api::sales-invoice-line.sales-invoice-line"
+                },
+                "currency": {
+                    "type": "string"
+                },
+                "net_amount": {
+                    "type": "decimal"
+                },
+                "tax_amount": {
+                    "type": "decimal"
+                },
+                "discount_amount": {
+                    "type": "decimal"
+                },
+                "total_amount": {
+                    "type": "decimal"
+                },
+                "amount_paid": {
+                    "type": "decimal"
+                },
+                "payment_status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "unpaid",
+                        "partially_paid",
+                        "paid",
+                        "refunded"
+                    ]
+                },
+                "notes": {
+                    "type": "text"
+                },
+                "fiscal_data": {
+                    "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::warehouse.warehouse",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "warehouse",
+                "pluralName": "warehouses",
+                "displayName": "Warehouse or Store"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "inventory"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "code": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "code"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "kind": {
+                    "type": "enumeration",
+                    "enum": [
+                        "warehouse",
+                        "store",
+                        "transit"
+                    ]
+                },
+                "address": {
+                    "type": "json"
+                },
+                "manager": {
+                    "type": "string"
+                },
+                "active": {
+                    "type": "boolean"
+                }
+            }
+        }
+    ]
+}

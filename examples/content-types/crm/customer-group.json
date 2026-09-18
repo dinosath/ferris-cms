@@ -1,0 +1,21 @@
+{
+  "uid": "api::customer-group.customer-group",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "customer-group",
+    "pluralName": "customer-groups",
+    "displayName": "Customer Group"
+  },
+  "metadata": {
+    "namespace": "crm",
+    "labels": { "application": "crm", "domain": "segmentation", "pricing": "true" }
+  },
+  "options": { "draftAndPublish": true },
+  "attributes": {
+    "code": { "type": "uid", "required": true, "unique": true, "targetField": "code" },
+    "name": { "type": "string", "required": true },
+    "description": { "type": "text" },
+    "priority": { "type": "integer" },
+    "active": { "type": "boolean" }
+  }
+}

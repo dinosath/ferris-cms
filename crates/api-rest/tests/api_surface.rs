@@ -124,6 +124,41 @@ async fn public_api_crud_and_errors() {
     let token = register_admin(&router).await;
     let uid = create_article(&router, &token).await;
 
+        let export = router
+            .clone()
+            .oneshot(empty_request(
+                "GET",
+                "/content-type-builder/bulk-export",
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(export.status(), StatusCode::OK);
+        let bundle = body_json(export).await;
+        assert_eq!(bundle["format"], "ferriscms-content-types");
+        assert!(bundle["schemas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|schema| schema["uid"] == uid));
+
+        let import = router
+            .clone()
+            .oneshot(json_request(
+                "POST",
+                "/content-type-builder/bulk-import",
+                bundle,
+                Some(&token),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(import.status(), StatusCode::OK);
+        assert!(body_json(import).await["data"]["schemas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|schema| schema["uid"] == uid));
+
     // Public create.
     let created = router
         .clone()

@@ -1,0 +1,24 @@
+{
+  "uid": "api::inventory-item.inventory-item",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "inventory-item",
+    "pluralName": "inventory-items",
+    "displayName": "Inventory Balance"
+  },
+  "metadata": {
+    "namespace": "erp",
+    "labels": { "application": "erp", "domain": "inventory" }
+  },
+  "options": { "draftAndPublish": false },
+  "attributes": {
+    "product": { "type": "relation", "relation": "manyToOne", "target": "api::product.product" },
+    "warehouse": { "type": "relation", "relation": "manyToOne", "target": "api::warehouse.warehouse" },
+    "quantity_on_hand": { "type": "decimal" },
+    "quantity_reserved": { "type": "decimal" },
+    "quantity_available": { "type": "decimal", "computed": true, "expression": "quantity_on_hand - quantity_reserved", "stored": true, "dependencies": ["quantity_on_hand", "quantity_reserved"] },
+    "reorder_point": { "type": "decimal" },
+    "average_cost": { "type": "decimal" },
+    "last_counted_at": { "type": "datetime" }
+  }
+}

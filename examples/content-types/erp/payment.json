@@ -1,0 +1,26 @@
+{
+  "uid": "api::payment.payment",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "payment",
+    "pluralName": "payments",
+    "displayName": "Payment"
+  },
+  "metadata": {
+    "namespace": "erp",
+    "labels": { "application": "erp", "domain": "finance" }
+  },
+  "options": { "draftAndPublish": false },
+  "attributes": {
+    "payment_number": { "type": "uid", "required": true, "unique": true, "targetField": "payment_number" },
+    "invoice": { "type": "relation", "relation": "manyToOne", "target": "api::sales-invoice.sales-invoice" },
+    "amount": { "type": "decimal", "required": true },
+    "currency": { "type": "string" },
+    "method": { "type": "enumeration", "enum": ["cash", "card", "bank_transfer", "direct_debit", "other"] },
+    "status": { "type": "enumeration", "enum": ["pending", "authorized", "captured", "failed", "refunded"] },
+    "provider": { "type": "string" },
+    "provider_reference": { "type": "string" },
+    "paid_at": { "type": "datetime" },
+    "metadata": { "type": "json" }
+  }
+}

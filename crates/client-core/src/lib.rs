@@ -365,6 +365,16 @@ impl Client {
             .await
     }
 
+    /// Import a content-type bundle or a single content-type schema.
+    pub async fn ctb_bulk_import(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/content-type-builder/bulk-import", value)
+            .await
+    }
+
     // -- Content Manager --
     pub async fn cm_list(
         &self,
@@ -690,6 +700,16 @@ impl Client {
     ) -> Result<serde_json::Value, ClientError> {
         self.transport
             .post_json("/admin/workflows/import", value)
+            .await
+    }
+
+    /// Import a workflow bundle or a single workflow document.
+    pub async fn workflow_bulk_import(
+        &self,
+        value: &serde_json::Value,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .post_json("/admin/workflows/bulk-import", value)
             .await
     }
 

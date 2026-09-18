@@ -320,7 +320,40 @@ async fn workflow_full_lifecycle() {
         2
     );
 
-    // 12. Credentials CRUD.
+    // 12. Bulk workflow bundle export / import.
+    let bulk_export = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            "/admin/workflows/bulk-export",
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(bulk_export.status(), StatusCode::OK);
+    let bulk_bundle = body_json(bulk_export).await;
+    assert_eq!(bulk_bundle["format"], "ferriscms-workflows");
+    assert!(!bulk_bundle["workflows"].as_array().unwrap().is_empty());
+
+    let bulk_import = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/admin/workflows/bulk-import",
+            bulk_bundle,
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(bulk_import.status(), StatusCode::OK);
+    let imported_workflows = body_json(bulk_import).await["data"]["workflows"]
+        .as_array()
+        .unwrap()
+        .to_vec();
+    assert!(!imported_workflows.is_empty());
+    assert!(imported_workflows.iter().all(|workflow| !workflow["active"].as_bool().unwrap()));
+
+    // 13. Credentials CRUD.
     let cred_types = router
         .clone()
         .oneshot(empty_request("GET", "/admin/workflow-credentials/types", Some(&token)))

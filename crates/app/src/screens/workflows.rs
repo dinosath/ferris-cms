@@ -151,7 +151,7 @@ pub fn Workflows() -> Element {
                     let mut show = show_import;
                     spawn(async move {
                         importing2.set(true);
-                        match client.workflow_import(&v).await {
+                        match client.workflow_bulk_import(&v).await {
                             Ok(_) => {
                                 if let Ok(list) = client.workflow_list(None, None).await {
                                     its.set(list["data"].as_array().cloned().unwrap_or_default());
@@ -323,14 +323,14 @@ pub fn Workflows() -> Element {
         // Import workflow modal
         if show_import() {
             crate::components::Modal {
-                title: "Import Workflow".to_string(),
+                title: "Import Workflows".to_string(),
                 on_close: move |_| show_import.set(false),
                 div { style: "display:flex; flex-direction:column; gap:16px;",
                     crate::components::TextArea {
                         value: import_text(),
-                        label: "Workflow JSON".to_string(),
+                        label: "Workflow bundle JSON".to_string(),
                         rows: 10,
-                        hint: "Paste a workflow JSON document exported from Ferris.".to_string(),
+                        hint: "Paste a workflow bundle or single workflow JSON exported from Ferris.".to_string(),
                         oninput: move |v| import_text.set(v),
                     }
                     div { style: "display:flex; justify-content:flex-end; gap:12px;",

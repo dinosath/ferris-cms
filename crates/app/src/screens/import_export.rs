@@ -598,7 +598,7 @@ pub fn ImportWizard(initial_uid: Option<String>) -> Element {
     }
 
     rsx! {
-        div { style: "padding:32px; max-width:1000px;",
+        div { style: "width:100%; padding:32px;",
             div { style: "display:flex; align-items:center; gap:12px; margin-bottom:20px;",
                 Button { label: "← Back".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::Home) }
                 div { style: "display:flex; flex-direction:column; gap:2px;",
@@ -881,7 +881,7 @@ pub fn ExportWizard(initial_uid: Option<String>) -> Element {
     }
 
     rsx! {
-        div { style: "padding:32px; max-width:1000px;",
+        div { style: "width:100%; padding:32px;",
             div { style: "display:flex; align-items:center; gap:12px; margin-bottom:20px;",
                 Button { label: "← Back".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::Home) }
                 div { style: "display:flex; flex-direction:column; gap:2px;",

@@ -1,0 +1,73 @@
+{
+  "format": "ferriscms-content-types",
+  "version": 1,
+  "schemas": [
+    {
+      "uid": "api::activity.activity",
+      "kind": "collectionType",
+      "info": { "singularName": "activity", "pluralName": "activities", "displayName": "CRM Activity" },
+      "metadata": { "namespace": "crm", "labels": { "application": "crm", "domain": "engagement" } },
+      "options": { "draftAndPublish": false },
+      "attributes": {
+        "subject": { "type": "string", "required": true },
+        "activity_type": { "type": "enumeration", "enum": ["call", "email", "meeting", "task", "note"] },
+        "status": { "type": "enumeration", "enum": ["planned", "open", "completed", "cancelled"] },
+        "scheduled_at": { "type": "datetime" }, "completed_at": { "type": "datetime" }, "assigned_to": { "type": "string" },
+        "organization": { "type": "relation", "relation": "manyToOne", "target": "api::organization.organization" },
+        "contact": { "type": "relation", "relation": "manyToOne", "target": "api::contact.contact" },
+        "details": { "type": "richtext" }
+      }
+    },
+    {
+      "uid": "api::contact.contact",
+      "kind": "collectionType",
+      "info": { "singularName": "contact", "pluralName": "contacts", "displayName": "Contact" },
+      "metadata": { "namespace": "crm", "labels": { "application": "crm", "domain": "party" } },
+      "options": { "draftAndPublish": true },
+      "attributes": {
+        "first_name": { "type": "string", "required": true }, "last_name": { "type": "string", "required": true },
+        "email": { "type": "email" }, "phone": { "type": "string" }, "job_title": { "type": "string" },
+        "role": { "type": "enumeration", "enum": ["owner", "buyer", "billing", "technical", "other"] },
+        "organization": { "type": "relation", "relation": "manyToOne", "target": "api::organization.organization" },
+        "consent": { "type": "boolean" }, "notes": { "type": "text" }
+      }
+    },
+    {
+      "uid": "api::customer-group-membership.customer-group-membership",
+      "kind": "collectionType",
+      "info": { "singularName": "customer-group-membership", "pluralName": "customer-group-memberships", "displayName": "Customer Group Membership" },
+      "metadata": { "namespace": "crm", "labels": { "application": "crm", "domain": "segmentation" } },
+      "options": { "draftAndPublish": false },
+      "attributes": {
+        "customer": { "type": "relation", "relation": "manyToOne", "target": "api::organization.organization" },
+        "customer_group": { "type": "relation", "relation": "manyToOne", "target": "api::customer-group.customer-group" },
+        "valid_from": { "type": "date" }, "valid_until": { "type": "date" }, "active": { "type": "boolean" }
+      }
+    },
+    {
+      "uid": "api::customer-group.customer-group",
+      "kind": "collectionType",
+      "info": { "singularName": "customer-group", "pluralName": "customer-groups", "displayName": "Customer Group" },
+      "metadata": { "namespace": "crm", "labels": { "application": "crm", "domain": "segmentation", "pricing": "true" } },
+      "options": { "draftAndPublish": true },
+      "attributes": {
+        "code": { "type": "uid", "required": true, "unique": true, "targetField": "code" }, "name": { "type": "string", "required": true },
+        "description": { "type": "text" }, "priority": { "type": "integer" }, "active": { "type": "boolean" }
+      }
+    },
+    {
+      "uid": "api::organization.organization",
+      "kind": "collectionType",
+      "info": { "singularName": "organization", "pluralName": "organizations", "displayName": "Organization" },
+      "metadata": { "namespace": "crm", "labels": { "application": "crm", "domain": "party" } },
+      "options": { "draftAndPublish": true },
+      "attributes": {
+        "legal_name": { "type": "string", "required": true }, "trade_name": { "type": "string" },
+        "tax_id": { "type": "string", "unique": true }, "tax_country": { "type": "string" }, "email": { "type": "email" },
+        "phone": { "type": "string" }, "website": { "type": "string" }, "address": { "type": "json" },
+        "status": { "type": "enumeration", "enum": ["prospect", "customer", "supplier", "partner", "inactive"] },
+        "notes": { "type": "richtext" }
+      }
+    }
+  ]
+}

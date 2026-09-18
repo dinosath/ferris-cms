@@ -442,6 +442,26 @@ pub async fn workflow_export_yaml(ctx: &AppContext, id: i64) -> Result<String, S
         .map_err(|e| ServiceError::internal(format!("workflow yaml serialize: {e}")))
 }
 
+/// Export all workflows as a versioned bundle.
+pub async fn workflow_export_bulk(
+    ctx: &AppContext,
+) -> Result<serde_json::Value, ServiceError> {
+    enforce(ctx, action::VIEW).await?;
+    let rows = workflow::Entity::find()
+        .order_by_asc(workflow::Column::Id)
+        .all(&ctx.db)
+        .await?;
+    let workflows = rows
+        .into_iter()
+        .map(|row| model_to_workflow(&row))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(serde_json::json!({
+        "format": "ferriscms-workflows",
+        "version": 1,
+        "workflows": workflows,
+    }))
+}
+
 /// Parse an OWS document from a JSON value or a raw YAML/JSON text string.
 pub fn parse_ows_document(value: &serde_json::Value) -> Result<OwsDocument, ServiceError> {
     // Direct JSON object.
@@ -494,6 +514,45 @@ pub async fn workflow_import(
     }
     def.active = false;
     workflow_save(ctx, None, &def).await
+}
+
+/// Validate every workflow in a bundle before persisting any of them.
+pub async fn workflow_import_bulk(
+    ctx: &AppContext,
+    value: &serde_json::Value,
+) -> Result<Vec<OwsDocument>, ServiceError> {
+    let workflows_value = value
+        .get("workflows")
+        .cloned()
+        .unwrap_or_else(|| value.clone());
+    let mut definitions: Vec<OwsDocument> = serde_json::from_value(workflows_value)
+        .map_err(|e| ServiceError::validation("workflows", vec![crate::ValidationErrorItem::new(
+            vec!["workflows".into()],
+            format!("invalid workflow bundle: {e}"),
+            "ValidationError",
+        )]))?;
+
+    for definition in &definitions {
+        let validation = ::workflow::validate_workflow(definition);
+        if !validation.valid {
+            return Err(ServiceError::Validation(
+                validation
+                    .errors
+                    .into_iter()
+                    .map(|e| crate::ValidationErrorItem::new(vec![], e.message, e.code))
+                    .collect(),
+            ));
+        }
+    }
+
+    enforce(ctx, action::CREATE).await?;
+    let mut imported = Vec::with_capacity(definitions.len());
+    for definition in &mut definitions {
+        definition.id = 0;
+        definition.active = false;
+        imported.push(workflow_save(ctx, None, definition).await?);
+    }
+    Ok(imported)
 }
 
 /// Seed demo workflows on first boot (idempotent — no-op when workflows exist).

@@ -1,0 +1,25 @@
+{
+  "uid": "api::contact.contact",
+  "kind": "collectionType",
+  "info": {
+    "singularName": "contact",
+    "pluralName": "contacts",
+    "displayName": "Contact"
+  },
+  "metadata": {
+    "namespace": "crm",
+    "labels": { "application": "crm", "domain": "party" }
+  },
+  "options": { "draftAndPublish": true },
+  "attributes": {
+    "first_name": { "type": "string", "required": true },
+    "last_name": { "type": "string", "required": true },
+    "email": { "type": "email" },
+    "phone": { "type": "string" },
+    "job_title": { "type": "string" },
+    "role": { "type": "enumeration", "enum": ["owner", "buyer", "billing", "technical", "other"] },
+    "organization": { "type": "relation", "relation": "manyToOne", "target": "api::organization.organization" },
+    "consent": { "type": "boolean" },
+    "notes": { "type": "text" }
+  }
+}

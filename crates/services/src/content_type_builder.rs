@@ -25,6 +25,41 @@ pub async fn ctb_get(ctx: &AppContext, uid: &str) -> Result<Schema, ServiceError
         .ok_or_else(|| ServiceError::not_found(format!("schema `{uid}` not found")))
 }
 
+/// Export content-type definitions as a versioned bundle.
+pub fn ctb_export(ctx: &AppContext, uids: Option<&[String]>) -> Result<serde_json::Value, ServiceError> {
+    let schemas = ctx.schema_cache.get_all();
+    let schemas = match uids {
+        Some(uids) if !uids.is_empty() => schemas
+            .into_iter()
+            .filter(|schema| uids.iter().any(|uid| uid == schema.uid.as_str()))
+            .collect(),
+        _ => schemas,
+    };
+    Ok(serde_json::json!({
+        "format": "ferriscms-content-types",
+        "version": 1,
+        "schemas": schemas,
+    }))
+}
+
+/// Import a complete content-type bundle using the existing schema batch path.
+pub async fn ctb_import(
+    ctx: &AppContext,
+    value: &serde_json::Value,
+) -> Result<Vec<Schema>, ServiceError> {
+    let schemas_value = value
+        .get("schemas")
+        .cloned()
+        .unwrap_or_else(|| value.clone());
+    let schemas: Vec<Schema> = serde_json::from_value(schemas_value)
+        .map_err(|e| ServiceError::validation("content types", vec![ValidationErrorItem::new(
+            vec!["schemas".into()],
+            format!("invalid content-type bundle: {e}"),
+            "ValidationError",
+        )]))?;
+    ctb_apply(ctx, schemas, Vec::new()).await
+}
+
 /// Batch-apply the desired schema set.
 ///
 /// `desired` contains the schemas to **create or update** (upsert only — the

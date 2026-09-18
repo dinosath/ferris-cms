@@ -105,6 +105,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/content-type-builder/content-types/{uid}",
             get(ctb_get_handler),
         )
+        .route(
+            "/content-type-builder/bulk-export",
+            get(ctb_bulk_export_handler),
+        )
+        .route(
+            "/content-type-builder/bulk-import",
+            post(ctb_bulk_import_handler),
+        )
         .route("/content-type-builder/schema", post(ctb_apply_handler))
         .route(
             "/content-type-builder/reserved-names",
@@ -188,6 +196,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(workflow::list_workflows).post(workflow::create_workflow),
         )
         .route("/admin/workflows/import", post(workflow::import_workflow))
+        .route(
+            "/admin/workflows/bulk-export",
+            get(workflow::export_workflows_bulk),
+        )
+        .route(
+            "/admin/workflows/bulk-import",
+            post(workflow::import_workflows_bulk),
+        )
         .route(
             "/admin/workflows/{id}",
             get(workflow::get_workflow)
@@ -456,6 +472,21 @@ async fn ctb_get_handler(
 ) -> Result<impl IntoResponse, error::AppError> {
     let schema = ctb_get(&admin.0, &uid).await?;
     Ok(Json(serde_json::json!({ "data": schema })))
+}
+
+async fn ctb_bulk_export_handler(
+    admin: auth::AdminCtx,
+) -> Result<impl IntoResponse, error::AppError> {
+    let bundle = services::ctb_export(&admin.0, None)?;
+    Ok(Json(bundle))
+}
+
+async fn ctb_bulk_import_handler(
+    admin: auth::AdminCtx,
+    Json(value): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, error::AppError> {
+    let schemas = services::ctb_import(&admin.0, &value).await?;
+    Ok(Json(serde_json::json!({ "data": { "schemas": schemas } })))
 }
 
 async fn ctb_apply_handler(
