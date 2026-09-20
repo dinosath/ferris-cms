@@ -483,7 +483,6 @@
             "attributes": {
                 "sku": {
                     "type": "uid",
-                    "required": true,
                     "unique": true,
                     "targetField": "sku"
                 },
@@ -502,8 +501,34 @@
                         "bundle"
                     ]
                 },
+                "status": {
+                    "type": "enumeration",
+                    "enum": [
+                        "draft",
+                        "active",
+                        "discontinued"
+                    ]
+                },
                 "unit": {
                     "type": "string"
+                },
+                "uom_category": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::uom-category.uom-category"
+                },
+                "stock_uom": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::unit-of-measure.unit-of-measure"
+                },
+                "list_price": {
+                    "type": "decimal"
+                },
+                "list_price_uom": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::unit-of-measure.unit-of-measure"
                 },
                 "vat_rate": {
                     "type": "decimal"
@@ -869,6 +894,463 @@
                 },
                 "fiscal_data": {
                     "type": "json"
+                }
+            }
+        },
+        {
+            "uid": "api::bundle-component.bundle-component",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "bundle-component",
+                "pluralName": "bundle-components",
+                "displayName": "Bundle Component"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "bundle": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "component": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "quantity": {
+                    "type": "decimal",
+                    "required": true
+                }
+            }
+        },
+        {
+            "uid": "api::customer-group-price-list.customer-group-price-list",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "customer-group-price-list",
+                "pluralName": "customer-group-price-lists",
+                "displayName": "Customer Group Price List"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "pricing"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "customer_group": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::customer-group.customer-group",
+                    "required": true
+                },
+                "price_list": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::price-list.price-list",
+                    "required": true
+                }
+            }
+        },
+        {
+            "uid": "api::customer-price-list.customer-price-list",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "customer-price-list",
+                "pluralName": "customer-price-lists",
+                "displayName": "Customer Price List"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "pricing"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "customer": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::organization.organization",
+                    "required": true
+                },
+                "customer_group": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::customer-group.customer-group"
+                },
+                "price_list": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::price-list.price-list",
+                    "required": true
+                }
+            }
+        },
+        {
+            "uid": "api::item-uom.item-uom",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "item-uom",
+                "pluralName": "item-uoms",
+                "displayName": "Item Unit of Measure"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "item": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "uom": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::unit-of-measure.unit-of-measure",
+                    "required": true
+                },
+                "barcode": {
+                    "type": "string"
+                },
+                "conversion_factor_override": {
+                    "type": "decimal"
+                },
+                "is_purchase_default": {
+                    "type": "boolean"
+                },
+                "is_sales_default": {
+                    "type": "boolean"
+                }
+            }
+        },
+        {
+            "uid": "api::item-variant.item-variant",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "item-variant",
+                "pluralName": "item-variants",
+                "displayName": "Item Variant"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "item": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "sku": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "sku"
+                },
+                "attributes": {
+                    "type": "json"
+                },
+                "barcode": {
+                    "type": "string"
+                }
+            }
+        },
+        {
+            "uid": "api::price-list.price-list",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "price-list",
+                "pluralName": "price-lists",
+                "displayName": "Price List"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "pricing"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "currency": {
+                    "type": "string",
+                    "required": true
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "is_default": {
+                    "type": "boolean"
+                },
+                "priority": {
+                    "type": "integer"
+                }
+            }
+        },
+        {
+            "uid": "api::price-list-item.price-list-item",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "price-list-item",
+                "pluralName": "price-list-items",
+                "displayName": "Price List Item"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "pricing"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "price_list": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::price-list.price-list",
+                    "required": true
+                },
+                "item": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product.product",
+                    "required": true
+                },
+                "uom": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::unit-of-measure.unit-of-measure"
+                },
+                "minimum_quantity": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "unit_price": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "valid_from": {
+                    "type": "date"
+                },
+                "valid_to": {
+                    "type": "date"
+                }
+            }
+        },
+        {
+            "uid": "api::product-detail.product-detail",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "product-detail",
+                "pluralName": "product-details",
+                "displayName": "Product Detail"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "item": {
+                    "type": "relation",
+                    "relation": "oneToOne",
+                    "target": "api::product.product",
+                    "required": true,
+                    "unique": true
+                },
+                "is_stocked": {
+                    "type": "boolean"
+                },
+                "weight": {
+                    "type": "decimal"
+                },
+                "weight_uom": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::unit-of-measure.unit-of-measure"
+                },
+                "length": {
+                    "type": "decimal"
+                },
+                "width": {
+                    "type": "decimal"
+                },
+                "height": {
+                    "type": "decimal"
+                },
+                "tax_category": {
+                    "type": "string"
+                }
+            }
+        },
+        {
+            "uid": "api::service-detail.service-detail",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "service-detail",
+                "pluralName": "service-details",
+                "displayName": "Service Detail"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": false
+            },
+            "attributes": {
+                "item": {
+                    "type": "relation",
+                    "relation": "oneToOne",
+                    "target": "api::product.product",
+                    "required": true,
+                    "unique": true
+                },
+                "billing_unit": {
+                    "type": "enumeration",
+                    "enum": [
+                        "hourly",
+                        "fixed",
+                        "subscription"
+                    ]
+                },
+                "default_duration": {
+                    "type": "string"
+                },
+                "requires_scheduling": {
+                    "type": "boolean"
+                }
+            }
+        },
+        {
+            "uid": "api::uom-category.uom-category",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "uom-category",
+                "pluralName": "uom-categories",
+                "displayName": "Unit of Measure Category"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "reference_unit": {
+                    "type": "relation",
+                    "relation": "oneToOne",
+                    "target": "api::unit-of-measure.unit-of-measure"
+                }
+            }
+        },
+        {
+            "uid": "api::unit-of-measure.unit-of-measure",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "unit-of-measure",
+                "pluralName": "units-of-measure",
+                "displayName": "Unit of Measure"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "uom_category": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::uom-category.uom-category",
+                    "required": true
+                },
+                "code": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "code"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "kind": {
+                    "type": "enumeration",
+                    "enum": [
+                        "reference",
+                        "bigger",
+                        "smaller"
+                    ]
+                },
+                "factor": {
+                    "type": "decimal",
+                    "required": true
+                },
+                "rounding": {
+                    "type": "decimal"
                 }
             }
         },

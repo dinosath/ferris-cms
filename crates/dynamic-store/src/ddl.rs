@@ -14,7 +14,7 @@ use core_schema::{Attribute, BinOp, DiffKind, Expr as CExpr, Schema, SchemaDiff,
 use sea_orm::{ConnectionTrait, DbBackend};
 use sea_query::{
     Alias, ColumnDef, Expr, ExprTrait, Func, Index, IndexCreateStatement, MysqlQueryBuilder,
-    PostgresQueryBuilder, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder, Table,
+    PostgresQueryBuilder, Query, SchemaStatementBuilder, SimpleExpr, SqliteQueryBuilder, Table,
 };
 
 /// Human/audit-log friendly description of what was applied.
@@ -698,12 +698,22 @@ async fn apply_update<C: ConnectionTrait>(
     // changed attributes
     for change in &diff.changed_attrs {
         if change.compatible {
-            if backend == DbBackend::Postgres && change.from.sql_family() != change.to.sql_family()
-            {
-                // same family per diff(); only reached if families equal, so nothing
+            // `required` is represented both in the JSON schema and in the
+            // physical column nullability. Keep the two contracts aligned.
+            if change.from.required != change.to.required {
+                alter_nullability(
+                    db,
+                    backend,
+                    table,
+                    &column_name(&change.name),
+                    change.to.required,
+                    schema,
+                    actions,
+                )
+                .await?;
             }
-            // Compatible changes (flags, constraints) need no DDL on SQLite.
-            // Postgres type widening within a family is left as-is (safe).
+            // Other compatible changes (for example validation metadata) are
+            // intentionally application-level only.
             if change.to.unique && !change.from.unique {
                 let col = column_name(&change.name);
                 let localized = schema.is_localized() && change.to.is_localized();
@@ -728,6 +738,113 @@ async fn apply_update<C: ConnectionTrait>(
         ));
     }
 
+    Ok(())
+}
+
+async fn alter_nullability<C: ConnectionTrait>(
+    db: &C,
+    backend: DbBackend,
+    table: &str,
+    column: &str,
+    required: bool,
+    schema: &Schema,
+    actions: &mut DdlActions,
+) -> Result<(), StoreError> {
+    match backend {
+        DbBackend::Postgres => {
+            let action = if required { "SET NOT NULL" } else { "DROP NOT NULL" };
+            let sql = format!(
+                "ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" {action}"
+            );
+            db.execute_unprepared(&sql).await?;
+        }
+        DbBackend::MySql => {
+            let attr_name = schema
+                .attributes
+                .iter()
+                .find(|(name, _)| column_name(name) == column)
+                .map(|(name, _)| name.as_str())
+                .ok_or_else(|| StoreError::Unsupported(format!("unknown column {column}")))?;
+            let attr = &schema.attributes[attr_name];
+            let stmt = Table::alter()
+                .table(Alias::new(table))
+                .modify_column(col_def(backend, schema, column, attr, !required, false))
+                .to_owned();
+            exec_schema(db, backend, &stmt).await?;
+        }
+        DbBackend::Sqlite => {
+            // SQLite has no ALTER COLUMN. Rebuild the table from its existing
+            // CREATE TABLE statement so detached/legacy columns and data are
+            // retained while only the requested nullability changes.
+            rebuild_sqlite_nullability(db, table, column, required).await?;
+        }
+        other => return Err(StoreError::Unsupported(format!("backend {other:?} not supported for DDL"))),
+    }
+    actions.push(format!(
+        "changed nullability {}.{} -> {}",
+        table,
+        column,
+        if required { "required" } else { "optional" }
+    ));
+    Ok(())
+}
+
+async fn rebuild_sqlite_nullability<C: ConnectionTrait>(
+    db: &C,
+    table: &str,
+    column: &str,
+    required: bool,
+) -> Result<(), StoreError> {
+    let q = Query::select()
+        .expr_as(Expr::col(Alias::new("sql")), Alias::new("sql"))
+        .from(Alias::new("sqlite_master"))
+        .cond_where(
+            Expr::col(Alias::new("type"))
+                .eq("table")
+                .and(Expr::col(Alias::new("name")).eq(table)),
+        )
+        .to_owned();
+    let row = db
+        .query_one(&q)
+        .await?
+        .ok_or_else(|| StoreError::Unsupported(format!("table {table} not found")))?;
+    let create_sql: String = row.try_get("", "sql").map_err(|e| StoreError::Db(e.into()))?;
+    let index_q = Query::select()
+        .expr(Expr::col(Alias::new("sql")))
+        .from(Alias::new("sqlite_master"))
+        .cond_where(
+            Expr::col(Alias::new("type"))
+                .eq("index")
+                .and(Expr::col(Alias::new("tbl_name")).eq(table))
+                .and(Expr::col(Alias::new("sql")).is_not_null()),
+        )
+        .to_owned();
+    let indexes: Vec<String> = db
+        .query_all(&index_q)
+        .await?
+        .into_iter()
+        .filter_map(|row| row.try_get::<String>("", "sql").ok())
+        .collect();
+    let old = format!("\"{}\"", column.replace('"', "\"\""));
+    let start = create_sql.find(&old).ok_or_else(|| StoreError::Unsupported(format!("column {column} not found")))?;
+    let end = create_sql[start..].find(',').map(|i| start + i).unwrap_or_else(|| create_sql.len() - 1);
+    let mut definition = create_sql[start..end].to_string();
+    if required {
+        if !definition.to_ascii_uppercase().contains("NOT NULL") { definition.push_str(" NOT NULL"); }
+    } else {
+        let upper = definition.to_ascii_uppercase();
+        if let Some(i) = upper.find("NOT NULL") { definition.replace_range(i..i + 8, ""); }
+    }
+    let mut rebuilt = create_sql.clone();
+    rebuilt.replace_range(start..end, &definition);
+    let temp = format!("{table}__nullability_rebuild");
+    db.execute_unprepared(&format!("ALTER TABLE \"{table}\" RENAME TO \"{temp}\"")).await?;
+    db.execute_unprepared(&rebuilt).await?;
+    db.execute_unprepared(&format!("INSERT INTO \"{table}\" SELECT * FROM \"{temp}\"")).await?;
+    db.execute_unprepared(&format!("DROP TABLE \"{temp}\"")).await?;
+    for index_sql in indexes {
+        db.execute_unprepared(&index_sql).await?;
+    }
     Ok(())
 }
 

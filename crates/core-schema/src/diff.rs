@@ -6,9 +6,10 @@
 
 use crate::model::Schema;
 use core_domain::Uid;
+use serde::{Deserialize, Serialize};
 
 /// What happened to one content-type between current and desired.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiffKind {
     /// Table does not exist yet -> CREATE TABLE.
     Created,
@@ -21,7 +22,7 @@ pub enum DiffKind {
 }
 
 /// One attribute whose definition changed.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AttrChange {
     pub name: String,
     pub from: crate::Attribute,
@@ -32,7 +33,7 @@ pub struct AttrChange {
 }
 
 /// Per-schema diff.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SchemaDiff {
     pub uid: Uid,
     /// Physical table of the desired (or removed) schema.
@@ -184,7 +185,7 @@ mod tests {
                 .iter()
                 .map(|(n, a)| (n.to_string(), a.clone()))
                 .collect::<IndexMap<_, _>>(),
-        metadata: None,
+            metadata: None,
         }
     }
 

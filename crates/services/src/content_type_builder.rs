@@ -8,7 +8,7 @@
 use crate::{schema_cache::SchemaCache, AppContext, ServiceError, ValidationErrorItem};
 use core_domain::{ContentTypeKind, Uid};
 use core_schema::{diff, diff_removed, validate_schemas, Schema, SchemaDiff};
-use db::entities::content_type_schema;
+use db::entities::{content_type_schema, schema_change_log};
 use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set, TransactionTrait};
 use std::collections::HashSet;
 
@@ -155,6 +155,7 @@ pub async fn ctb_apply(
             None
         };
 
+        let previous_version = existing.as_ref().map(|row| row.version).unwrap_or(0);
         if let Some(row) = existing {
             // Manually build ActiveModel from Model fields.
             let am = content_type_schema::ActiveModel {
@@ -215,6 +216,24 @@ pub async fn ctb_apply(
             };
             am.insert(&txn).await?;
         }
+
+        let schema_diff = diffs.iter().find(|d| d.uid == schema.uid);
+        if let Some(schema_diff) = schema_diff.filter(|d| !d.is_noop()) {
+            let to_version = previous_version + 1;
+            let diff_json = serde_json::to_value(schema_diff)
+                .map_err(|e| ServiceError::internal(e.to_string()))?;
+            schema_change_log::ActiveModel {
+                schema_uid: Set(schema.uid.as_str().to_string()),
+                from_version: Set(previous_version),
+                to_version: Set(to_version),
+                diff_json: Set(diff_json),
+                applied_at: Set(now),
+                applied_by: Set(None),
+                ..Default::default()
+            }
+            .insert(&txn)
+            .await?;
+        }
     }
 
     // Mark removed schemas.
@@ -245,6 +264,20 @@ pub async fn ctb_apply(
                     deleted_at: Set(Some(now)),
                 };
                 am.update(&txn).await?;
+
+                let diff_json = serde_json::to_value(d)
+                    .map_err(|e| ServiceError::internal(e.to_string()))?;
+                schema_change_log::ActiveModel {
+                    schema_uid: Set(d.uid.as_str().to_string()),
+                    from_version: Set(row.version),
+                    to_version: Set(-row.version),
+                    diff_json: Set(diff_json),
+                    applied_at: Set(now),
+                    applied_by: Set(None),
+                    ..Default::default()
+                }
+                .insert(&txn)
+                .await?;
             }
         }
     }
