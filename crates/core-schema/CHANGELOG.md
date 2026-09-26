@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0](https://github.com/dinosath/ferris-cms/compare/v0.3.1...v0.4.0) - 2026-09-26
+
+### Other
+
+- added content manager views
+- merge json files and fix diff
+
 ## [0.3.1](https://github.com/dinosath/ferris-cms/compare/core-schema-v0.3.0...core-schema-v0.3.1) - 2026-09-15
 
 ### Added
