@@ -38,6 +38,33 @@ pub mod content_type_schema {
     impl ActiveModelBehavior for ActiveModel {}
 }
 
+/// Saved Content Manager presentation/query for a content type.
+pub mod content_type_view {
+    use super::*;
+
+    #[sea_orm::model]
+    #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+    #[sea_orm(table_name = "content_type_views")]
+    pub struct Model {
+        #[sea_orm(primary_key)]
+        pub id: i64,
+        pub content_type_uid: String,
+        pub name: String,
+        pub slug: String,
+        pub view_type: String,
+        pub description: Option<String>,
+        pub is_default: bool,
+        pub position: i64,
+        pub configuration_json: Json,
+        pub created_at: DateTimeUtc,
+        pub updated_at: DateTimeUtc,
+        pub created_by: Option<i64>,
+        pub updated_by: Option<i64>,
+    }
+
+    impl ActiveModelBehavior for ActiveModel {}
+}
+
 /// Logical ↔ physical mapping for safe renames (design Part III §2).
 pub mod content_type_table_map {
     use super::*;

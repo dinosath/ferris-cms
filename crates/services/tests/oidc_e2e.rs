@@ -147,7 +147,9 @@ async fn full_oidc_sso_flow_roundtrip() {
 
     // App context pointing at the mock IdP, with auto-provision enabled.
     let db = db::connect_sqlite_memory().await.expect("db");
-    db::migration::Migrator::up(&db, None).await.expect("migrate");
+    db::migration::Migrator::up(&db, None)
+        .await
+        .expect("migrate");
     db::seed::seed(&db).await.expect("seed");
     let oidc = OidcConfig {
         issuer: base.clone(),

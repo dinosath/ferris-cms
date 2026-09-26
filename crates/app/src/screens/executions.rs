@@ -61,7 +61,10 @@ pub fn Executions() -> Element {
         }
         let trigger = wf_item["trigger"].as_str().unwrap_or("-").to_string();
         let started = wf_item["startedAt"].as_str().unwrap_or("-").to_string();
-        let dur = wf_item["durationMs"].as_i64().map(|d| format!("{d} ms")).unwrap_or_else(|| "-".to_string());
+        let dur = wf_item["durationMs"]
+            .as_i64()
+            .map(|d| format!("{d} ms"))
+            .unwrap_or_else(|| "-".to_string());
         let mut open = route;
         rows.push(rsx! {
             tr { style: "border-bottom:1px solid {color::NEUTRAL_150}; cursor:pointer;", onclick: move |_| open.set(Route::Execution(id)),
@@ -178,14 +181,20 @@ pub fn ExecutionDetail(execution_id: i64) -> Element {
         has_data = true;
         exec_status = execution["status"].as_str().unwrap_or("-").to_string();
         exec_trigger = execution["trigger"].as_str().unwrap_or("-").to_string();
-        exec_dur = execution["durationMs"].as_i64().map(|x| format!("{x} ms")).unwrap_or_else(|| "-".to_string());
+        exec_dur = execution["durationMs"]
+            .as_i64()
+            .map(|x| format!("{x} ms"))
+            .unwrap_or_else(|| "-".to_string());
         exec_error = execution["error"].as_str().unwrap_or("").to_string();
         let runs = d["nodeRuns"].as_array().cloned().unwrap_or_default();
         for run in runs.iter() {
             let node_name = run["taskName"].as_str().unwrap_or("-").to_string();
             let node_type = run["taskType"].as_str().unwrap_or("").to_string();
             let status = run["status"].as_str().unwrap_or("notExecuted").to_string();
-            let dur = run["durationMs"].as_i64().map(|x| format!("{x} ms")).unwrap_or_else(|| "-".to_string());
+            let dur = run["durationMs"]
+                .as_i64()
+                .map(|x| format!("{x} ms"))
+                .unwrap_or_else(|| "-".to_string());
             let err = run["error"].as_str().unwrap_or("").to_string();
             let input = serde_json::to_string_pretty(&run["input"]).unwrap_or_default();
             let output = serde_json::to_string_pretty(&run["output"]).unwrap_or_default();

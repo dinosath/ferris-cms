@@ -48,7 +48,10 @@ async fn ai_provider_and_model_crud() -> anyhow::Result<()> {
     let provider: Value = created.json().await?;
     let provider_id = provider["data"]["id"].as_i64().expect("provider id");
     // The API must never return the key.
-    assert!(provider["data"].get("apiKey").is_none(), "no api key leaked");
+    assert!(
+        provider["data"].get("apiKey").is_none(),
+        "no api key leaked"
+    );
 
     // List providers + models. Creating the provider auto-created a default
     // model, so there is exactly one provider and one (default) model.
@@ -165,7 +168,9 @@ async fn ai_conversation_and_usage() -> anyhow::Result<()> {
     let conv = client
         .post(format!("{base}/admin/ai/conversations"))
         .bearer_auth(&token)
-        .json(&json!({ "title": "Draft a welcome post", "systemPrompt": null, "privacyMode": true }))
+        .json(
+            &json!({ "title": "Draft a welcome post", "systemPrompt": null, "privacyMode": true }),
+        )
         .send()
         .await?;
     assert_eq!(conv.status().as_u16(), 200, "create conversation");

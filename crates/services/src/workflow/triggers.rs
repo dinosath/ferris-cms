@@ -12,7 +12,9 @@
 
 use crate::{AppContext, ServiceError};
 use ::workflow::model::{is_trigger_event, OwsDocument};
-use serverless_workflow_core::models::event::{EventConsumptionStrategyDefinition, EventFilterDefinition};
+use serverless_workflow_core::models::event::{
+    EventConsumptionStrategyDefinition, EventFilterDefinition,
+};
 
 use super::engine::{execute_workflow, RunOptions};
 
@@ -75,7 +77,9 @@ pub fn matching_workflows<'a>(
         .filter(|w| w.active)
         .filter(|w| {
             event_filters(w).iter().any(|f| {
-                filter_event_type(f).map(|t| t == event_type).unwrap_or(false)
+                filter_event_type(f)
+                    .map(|t| t == event_type)
+                    .unwrap_or(false)
                     && uid.map_or(true, |uid| {
                         filter_content_type(f).map(|c| c == uid).unwrap_or(false)
                     })
@@ -184,7 +188,10 @@ pub async fn workflow_for_webhook(
                 let normalized = node_path.trim_start_matches('/');
                 let request_path = path.trim_start_matches('/');
                 if normalized == request_path || node_path.trim_end_matches('/').is_empty() {
-                    return Some((wf.id, filter_event_type(filter).unwrap_or_else(|| "webhook".into())));
+                    return Some((
+                        wf.id,
+                        filter_event_type(filter).unwrap_or_else(|| "webhook".into()),
+                    ));
                 }
             }
         }

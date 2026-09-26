@@ -10,9 +10,7 @@ use std::sync::Arc;
 pub fn api_base_url() -> String {
     #[cfg(target_arch = "wasm32")]
     {
-        option_env!("FERRISCMS_API_URL")
-            .unwrap_or("")
-            .to_string()
+        option_env!("FERRISCMS_API_URL").unwrap_or("").to_string()
     }
     #[cfg(not(target_arch = "wasm32"))]
     {

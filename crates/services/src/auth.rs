@@ -125,9 +125,11 @@ pub async fn auth_login(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&req.email);
     let user = admin_user::Entity::find()
-        .filter(Condition::any()
-            .add(admin_user::COLUMN.email.eq(identifier))
-            .add(admin_user::COLUMN.username.eq(identifier)))
+        .filter(
+            Condition::any()
+                .add(admin_user::COLUMN.email.eq(identifier))
+                .add(admin_user::COLUMN.username.eq(identifier)),
+        )
         .one(&ctx.db)
         .await?
         .ok_or(ServiceError::Unauthorized)?;
@@ -328,8 +330,7 @@ pub async fn provision_admin(
         .insert(&ctx.db)
         .await?;
     }
-    let _ =
-        crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
+    let _ = crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
 
     Ok(Some(BootstrapAdmin {
         username: username.to_string(),
@@ -452,10 +453,12 @@ mod tests {
         .is_err());
 
         // A second provision is a no-op — existing credentials are preserved.
-        assert!(provision_admin(&ctx, "admin2", "admin2@ferriscms.local", "OtherSecret!1")
-            .await
-            .unwrap()
-            .is_none());
+        assert!(
+            provision_admin(&ctx, "admin2", "admin2@ferriscms.local", "OtherSecret!1")
+                .await
+                .unwrap()
+                .is_none()
+        );
         let count = admin_user::Entity::find().count(&ctx.db).await.unwrap();
         assert_eq!(count, 1, "no second admin is created");
     }

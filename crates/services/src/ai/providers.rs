@@ -9,9 +9,7 @@ use crate::workflow::credentials::{decrypt_value, encrypt_value};
 use crate::{AppContext, ServiceError};
 use ai::AiProviderConfig;
 use db::entities::{ai_model, ai_provider};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
 // ---------------------------------------------------------------------------
 // Providers
@@ -243,7 +241,10 @@ pub async fn build_provider(
         .await?
         .ok_or_else(|| ServiceError::NotFound(format!("ai provider {provider_id}")))?;
     if !row.enabled {
-        return Err(ServiceError::internal(format!("ai provider '{}' is disabled", row.name)));
+        return Err(ServiceError::internal(format!(
+            "ai provider '{}' is disabled",
+            row.name
+        )));
     }
     let kind = kind_from_str(&row.kind)?;
     let api_key = match &row.api_key_encrypted {
@@ -261,8 +262,7 @@ pub async fn build_provider(
         api_key,
         organization: row.organization.clone(),
     };
-    let provider = ai::from_config(&config)
-        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    let provider = ai::from_config(&config).map_err(|e| ServiceError::internal(e.to_string()))?;
     Ok((row, provider))
 }
 

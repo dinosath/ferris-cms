@@ -629,13 +629,25 @@ pub async fn insert_one<C: ConnectionTrait>(
 ) -> Result<JsonValue, StoreError> {
     let backend = DbBackend::Sqlite;
     let table = schema.table_name();
-    let obj = data
+    let mut obj = data
         .as_object()
+        .cloned()
         .ok_or_else(|| StoreError::bad_value("data", "expected JSON object"))?;
+
+    // Schema defaults are applied at the persistence boundary so every
+    // caller (API, Content Manager, and imports) observes the same behavior.
+    // Explicit null remains explicit and is not replaced by a default.
+    for (name, attr) in &schema.attributes {
+        if !obj.contains_key(name) {
+            if let Some(default) = &attr.default {
+                obj.insert(name.clone(), default.clone());
+            }
+        }
+    }
 
     // Defense in depth: validate the payload against the schema's field
     // constraints (required, min/max, length, patterns) before writing.
-    let payload_errors = core_schema::validate_payload(schema, obj, true);
+    let payload_errors = core_schema::validate_payload(schema, &obj, true);
     if !payload_errors.is_empty() {
         return Err(StoreError::Validation(payload_errors));
     }
@@ -670,7 +682,7 @@ pub async fn insert_one<C: ConnectionTrait>(
         ("updated_at".to_string(), Value::String(Some(now))),
     ];
 
-    let scalar_values = build_write_values(schema, obj, false)?;
+    let scalar_values = build_write_values(schema, &obj, false)?;
     for (col, val) in scalar_values {
         values.push((col, val));
     }
@@ -786,7 +798,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: attrs,
-        metadata: None,
+            metadata: None,
         }
     }
 

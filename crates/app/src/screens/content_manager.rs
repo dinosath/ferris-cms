@@ -30,6 +30,33 @@ fn filter_matches(value: &serde_json::Value, op: &str, expected: &str) -> bool {
     }
 }
 
+fn filter_value(raw: &str) -> serde_json::Value {
+    serde_json::from_str(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()))
+}
+
+fn saved_filter(filters: &[(String, String, String)]) -> Option<api_types::Filter> {
+    let leaves: Vec<_> = filters
+        .iter()
+        .map(|(field, op, value)| {
+            let op = match op.as_str() {
+                "neq" => api_types::FilterOp::Ne,
+                "contains" => api_types::FilterOp::ContainsI,
+                _ => api_types::FilterOp::Eq,
+            };
+            api_types::Filter::Leaf {
+                field: field.clone(),
+                op,
+                values: vec![filter_value(value)],
+            }
+        })
+        .collect();
+    match leaves.len() {
+        0 => None,
+        1 => leaves.into_iter().next(),
+        _ => Some(api_types::Filter::And(leaves)),
+    }
+}
+
 /// A comparable sort key for an entry column. `"state"` maps to publication
 /// status so Draft sorts before Published; `"id"` maps to the document id.
 fn sort_key(e: &serde_json::Value, field: &str) -> String {
@@ -73,7 +100,10 @@ fn rel_time(iso: &str) -> String {
     let Ok(dt) = chrono::DateTime::parse_from_rfc3339(iso) else {
         return "—".to_string();
     };
-    let secs = chrono::Utc::now().signed_duration_since(dt).num_seconds().max(0);
+    let secs = chrono::Utc::now()
+        .signed_duration_since(dt)
+        .num_seconds()
+        .max(0);
     if secs < 60 {
         "just now".to_string()
     } else if secs < 3600 {
@@ -183,12 +213,8 @@ pub fn ContentManager() -> Element {
                                     ..Default::default()
                                 };
                                 if let Ok(resp) = g.client.cm_list(&uid, &params).await {
-                                    let total = resp
-                                        .meta
-                                        .pagination
-                                        .as_ref()
-                                        .map(|p| p.total)
-                                        .unwrap_or(0);
+                                    let total =
+                                        resp.meta.pagination.as_ref().map(|p| p.total).unwrap_or(0);
                                     let updated = resp
                                         .data
                                         .first()
@@ -211,12 +237,9 @@ pub fn ContentManager() -> Element {
     let query = search().trim().to_lowercase();
     let count_map = counts();
     let mut rows: Vec<Element> = Vec::new();
-    for s in all
-        .iter()
-        .filter(|s| {
-            s.kind == ContentTypeKind::CollectionType || s.kind == ContentTypeKind::SingleType
-        })
-    {
+    for s in all.iter().filter(|s| {
+        s.kind == ContentTypeKind::CollectionType || s.kind == ContentTypeKind::SingleType
+    }) {
         let is_collection = s.kind == ContentTypeKind::CollectionType;
         let matches_filter = match filter_kind.as_str() {
             "collection" => is_collection,
@@ -378,7 +401,14 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     let mut configuring = use_signal(|| false);
     let mut pending_delete = use_signal(|| None::<String>);
     let mut load_req = use_signal(|| 1u32);
+    let mut views = use_signal(Vec::<api_types::admin::ContentTypeView>::new);
+    let mut active_view_id = use_signal(|| None::<i64>);
+    let mut create_view_open = use_signal(|| false);
+    let mut view_settings = use_signal(|| None::<i64>);
+    let mut pending_view_delete = use_signal(|| None::<i64>);
     let mut route = global.route;
+    let uid_schema_load = uid.clone();
+    let uid_load = uid.clone();
 
     // Load content types (to resolve the schema + breadcrumbs).
     let g_schema = global.clone();
@@ -387,6 +417,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
             schema_loaded.set(true);
             let mut g = g_schema.clone();
             let mut sc = schemas;
+            let view_uid = uid_schema_load.clone();
             spawn(async move {
                 match g.client.ctb_list().await {
                     Ok(v) => {
@@ -405,6 +436,15 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                             .collect();
                         g.ct_names.set(names);
                         sc.set(schemas_vec);
+                        if let Ok(saved_views) = g.client.cm_views(&view_uid).await {
+                            let selected = saved_views
+                                .iter()
+                                .find(|v| v.is_default)
+                                .or_else(|| saved_views.first())
+                                .map(|v| v.id);
+                            active_view_id.set(selected);
+                            views.set(saved_views);
+                        }
                     }
                     Err(e) => status.set(Some(format!("Failed to load: {e}"))),
                 }
@@ -414,16 +454,18 @@ pub fn ContentManagerEntries(uid: String) -> Element {
 
     // Load entries when requested / pagination changes.
     let g_entries = global.clone();
-    let uid_load = uid.clone();
     use_effect({
         let client = client.clone();
         move || {
             if load_req() > 0 {
                 load_req.set(0);
                 let uid = uid_load.clone();
+                let mut page_signal = page;
+                let mut load_signal = load_req;
                 let page = page();
                 let page_size = page_size();
                 let g = g_entries.clone();
+                let selected_view = active_view_id();
                 spawn(async move {
                     let params = QueryParams {
                         pagination: Some(PaginationParams::Page {
@@ -433,15 +475,31 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                         }),
                         ..Default::default()
                     };
-                    match g.client.cm_list(&uid, &params).await {
+                    let result = if let Some(view_id) = selected_view {
+                        g.client.cm_view_records(&uid, view_id, &params).await
+                    } else {
+                        g.client.cm_list(&uid, &params).await
+                    };
+                    match result {
                         Ok(resp) => {
-                            total.set(
-                                resp.meta
-                                    .pagination
-                                    .as_ref()
-                                    .map(|p| p.total)
-                                    .unwrap_or(0),
-                            );
+                            let response_total =
+                                resp.meta.pagination.as_ref().map(|p| p.total).unwrap_or(0);
+                            let response_page_count = (response_total as f64
+                                / page_size.max(1) as f64)
+                                .ceil()
+                                .max(1.0) as i64;
+
+                            // Counts can change between rendering the pagination controls and
+                            // receiving the next page (for example after an entry is deleted).
+                            // Do not leave the screen on an out-of-range page, which would make
+                            // a valid collection look empty.
+                            if page > response_page_count {
+                                page_signal.set(response_page_count);
+                                load_signal.set(load_signal() + 1);
+                                return;
+                            }
+
+                            total.set(response_total);
                             entries.set(resp.data);
                         }
                         Err(e) => status.set(Some(format!("Failed to load entries: {e}"))),
@@ -453,11 +511,57 @@ pub fn ContentManagerEntries(uid: String) -> Element {
 
     let schema = schemas().iter().find(|s| s.uid.as_str() == uid).cloned();
     let main_field = schema.as_ref().map(|s| s.main_field()).unwrap_or_default();
-    let columns = schema.as_ref().map(entry_columns).unwrap_or_default();
+    let columns = if let Some(view) = views().iter().find(|v| Some(v.id) == active_view_id()) {
+        let mut configured: Vec<(String, String)> = view
+            .configuration
+            .columns
+            .iter()
+            .filter(|column| column.visible)
+            .map(|column| (column.field_id.clone(), column.field_id.clone()))
+            .collect();
+        configured.sort_by_key(|(field, _)| {
+            view.configuration
+                .columns
+                .iter()
+                .find(|c| &c.field_id == field)
+                .map(|c| c.position)
+                .unwrap_or(u32::MAX)
+        });
+        if configured.is_empty() {
+            schema.as_ref().map(entry_columns).unwrap_or_default()
+        } else {
+            configured
+        }
+    } else {
+        schema.as_ref().map(entry_columns).unwrap_or_default()
+    };
     let header_name = schema
         .as_ref()
         .map(|s| s.info.display_name.clone())
         .unwrap_or_else(|| uid.clone());
+    let active_view_name = views()
+        .iter()
+        .find(|v| Some(v.id) == active_view_id())
+        .map(|v| v.name.clone())
+        .unwrap_or_else(|| "All Records".to_string());
+    let view_options = views();
+    let active_view = view_options
+        .iter()
+        .find(|v| Some(v.id) == active_view_id())
+        .cloned();
+    let active_view_type = active_view
+        .as_ref()
+        .map(|v| v.view_type)
+        .unwrap_or(api_types::admin::ViewType::Grid);
+    let renderer_field = active_view
+        .as_ref()
+        .and_then(|v| v.configuration.group_by.clone())
+        .or_else(|| {
+            schema
+                .as_ref()
+                .and_then(|s| s.attributes.keys().next().cloned())
+        })
+        .unwrap_or_else(|| main_field.clone());
 
     // Client-side search + filters, then column sorting.
     let query = search().trim().to_lowercase();
@@ -571,6 +675,12 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     let uid_import = uid.clone();
     let uid_export = uid.clone();
     let uid_bulk_delete = uid.clone();
+    let filter_global = global.clone();
+    let filter_uid = uid.clone();
+    let create_global = global.clone();
+    let create_uid = uid.clone();
+    let delete_view_global = global.clone();
+    let delete_view_uid = uid.clone();
 
     // Build sortable header cells outside rsx (the parser dislikes method calls
     // on `for` loop bindings inside rsx).
@@ -586,10 +696,20 @@ pub fn ContentManagerEntries(uid: String) -> Element {
             let mut sf = sort_field;
             let mut sa = sort_asc;
             let mut pg = page;
+            let sort_view = active_view.clone();
+            let sort_global = global.clone();
+            let sort_uid = uid.clone();
             header_cells.push(rsx! {
                 th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600}; cursor:pointer;",
                     onclick: move |_| {
+                        let descending = if sf() == k { !sa() } else { false };
                         if sf() == k { sa.set(!sa()); } else { sf.set(k.clone()); sa.set(true); }
+                        if let Some(view) = sort_view.clone() {
+                            let mut config = view.configuration.clone();
+                            config.sorts = vec![api_types::SortField { field: k.clone(), descending }];
+                            let g = sort_global.clone(); let uid = sort_uid.clone();
+                            spawn(async move { let _ = g.client.cm_view_update(&uid, view.id, &api_types::admin::UpdateContentTypeViewRequest { name: None, description: None, view_type: None, configuration: Some(config) }).await; });
+                        }
                         pg.set(1);
                     },
                     "{l}"
@@ -616,11 +736,61 @@ pub fn ContentManagerEntries(uid: String) -> Element {
             }
 
             div { style: "display:flex; gap:12px; margin-bottom:16px; align-items:center;",
+                if !view_options.is_empty() {
+                    div { style: "display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid {color::NEUTRAL_200}; border-radius:6px; background:#fff;",
+                        span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "View" }
+                        select { style: "border:0; background:transparent; font-weight:600; color:{color::NEUTRAL_800};", value: "{active_view_id().unwrap_or_default()}", onchange: move |event| {
+                            if let Ok(id) = event.value().parse::<i64>() { active_view_id.set(Some(id)); load_req.set(load_req() + 1); }
+                        },
+                            for view in view_options.iter() { option { value: "{view.id}", selected: Some(view.id) == active_view_id(), "{view.name}" } }
+                        }
+                    }
+                }
+                Button { label: "+ New view".to_string(), variant: "secondary".to_string(), on_click: move |_| create_view_open.set(true) }
                 div { style: "flex:1; max-width:320px;",
                     TextField { value: search(), label: String::new(), placeholder: "Search entries".to_string(), oninput: move |v| search.set(v) }
                 }
                 Button { label: "Filters".to_string(), variant: "secondary".to_string(), on_click: move |_| filter_open.set(true) }
                 Button { label: "Configure the view".to_string(), variant: "secondary".to_string(), on_click: move |_| configuring.set(true) }
+            }
+
+            if view_options.len() > 1 {
+                div { style: "display:flex; gap:8px; align-items:center; padding:8px 0 14px; border-bottom:1px solid {color::NEUTRAL_150}; margin-bottom:14px; overflow-x:auto;",
+                    span { style: "font-size:{typography::LABEL_SIZE}; color:{color::NEUTRAL_500}; white-space:nowrap;", "Views" }
+                    for (view_index, view) in view_options.iter().enumerate() {
+                        {
+                            let selected = Some(view.id) == active_view_id();
+                            let border = if selected { color::PRIMARY_300 } else { color::NEUTRAL_200 };
+                            let background = if selected { color::PRIMARY_100 } else { color::NEUTRAL_0 };
+                            let text_color = if selected { color::PRIMARY_700 } else { color::NEUTRAL_700 };
+                            let font_weight = if selected { "600" } else { "400" };
+                            let id = view.id;
+                            let mut active = active_view_id;
+                            let mut reload = load_req;
+                            let mut settings = view_settings;
+                            let mut pending = pending_view_delete;
+                            let mut view_list = views;
+                            let g = global.clone();
+                            let uid_for_action = uid.clone();
+                            let order_ids: Vec<i64> = view_options.iter().map(|v| v.id).collect();
+                            rsx! {
+                                div { style: "display:flex; align-items:center; gap:4px; padding:4px 6px 4px 10px; border:1px solid {border}; border-radius:6px; background:{background}; white-space:nowrap;",
+                                    button { style: "border:0; background:none; cursor:pointer; color:{text_color}; font-weight:{font_weight};", onclick: move |_| { active.set(Some(id)); reload.set(reload() + 1); }, "{view.name}" }
+                                    button { style: "border:0; background:none; cursor:pointer; color:{color::NEUTRAL_500};", title: "View settings", onclick: move |_| settings.set(Some(id)), "⋮" }
+                                    if view.is_default { span { style: "font-size:11px; color:{color::SUCCESS_600};", "default" } }
+                                    if !view.is_default { button { style: "border:0; background:none; cursor:pointer; font-size:11px; color:{color::NEUTRAL_500};", title: "Set as default", onclick: move |_| { let g = g.clone(); let uid = uid_for_action.clone(); let mut list = view_list; spawn(async move { if g.client.cm_view_set_default(&uid, id).await.is_ok() { if let Ok(vs) = g.client.cm_views(&uid).await { list.set(vs); } } }); }, "Set default" } }
+                                    if view_index > 0 { button { style: "border:0; background:none; cursor:pointer; color:{color::NEUTRAL_500};", title: "Move view up", onclick: { let g = global.clone(); let uid = uid.clone(); let mut ids = order_ids.clone(); move |_| { ids.swap(view_index, view_index - 1); let g = g.clone(); let uid = uid.clone(); let mut list = views; let reordered = ids.clone(); spawn(async move { if let Ok(vs) = g.client.cm_view_reorder(&uid, &reordered).await { list.set(vs); } }); } }, "↑" } }
+                                    if view_index + 1 < view_options.len() { button { style: "border:0; background:none; cursor:pointer; color:{color::NEUTRAL_500};", title: "Move view down", onclick: { let g = global.clone(); let uid = uid.clone(); let mut ids = order_ids.clone(); move |_| { ids.swap(view_index, view_index + 1); let g = g.clone(); let uid = uid.clone(); let mut list = views; let reordered = ids.clone(); spawn(async move { if let Ok(vs) = g.client.cm_view_reorder(&uid, &reordered).await { list.set(vs); } }); } }, "↓" } }
+                                    button { style: "border:0; background:none; cursor:pointer; color:{color::DANGER_600};", title: "Delete view", onclick: move |_| pending.set(Some(id)), "×" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if view_options.len() > 1 {
+                div { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; margin:-8px 0 12px 2px;", "Saved view: {active_view_name}" }
             }
 
             if !filters().is_empty() {
@@ -661,7 +831,9 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                 }
             }
 
-            if filtered.is_empty() {
+            if active_view_type != api_types::admin::ViewType::Grid {
+                {render_saved_view(active_view_type, &filtered, schema.as_ref(), route, renderer_field.clone(), uid.clone())}
+            } else if filtered.is_empty() {
                 if query.is_empty() && filters().is_empty() {
                     EmptyState {
                         title: "No entries yet".to_string(),
@@ -701,7 +873,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     page_count,
                     page_size: page_size(),
                     total: total(),
-                    on_page_change: move |p| { if p >= 1 { page.set(p); load_req.set(load_req() + 1); } },
+                    on_page_change: move |p| { if (1..=page_count).contains(&p) { page.set(p); load_req.set(load_req() + 1); } },
                     on_page_size_change: move |ps| { page_size.set(ps); page.set(1); load_req.set(load_req() + 1); },
                 }
             }
@@ -714,6 +886,15 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     on_add: move |cond: (String, String, String)| {
                         let mut fs = filters();
                         fs.push(cond);
+                        if let Some(view) = active_view.clone() {
+                            let mut config = view.configuration.clone();
+                            config.filters = saved_filter(&fs);
+                            let g = filter_global.clone();
+                            let uid = filter_uid.clone();
+                            spawn(async move {
+                                let _ = g.client.cm_view_update(&uid, view.id, &api_types::admin::UpdateContentTypeViewRequest { name: None, description: None, view_type: None, configuration: Some(config) }).await;
+                            });
+                        }
                         filters.set(fs);
                         page.set(1);
                         filter_open.set(false);
@@ -738,6 +919,48 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                 uid: uid.clone(),
                 on_close: move |_| pending_delete.set(None),
                 on_deleted: move |_| { pending_delete.set(None); load_req.set(load_req() + 1); },
+            }
+        }
+
+        if create_view_open() {
+            CreateViewModal {
+                uid: uid.clone(),
+                on_close: move |_| create_view_open.set(false),
+                on_created: move |view: api_types::admin::ContentTypeView| {
+                    active_view_id.set(Some(view.id));
+                    let mut list = views;
+                    let g = create_global.clone();
+                    let uid = create_uid.clone();
+                    spawn(async move { if let Ok(vs) = g.client.cm_views(&uid).await { list.set(vs); } });
+                    create_view_open.set(false);
+                    load_req.set(load_req() + 1);
+                },
+            }
+        }
+
+        if let Some(view_id) = view_settings() {
+            if let Some(view) = view_options.iter().find(|v| v.id == view_id).cloned() {
+                ViewSettingsModal {
+                    uid: uid.clone(),
+                    view,
+                    fields: schema.as_ref().map(|s| s.attributes.keys().cloned().collect()).unwrap_or_default(),
+                    on_close: move |_| view_settings.set(None),
+                    on_saved: move |_| { view_settings.set(None); load_req.set(load_req() + 1); },
+                }
+            }
+        }
+
+        if let Some(view_id) = pending_view_delete() {
+            ConfirmDialog {
+                title: "Delete view".to_string(),
+                message: "Delete this saved view? Records will remain unchanged.".to_string(),
+                confirm_label: "Delete view".to_string(),
+                on_cancel: move |_| pending_view_delete.set(None),
+                on_confirm: move |_| {
+                    let g = delete_view_global.clone(); let uid = delete_view_uid.clone(); let mut list = views; let mut active = active_view_id;
+                    spawn(async move { let _ = g.client.cm_view_delete(&uid, view_id).await; if let Ok(vs) = g.client.cm_views(&uid).await { let next = vs.first().map(|v| v.id); list.set(vs); active.set(next); } });
+                    pending_view_delete.set(None);
+                },
             }
         }
     }
@@ -781,12 +1004,179 @@ fn render_cell(e: &serde_json::Value, key: &str) -> Element {
             td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{id}" }
         };
     }
-    let value = e
-        .get(key)
-        .map(|v| v.to_string())
-        .unwrap_or_default();
+    let value = e.get(key).map(|v| v.to_string()).unwrap_or_default();
     rsx! {
         td { style: "padding:12px 16px; font-size:14px; color:{color::NEUTRAL_800};", "{value}" }
+    }
+}
+
+/// Render the presentation-only views. Cards always navigate to the same
+/// entry editor used by Grid, so every renderer edits the shared record.
+fn render_saved_view(
+    view_type: api_types::admin::ViewType,
+    entries: &[serde_json::Value],
+    schema: Option<&Schema>,
+    route: Signal<Route>,
+    field: String,
+    uid: String,
+) -> Element {
+    match view_type {
+        api_types::admin::ViewType::Kanban => render_kanban(entries, route, field, uid),
+        api_types::admin::ViewType::Gallery => render_gallery(entries, route, schema, field, uid),
+        api_types::admin::ViewType::Calendar => render_calendar(entries, route, field, uid),
+        api_types::admin::ViewType::Grid => rsx! {},
+    }
+}
+
+fn render_kanban(
+    entries: &[serde_json::Value],
+    route: Signal<Route>,
+    field: String,
+    uid: String,
+) -> Element {
+    let mut groups: Vec<String> = entries
+        .iter()
+        .map(|e| display_value(e.get(&field).unwrap_or(&serde_json::Value::Null)))
+        .collect();
+    groups.sort();
+    groups.dedup();
+    if groups.is_empty() {
+        groups.push("Ungrouped".into());
+    }
+    rsx! {
+        div { style: "display:flex; gap:14px; overflow-x:auto; padding:4px 0 20px;",
+            for group in groups {
+                div { style: "min-width:240px; flex:1; background:{color::NEUTRAL_100}; border:1px solid {color::NEUTRAL_200}; border-radius:8px; padding:12px;",
+                    div { style: "font-weight:600; color:{color::NEUTRAL_800}; margin-bottom:10px;", "{group}" }
+                    for entry in entries.iter().filter(|e| display_value(e.get(&field).unwrap_or(&serde_json::Value::Null)) == group) {
+                        {render_view_card(entry, route, "", &field, uid.clone())}
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_gallery(
+    entries: &[serde_json::Value],
+    mut route: Signal<Route>,
+    schema: Option<&Schema>,
+    field: String,
+    uid: String,
+) -> Element {
+    let image_field = schema
+        .and_then(|s| {
+            s.attributes
+                .iter()
+                .find(|(_, a)| a.attr_type == FieldType::Media)
+                .map(|(n, _)| n.clone())
+        })
+        .unwrap_or_else(|| field.clone());
+    rsx! {
+        div { style: "display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px;",
+            for entry in entries {
+                div { style: "background:#fff; border:1px solid {color::NEUTRAL_200}; border-radius:8px; overflow:hidden; cursor:pointer;", onclick: { let id = entry_id(entry); let uid = uid.clone(); move |_| route.set(Route::ContentManagerEntry { uid: uid.clone(), document_id: id.clone() }) },
+                    div { style: "height:130px; background:{color::NEUTRAL_100}; display:flex; align-items:center; justify-content:center; color:{color::NEUTRAL_500};", "{display_value(entry.get(&image_field).unwrap_or(&serde_json::Value::Null))}" }
+                    div { style: "padding:12px;", div { style: "font-weight:600; color:{color::NEUTRAL_900};", "{display_value(entry.get(&field).unwrap_or(&serde_json::Value::Null))}" }, div { style: "font-size:13px; color:{color::NEUTRAL_600}; margin-top:4px;", "{entry_id(entry)}" } }
+                }
+            }
+        }
+    }
+}
+
+fn render_calendar(
+    entries: &[serde_json::Value],
+    route: Signal<Route>,
+    field: String,
+    uid: String,
+) -> Element {
+    rsx! {
+        div { style: "display:flex; flex-direction:column; gap:8px;",
+            for entry in entries {
+                {render_view_card(entry, route, "Date", &field, uid.clone())}
+            }
+        }
+    }
+}
+
+fn render_view_card(
+    entry: &serde_json::Value,
+    mut route: Signal<Route>,
+    label: &str,
+    field: &str,
+    uid: String,
+) -> Element {
+    let id = entry_id(entry);
+    let value = display_value(entry.get(field).unwrap_or(&serde_json::Value::Null));
+    rsx! {
+        button { style: "display:block; width:100%; text-align:left; border:1px solid {color::NEUTRAL_200}; background:#fff; border-radius:6px; padding:10px; margin-bottom:8px; cursor:pointer;", onclick: move |_| route.set(Route::ContentManagerEntry { uid: uid.clone(), document_id: id.clone() }),
+            if !label.is_empty() { span { style: "font-size:12px; color:{color::NEUTRAL_500};", "{label}" } }
+            div { style: "font-weight:600; color:{color::NEUTRAL_900};", "{value}" }
+            span { style: "font-size:12px; color:{color::NEUTRAL_500};", "{id}" }
+        }
+    }
+}
+
+#[component]
+fn CreateViewModal(
+    uid: String,
+    on_close: EventHandler<()>,
+    on_created: EventHandler<api_types::admin::ContentTypeView>,
+) -> Element {
+    let global = use_global();
+    let mut name = use_signal(String::new);
+    let mut view_type = use_signal(|| "grid".to_string());
+    let mut status = use_signal(|| None::<String>);
+    let options = vec![
+        ("grid".into(), "Grid".into()),
+        ("kanban".into(), "Kanban".into()),
+        ("gallery".into(), "Gallery".into()),
+        ("calendar".into(), "Calendar".into()),
+    ];
+    rsx! {
+        Modal { title: "Create view".to_string(), width: 520, on_close: move |_| on_close.call(()),
+            if let Some(message) = status() { div { style: "color:{color::DANGER_600}; padding-bottom:10px;", "{message}" } }
+            TextField { value: name(), label: "Name".to_string(), placeholder: "e.g. Active products".to_string(), oninput: move |v| name.set(v) }
+            Dropdown { label: "View type".to_string(), options, value: view_type(), onchange: move |v| view_type.set(v) }
+            div { style: "display:flex; justify-content:flex-end; gap:10px; margin-top:16px;",
+                Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }
+                Button { label: "Create view".to_string(), on_click: move |_| {
+                    let g = global.clone(); let uid = uid.clone(); let name = name(); let kind = view_type();
+                    spawn(async move {
+                        let ty = match kind.as_str() { "kanban" => api_types::admin::ViewType::Kanban, "gallery" => api_types::admin::ViewType::Gallery, "calendar" => api_types::admin::ViewType::Calendar, _ => api_types::admin::ViewType::Grid };
+                        match g.client.cm_view_create(&uid, &api_types::admin::CreateContentTypeViewRequest { name, view_type: ty, description: None, configuration: Default::default() }).await { Ok(view) => on_created.call(view), Err(e) => status.set(Some(e.to_string())) }
+                    });
+                } }
+            }
+        }
+    }
+}
+
+#[component]
+fn ViewSettingsModal(
+    uid: String,
+    view: api_types::admin::ContentTypeView,
+    fields: Vec<String>,
+    on_close: EventHandler<()>,
+    on_saved: EventHandler<()>,
+) -> Element {
+    let global = use_global();
+    let mut name = use_signal(|| view.name.clone());
+    let mut config = use_signal(|| view.configuration.clone());
+    let mut status = use_signal(|| None::<String>);
+    let id = view.id;
+    rsx! {
+        Modal { title: format!("Settings · {}", view.name), width: 640, on_close: move |_| on_close.call(()),
+            if let Some(message) = status() { div { style: "color:{color::DANGER_600}; padding-bottom:10px;", "{message}" } }
+            TextField { value: name(), label: "Name".to_string(), oninput: move |v| name.set(v) }
+            div { style: "margin-top:16px; font-weight:600; color:{color::NEUTRAL_800};", "Fields" }
+            div { style: "display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px;",
+                for field in fields.iter() {
+                    { let field_name = field.clone(); let checked = config().columns.iter().find(|c| c.field_id == *field).map(|c| c.visible).unwrap_or(false); rsx! { label { style: "display:flex; gap:8px; align-items:center; color:{color::NEUTRAL_700};", input { r#type: "checkbox", checked: checked, onchange: move |event| { let mut c = config(); if let Some(column) = c.columns.iter_mut().find(|x| x.field_id == field_name) { column.visible = event.checked(); } else { c.columns.push(api_types::admin::ViewColumn { field_id: field_name.clone(), visible: event.checked(), width: None, position: c.columns.len() as u32 }); } config.set(c); } } "{field}" } } }
+                }
+            }
+            div { style: "display:flex; justify-content:flex-end; gap:10px; margin-top:20px;", Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }, Button { label: "Save changes".to_string(), on_click: move |_| { let g = global.clone(); let uid = uid.clone(); let req = api_types::admin::UpdateContentTypeViewRequest { name: Some(name()), description: None, view_type: None, configuration: Some(config()) }; spawn(async move { match g.client.cm_view_update(&uid, id, &req).await { Ok(_) => on_saved.call(()), Err(e) => status.set(Some(e.to_string())) } }); } } }
+        }
     }
 }
 
@@ -1168,23 +1558,21 @@ fn EntryEditView(
         .collect();
 
     // Computed fields: shown read-only and stripped from the save payload.
-    let computed_fields: Vec<(String, FieldType, Option<String>, String, serde_json::Value)> = schema
-        .attributes
-        .iter()
-        .filter(|(_, a)| a.computed)
-        .map(|(name, a)| {
-            (
-                name.clone(),
-                a.attr_type,
-                a.expression.clone(),
-                if a.is_stored() { "stored" } else { "virtual" }.to_string(),
-                form()
-                    .get(name)
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null),
-            )
-        })
-        .collect();
+    let computed_fields: Vec<(String, FieldType, Option<String>, String, serde_json::Value)> =
+        schema
+            .attributes
+            .iter()
+            .filter(|(_, a)| a.computed)
+            .map(|(name, a)| {
+                (
+                    name.clone(),
+                    a.attr_type,
+                    a.expression.clone(),
+                    if a.is_stored() { "stored" } else { "virtual" }.to_string(),
+                    form().get(name).cloned().unwrap_or(serde_json::Value::Null),
+                )
+            })
+            .collect();
     let computed_names: Vec<String> = schema
         .attributes
         .iter()
@@ -1455,13 +1843,19 @@ mod tests {
 
     #[test]
     fn entry_id_resolves_document_then_numeric() {
-        assert_eq!(entry_id(&serde_json::json!({"documentId": "doc1", "id": 7})), "doc1");
+        assert_eq!(
+            entry_id(&serde_json::json!({"documentId": "doc1", "id": 7})),
+            "doc1"
+        );
         assert_eq!(entry_id(&serde_json::json!({"id": 7})), "7");
         assert_eq!(entry_id(&serde_json::json!({})), "");
     }
 
     #[test]
     fn sort_key_resolves_id() {
-        assert_eq!(sort_key(&serde_json::json!({"documentId": "abc"}), "id"), "abc");
+        assert_eq!(
+            sort_key(&serde_json::json!({"documentId": "abc"}), "id"),
+            "abc"
+        );
     }
 }

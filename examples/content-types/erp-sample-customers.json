@@ -1,0 +1,16 @@
+[
+  {
+    "Code": "GLOBAL10",
+    "Name": "Global 10% Customer",
+    "GlobalDiscountPercent": 10,
+    "SpecificDiscounts": {}
+  },
+  {
+    "Code": "PRODUCT15",
+    "Name": "Product 1 Discount Customer",
+    "GlobalDiscountPercent": 0,
+    "SpecificDiscounts": {
+      "PRODUCT-1": 15
+    }
+  }
+]

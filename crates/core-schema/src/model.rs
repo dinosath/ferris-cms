@@ -577,7 +577,10 @@ mod computed_attribute_contract {
             FieldType::Date,
             FieldType::Datetime,
         ] {
-            assert!(Attribute::new(t).supports_computed(), "{t:?} should be supported");
+            assert!(
+                Attribute::new(t).supports_computed(),
+                "{t:?} should be supported"
+            );
         }
         for t in [
             FieldType::Json,
@@ -588,7 +591,10 @@ mod computed_attribute_contract {
             FieldType::Component,
             FieldType::Dynamiczone,
         ] {
-            assert!(!Attribute::new(t).supports_computed(), "{t:?} should be rejected");
+            assert!(
+                !Attribute::new(t).supports_computed(),
+                "{t:?} should be rejected"
+            );
         }
     }
 }

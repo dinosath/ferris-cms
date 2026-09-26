@@ -177,6 +177,99 @@ pub struct BulkWriteRequest {
     pub data: Vec<serde_json::Value>,
 }
 
+/// A saved presentation of one content type. View configuration deliberately
+/// reuses the Content Manager query types so saved filters and sorts can be
+/// passed directly to the existing server-side query builder.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContentTypeView {
+    pub id: i64,
+    pub content_type_uid: String,
+    pub name: String,
+    pub slug: String,
+    pub view_type: ViewType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_default: bool,
+    pub position: i64,
+    pub configuration: ViewConfigurationV2,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ViewType {
+    #[default]
+    Grid,
+    Kanban,
+    Gallery,
+    Calendar,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewConfigurationV2 {
+    #[serde(default)]
+    pub columns: Vec<ViewColumn>,
+    #[serde(default)]
+    pub filters: Option<api_types_filter_placeholder::Filter>,
+    #[serde(default)]
+    pub sorts: Vec<api_types_filter_placeholder::SortField>,
+    #[serde(default)]
+    pub group_by: Option<String>,
+    #[serde(default)]
+    pub page_size: Option<u32>,
+    #[serde(default)]
+    pub renderer: serde_json::Value,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewColumn {
+    pub field_id: String,
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default)]
+    pub width: Option<u32>,
+    pub position: u32,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// This private alias is replaced below after the query module is declared;
+// keeping the DTO definitions here preserves the existing admin DTO module.
+mod api_types_filter_placeholder {
+    pub use crate::query::{Filter, SortField};
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateContentTypeViewRequest {
+    pub name: String,
+    pub view_type: ViewType,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub configuration: ViewConfigurationV2,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateContentTypeViewRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub view_type: Option<ViewType>,
+    pub configuration: Option<ViewConfigurationV2>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ReorderContentTypeViewsRequest {
+    pub ids: Vec<i64>,
+}
+
 /// Per-CT view configuration (design Part III §8).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

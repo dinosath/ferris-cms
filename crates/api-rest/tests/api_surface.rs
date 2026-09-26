@@ -124,40 +124,40 @@ async fn public_api_crud_and_errors() {
     let token = register_admin(&router).await;
     let uid = create_article(&router, &token).await;
 
-        let export = router
-            .clone()
-            .oneshot(empty_request(
-                "GET",
-                "/content-type-builder/bulk-export",
-                Some(&token),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(export.status(), StatusCode::OK);
-        let bundle = body_json(export).await;
-        assert_eq!(bundle["format"], "ferriscms-content-types");
-        assert!(bundle["schemas"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|schema| schema["uid"] == uid));
+    let export = router
+        .clone()
+        .oneshot(empty_request(
+            "GET",
+            "/content-type-builder/bulk-export",
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(export.status(), StatusCode::OK);
+    let bundle = body_json(export).await;
+    assert_eq!(bundle["format"], "ferriscms-content-types");
+    assert!(bundle["schemas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|schema| schema["uid"] == uid));
 
-        let import = router
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/content-type-builder/bulk-import",
-                bundle,
-                Some(&token),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(import.status(), StatusCode::OK);
-        assert!(body_json(import).await["data"]["schemas"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|schema| schema["uid"] == uid));
+    let import = router
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/content-type-builder/bulk-import",
+            bundle,
+            Some(&token),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(import.status(), StatusCode::OK);
+    assert!(body_json(import).await["data"]["schemas"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|schema| schema["uid"] == uid));
 
     // Public create.
     let created = router
@@ -499,7 +499,9 @@ async fn validation_and_bad_requests() {
         .as_array()
         .unwrap();
     assert!(
-        details.iter().any(|e| e["path"] == serde_json::json!(["title"])),
+        details
+            .iter()
+            .any(|e| e["path"] == serde_json::json!(["title"])),
         "missing required should target the title field, got {details:?}"
     );
 
@@ -652,7 +654,9 @@ async fn payload_constraints_are_enforced_before_handling() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "below min rejected");
     assert_eq!(body["error"]["name"], "ValidationError");
     let details = body["error"]["details"]["errors"].as_array().unwrap();
-    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["qty"])));
+    assert!(details
+        .iter()
+        .any(|e| e["path"] == serde_json::json!(["qty"])));
 
     // Above max -> 400 max.
     let (status, body) = post(
@@ -664,7 +668,9 @@ async fn payload_constraints_are_enforced_before_handling() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "above max rejected");
     let details = body["error"]["details"]["errors"].as_array().unwrap();
-    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["qty"])));
+    assert!(details
+        .iter()
+        .any(|e| e["path"] == serde_json::json!(["qty"])));
 
     // Pattern violation -> 400 regex.
     let (status, body) = post(
@@ -674,9 +680,15 @@ async fn payload_constraints_are_enforced_before_handling() {
         &token,
     )
     .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "pattern violation rejected");
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "pattern violation rejected"
+    );
     let details = body["error"]["details"]["errors"].as_array().unwrap();
-    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["sku"])));
+    assert!(details
+        .iter()
+        .any(|e| e["path"] == serde_json::json!(["sku"])));
 
     // Bad enum -> 400 enum.
     let (status, body) = post(
@@ -688,12 +700,19 @@ async fn payload_constraints_are_enforced_before_handling() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "bad enum rejected");
     let details = body["error"]["details"]["errors"].as_array().unwrap();
-    assert!(details.iter().any(|e| e["path"] == serde_json::json!(["state"])));
+    assert!(details
+        .iter()
+        .any(|e| e["path"] == serde_json::json!(["state"])));
 
     // No record was created by the rejected requests.
     let list = router
         .clone()
-        .oneshot(json_request("GET", &base, serde_json::json!({}), Some(&token)))
+        .oneshot(json_request(
+            "GET",
+            &base,
+            serde_json::json!({}),
+            Some(&token),
+        ))
         .await
         .unwrap();
     let list_json = body_json(list).await;
@@ -716,7 +735,11 @@ async fn payload_constraints_are_enforced_before_handling() {
         ))
         .await
         .unwrap();
-    assert_eq!(put.status(), StatusCode::BAD_REQUEST, "update above max rejected");
+    assert_eq!(
+        put.status(),
+        StatusCode::BAD_REQUEST,
+        "update above max rejected"
+    );
 
     let put_ok = router
         .clone()
@@ -728,8 +751,11 @@ async fn payload_constraints_are_enforced_before_handling() {
         ))
         .await
         .unwrap();
-    assert_eq!(put_ok.status(), StatusCode::OK, "partial valid update accepted");
+    assert_eq!(
+        put_ok.status(),
+        StatusCode::OK,
+        "partial valid update accepted"
+    );
     let updated = body_json(put_ok).await;
     assert_eq!(updated["data"]["qty"], serde_json::json!(7));
 }
-

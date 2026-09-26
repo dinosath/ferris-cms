@@ -53,9 +53,14 @@ async fn computed_migration_lifecycle() {
     apply_schema_diff(&db, backend, &d1, std::slice::from_ref(&s1))
         .await
         .unwrap();
-    let row = insert_one(&db, &s1, &serde_json::json!({"quantity":2,"unit_price":5}), None)
-        .await
-        .unwrap();
+    let row = insert_one(
+        &db,
+        &s1,
+        &serde_json::json!({"quantity":2,"unit_price":5}),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(num(&row["total"]), 10.0, "computed on insert: {row}");
 
     // 2. ADD a computed column (SQLite falls back to VIRTUAL on ALTER).
@@ -72,9 +77,14 @@ async fn computed_migration_lifecycle() {
     apply_schema_diff(&db, backend, &d2, &[s2.clone()])
         .await
         .unwrap();
-    let row2 = insert_one(&db, &s2, &serde_json::json!({"quantity":3,"unit_price":5}), None)
-        .await
-        .unwrap();
+    let row2 = insert_one(
+        &db,
+        &s2,
+        &serde_json::json!({"quantity":3,"unit_price":5}),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(num(&row2["total"]), 15.0);
     assert_eq!(num(&row2["tax"]), 3.0, "added computed column: {row2}");
 
@@ -91,9 +101,14 @@ async fn computed_migration_lifecycle() {
     apply_schema_diff(&db, backend, &d3, &[s3.clone()])
         .await
         .unwrap();
-    let row3 = insert_one(&db, &s3, &serde_json::json!({"quantity":2,"unit_price":5}), None)
-        .await
-        .unwrap();
+    let row3 = insert_one(
+        &db,
+        &s3,
+        &serde_json::json!({"quantity":2,"unit_price":5}),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(num(&row3["total"]), 20.0, "altered expression: {row3}");
 
     // 4. ROLLBACK the expression (re-apply previous schema) — must not collide
@@ -102,9 +117,14 @@ async fn computed_migration_lifecycle() {
     apply_schema_diff(&db, backend, &d4, &[s2.clone()])
         .await
         .unwrap();
-    let row4 = insert_one(&db, &s2, &serde_json::json!({"quantity":2,"unit_price":5}), None)
-        .await
-        .unwrap();
+    let row4 = insert_one(
+        &db,
+        &s2,
+        &serde_json::json!({"quantity":2,"unit_price":5}),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(num(&row4["total"]), 10.0, "rolled back expression: {row4}");
 
     // 5. REMOVE a computed field -> unmapped, not hard-dropped; writes still work.
@@ -115,9 +135,14 @@ async fn computed_migration_lifecycle() {
     apply_schema_diff(&db, backend, &d5, &[s5.clone()])
         .await
         .unwrap();
-    let row5 = insert_one(&db, &s5, &serde_json::json!({"quantity":4,"unit_price":2}), None)
-        .await
-        .unwrap();
+    let row5 = insert_one(
+        &db,
+        &s5,
+        &serde_json::json!({"quantity":4,"unit_price":2}),
+        None,
+    )
+    .await
+    .unwrap();
     assert_eq!(num(&row5["total"]), 8.0, "after removal: {row5}");
 }
 

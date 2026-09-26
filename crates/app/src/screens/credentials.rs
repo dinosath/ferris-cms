@@ -8,7 +8,9 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::use_global;
-use crate::components::{Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Modal, Spinner, TextArea, TextField};
+use crate::components::{
+    Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Modal, Spinner, TextArea, TextField,
+};
 
 /// The API / Integrations (credential management) screen.
 #[component]
@@ -22,7 +24,11 @@ pub fn Credentials() -> Element {
     let mut creating = use_signal(|| false);
     let mut name = use_signal(|| String::new());
     let mut credential_type = use_signal(|| String::new());
-    let mut data_json = use_signal(|| String::from("{\n  \"headerName\": \"Authorization\",\n  \"headerValue\": \"Bearer ...\"\n}"));
+    let mut data_json = use_signal(|| {
+        String::from(
+            "{\n  \"headerName\": \"Authorization\",\n  \"headerValue\": \"Bearer ...\"\n}",
+        )
+    });
     let mut to_delete: Signal<Option<i64>> = use_signal(|| None);
     // Async-action requests; `spawn` must run from `use_effect` (not handlers).
     let mut create_req: Signal<Option<(String, String, serde_json::Value)>> = use_signal(|| None);
@@ -39,11 +45,19 @@ pub fn Credentials() -> Element {
                 if let Ok(t) = client.credential_types().await {
                     let opts = t["data"]
                         .as_array()
-                        .map(|a| a.iter().filter_map(|x| {
-                            let key = x[0].as_str().unwrap_or("").to_string();
-                            let label = x[1].as_str().unwrap_or("").to_string();
-                            if key.is_empty() { None } else { Some((key, label)) }
-                        }).collect())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| {
+                                    let key = x[0].as_str().unwrap_or("").to_string();
+                                    let label = x[1].as_str().unwrap_or("").to_string();
+                                    if key.is_empty() {
+                                        None
+                                    } else {
+                                        Some((key, label))
+                                    }
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
                     types.set(opts);
                     if let Some((k, _)) = types().first() {

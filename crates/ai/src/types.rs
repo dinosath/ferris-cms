@@ -91,7 +91,11 @@ impl AiMessage {
         }
     }
 
-    pub fn tool(name: impl Into<String>, call_id: impl Into<String>, content: impl Into<String>) -> Self {
+    pub fn tool(
+        name: impl Into<String>,
+        call_id: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
         Self {
             role: AiMessageRole::Tool,
             content: content.into(),

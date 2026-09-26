@@ -62,7 +62,7 @@ mod tests {
             options: Default::default(),
             plugin_options: None,
             attributes: Default::default(),
-        metadata: None,
+            metadata: None,
         };
         for r in required {
             let mut a = Attribute::new(FieldType::String);
@@ -113,14 +113,29 @@ mod tests {
         s.attributes.insert("qty".to_string(), qty);
         s.attributes.insert("sku".to_string(), sku);
 
-        let ok = validate_record(&s, serde_json::json!({"qty": 50, "sku": "AB123"}).as_object().unwrap());
+        let ok = validate_record(
+            &s,
+            serde_json::json!({"qty": 50, "sku": "AB123"})
+                .as_object()
+                .unwrap(),
+        );
         assert!(ok.is_empty(), "valid record should pass, got {ok:?}");
 
-        let low = validate_record(&s, serde_json::json!({"qty": 0, "sku": "AB123"}).as_object().unwrap());
+        let low = validate_record(
+            &s,
+            serde_json::json!({"qty": 0, "sku": "AB123"})
+                .as_object()
+                .unwrap(),
+        );
         assert!(low.iter().any(|i| i.field.as_deref() == Some("qty")));
         assert!(low.iter().any(|i| i.message.contains(">=")));
 
-        let bad = validate_record(&s, serde_json::json!({"qty": 50, "sku": "nope"}).as_object().unwrap());
+        let bad = validate_record(
+            &s,
+            serde_json::json!({"qty": 50, "sku": "nope"})
+                .as_object()
+                .unwrap(),
+        );
         assert!(bad.iter().any(|i| i.field.as_deref() == Some("sku")));
         assert!(bad.iter().any(|i| i.message.contains("pattern")));
     }

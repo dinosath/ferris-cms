@@ -205,7 +205,10 @@ async fn workflows_screen_renders() -> anyhow::Result<()> {
         .await
         .context("Workflows screen did not render")?;
     let body = body_text(&page).await?;
-    assert!(!body.contains(BUILDER_ERROR), "builder error on Workflows screen");
+    assert!(
+        !body.contains(BUILDER_ERROR),
+        "builder error on Workflows screen"
+    );
 
     take_screenshot(page, "workflows-list").await?;
     Ok(())
@@ -245,9 +248,11 @@ async fn workflow_editor_opens() -> anyhow::Result<()> {
     )
     .await?;
     // Wait for the editor (node library "NODES" heading).
-    wait_for_text(&page, |t| t.contains("NODES") || t.contains("Workflow Editor"))
-        .await
-        .context("workflow editor did not open")?;
+    wait_for_text(&page, |t| {
+        t.contains("NODES") || t.contains("Workflow Editor")
+    })
+    .await
+    .context("workflow editor did not open")?;
 
     let body = body_text(&page).await?;
     assert!(!body.contains(BUILDER_ERROR), "builder error in editor");

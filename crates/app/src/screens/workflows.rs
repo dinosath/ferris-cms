@@ -4,7 +4,9 @@ use dioxus::prelude::*;
 use ui::design::tokens::{color, typography};
 
 use crate::app::{use_global, Route};
-use crate::components::{Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Spinner, TextField};
+use crate::components::{
+    Badge, Button, Card, ConfirmDialog, EmptyState, IconButton, Spinner, TextField,
+};
 
 /// A user-triggered async action. The handler only sets the signal; a
 /// `use_effect` performs the actual async work (spawn does not run when called
@@ -80,7 +82,9 @@ pub fn Workflows() -> Element {
                             Ok(v) => {
                                 if let Some(id) = v["data"]["id"].as_i64() {
                                     if let Ok(list) = client.workflow_list(None, None).await {
-                                        its.set(list["data"].as_array().cloned().unwrap_or_default());
+                                        its.set(
+                                            list["data"].as_array().cloned().unwrap_or_default(),
+                                        );
                                     }
                                     route2.set(Route::WorkflowEditor(id));
                                 }
@@ -101,7 +105,14 @@ pub fn Workflows() -> Element {
                             if let Ok(v) = client.workflow_list(None, None).await {
                                 its.set(v["data"].as_array().cloned().unwrap_or_default());
                             }
-                            g.toast(if active { "Workflow activated" } else { "Workflow deactivated" }, "success");
+                            g.toast(
+                                if active {
+                                    "Workflow activated"
+                                } else {
+                                    "Workflow deactivated"
+                                },
+                                "success",
+                            );
                         }
                     });
                 }
@@ -139,7 +150,10 @@ pub fn Workflows() -> Element {
                     let en = name.clone();
                     spawn(async move {
                         if let Ok(v) = client.workflow_export(id).await {
-                            exp.set(Some((en.clone(), serde_json::to_string_pretty(&v).unwrap_or_default())));
+                            exp.set(Some((
+                                en.clone(),
+                                serde_json::to_string_pretty(&v).unwrap_or_default(),
+                            )));
                         }
                     });
                 }
@@ -188,7 +202,10 @@ pub fn Workflows() -> Element {
         let trigger = item["trigger"].as_str().unwrap_or("-").to_string();
         let nodes = item["taskCount"].as_i64().unwrap_or(0);
         let runs = item["executionCount"].as_i64().unwrap_or(0);
-        let last = item["lastExecution"]["status"].as_str().unwrap_or("-").to_string();
+        let last = item["lastExecution"]["status"]
+            .as_str()
+            .unwrap_or("-")
+            .to_string();
         let mut open_editor = route;
         let mut act = action;
         let mut del = to_delete;

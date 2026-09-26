@@ -7,6 +7,8 @@
 //! function's `with` arguments.
 
 use crate::AppContext;
+use ::workflow::expression;
+use ::workflow::model::{function, OwsDocument};
 use core_domain::Uid;
 use core_schema::Schema;
 use db::entities::{core_store, upload_file};
@@ -14,8 +16,6 @@ use dynamic_store::dml;
 use indexmap::IndexMap;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
-use ::workflow::expression;
-use ::workflow::model::{function, OwsDocument};
 
 /// Runtime context passed to every function executor.
 pub struct FunctionRunContext<'a> {
@@ -92,7 +92,11 @@ pub fn resolve_value(
 }
 
 /// Read a string argument from the `with` map (with expression resolution).
-pub fn arg_str(ctx: &FunctionRunContext<'_>, input: &serde_json::Value, key: &str) -> Result<String, String> {
+pub fn arg_str(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+    key: &str,
+) -> Result<String, String> {
     let Some(v) = ctx.with.get(key) else {
         return Ok(String::new());
     };
@@ -148,7 +152,9 @@ pub async fn execute_function(
         function::TRANSFORM => execute_transform(ctx, input).await,
         function::CODE => execute_code(ctx, input).await,
         function::EDIT_FIELDS => execute_edit_fields(ctx, input).await,
-        function::HTTP_REQUEST | function::REST_API | function::WEBHOOK => execute_http(ctx, input).await,
+        function::HTTP_REQUEST | function::REST_API | function::WEBHOOK => {
+            execute_http(ctx, input).await
+        }
         function::GRAPHQL => execute_graphql(ctx, input).await,
         function::DB_QUERY | function::POSTGRES => execute_database(ctx, input).await,
         function::REDIS => execute_redis(ctx, input).await,
@@ -196,10 +202,20 @@ async fn execute_transform(
     resolve_template(ctx, input, expr)
 }
 
-async fn execute_code(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let code = ctx.with.get("code").and_then(|v| v.as_str()).unwrap_or("return input;");
+async fn execute_code(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let code = ctx
+        .with
+        .get("code")
+        .and_then(|v| v.as_str())
+        .unwrap_or("return input;");
     let trimmed = code.trim();
-    if let Some(body) = trimmed.strip_prefix("return ").and_then(|s| s.strip_suffix(';')) {
+    if let Some(body) = trimmed
+        .strip_prefix("return ")
+        .and_then(|s| s.strip_suffix(';'))
+    {
         return expression::eval_expression(body, &expr_ctx(ctx, input)).map_err(|e| e.to_string());
     }
     Ok(input.clone())
@@ -234,11 +250,7 @@ async fn execute_find_content(
         return Err("Find Content: missing content type".to_string());
     }
     let schema = load_schema(ctx.app, &uid)?;
-    let limit = ctx
-        .with
-        .get("limit")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(10);
+    let limit = ctx.with.get("limit").and_then(|v| v.as_i64()).unwrap_or(10);
     let filters = arg_value(ctx, input, "filters")?;
     let params = build_query_params(&filters, limit);
     let (rows, _) = dml::query_rows(&ctx.app.db, ctx.app.db_backend(), &schema, &params)
@@ -290,7 +302,10 @@ async fn execute_query_content(
     let schema = load_schema(ctx.app, &uid)?;
     let query = arg_value(ctx, input, "query")?;
     let limit = query.get("limit").and_then(|v| v.as_i64()).unwrap_or(25);
-    let filters = query.get("filters").cloned().unwrap_or(serde_json::json!({}));
+    let filters = query
+        .get("filters")
+        .cloned()
+        .unwrap_or(serde_json::json!({}));
     let params = build_query_params(&filters, limit);
     let (rows, _) = dml::query_rows(&ctx.app.db, ctx.app.db_backend(), &schema, &params)
         .await
@@ -372,9 +387,15 @@ async fn execute_publish_content(
             serde_json::json!(if publish { "published" } else { "draft" }),
         );
         if publish {
-            obj.insert("publishedAt".into(), serde_json::json!(chrono::Utc::now().to_rfc3339()));
+            obj.insert(
+                "publishedAt".into(),
+                serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            );
         }
-        obj.insert("documentId".into(), serde_json::json!(uuid::Uuid::new_v4().to_string()));
+        obj.insert(
+            "documentId".into(),
+            serde_json::json!(uuid::Uuid::new_v4().to_string()),
+        );
     }
     let row = dml::insert_one(&ctx.app.db, &schema, &data, None)
         .await
@@ -446,7 +467,12 @@ async fn execute_transform_data(
         let rows: Vec<serde_json::Value> = input
             .as_object()
             .map(|o| vec![serde_json::Value::Object(o.clone())])
-            .unwrap_or_else(|| input.as_array().cloned().unwrap_or_else(|| vec![input.clone()]));
+            .unwrap_or_else(|| {
+                input
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_else(|| vec![input.clone()])
+            });
         let csv = json_to_csv(&rows)?;
         Ok(serde_json::json!({ "csv": csv }))
     }
@@ -479,7 +505,11 @@ fn json_to_csv(rows: &[serde_json::Value]) -> Result<String, String> {
     for row in rows {
         let vals: Vec<String> = cols
             .iter()
-            .map(|c| esc(&stringify(&row.get(c).cloned().unwrap_or(serde_json::Value::Null))))
+            .map(|c| {
+                esc(&stringify(
+                    &row.get(c).cloned().unwrap_or(serde_json::Value::Null),
+                ))
+            })
             .collect();
         out.push_str(&vals.join(","));
         out.push('\n');
@@ -503,7 +533,10 @@ fn csv_to_json(csv: &str) -> Result<Vec<serde_json::Value>, String> {
             .collect();
         let mut obj = serde_json::Map::new();
         for (i, col) in header.iter().enumerate() {
-            obj.insert(col.clone(), serde_json::json!(fields.get(i).cloned().unwrap_or_default()));
+            obj.insert(
+                col.clone(),
+                serde_json::json!(fields.get(i).cloned().unwrap_or_default()),
+            );
         }
         out.push(serde_json::Value::Object(obj));
     }
@@ -556,7 +589,10 @@ async fn resolve_credential(
     Ok(Some(data))
 }
 
-async fn execute_http(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -> Result<serde_json::Value, String> {
+async fn execute_http(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let url = arg_str(ctx, input, "url")?;
     if url.is_empty() {
         return Err("HTTP: missing url".to_string());
@@ -569,11 +605,17 @@ async fn execute_http(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -
         .to_uppercase();
     let headers = arg_value(ctx, input, "headers")?;
     let body = ctx.with.get("body").cloned();
-    let auth = ctx.with.get("authentication").and_then(|v| v.as_str()).unwrap_or("none").to_string();
+    let auth = ctx
+        .with
+        .get("authentication")
+        .and_then(|v| v.as_str())
+        .unwrap_or("none")
+        .to_string();
 
     let client = reqwest::Client::new();
     let mut req = client.request(
-        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "HTTP: invalid method".to_string())?,
+        reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| "HTTP: invalid method".to_string())?,
         &url,
     );
     if let Some(obj) = headers.as_object() {
@@ -583,8 +625,16 @@ async fn execute_http(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -
     }
     if auth == "predefined" {
         if let Some(cred) = resolve_credential(ctx, "httpApi").await? {
-            let name = cred.get("headerName").and_then(|v| v.as_str()).unwrap_or("Authorization").to_string();
-            let value = cred.get("headerValue").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = cred
+                .get("headerName")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Authorization")
+                .to_string();
+            let value = cred
+                .get("headerValue")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             req = req.header(name, value);
         }
     }
@@ -594,7 +644,10 @@ async fn execute_http(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -
             req = req.json(&b);
         }
     }
-    let resp = req.send().await.map_err(|e| format!("HTTP request failed: {e}"))?;
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("HTTP request failed: {e}"))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.map_err(|e| format!("HTTP body: {e}"))?;
     let parsed = serde_json::from_str::<serde_json::Value>(&text)
@@ -602,7 +655,10 @@ async fn execute_http(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -
     Ok(serde_json::json!({ "statusCode": status, "json": parsed }))
 }
 
-async fn execute_graphql(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -> Result<serde_json::Value, String> {
+async fn execute_graphql(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let url = arg_str(ctx, input, "url")?;
     if url.is_empty() {
         return Err("GraphQL: missing url".to_string());
@@ -618,11 +674,17 @@ async fn execute_graphql(ctx: &FunctionRunContext<'_>, input: &serde_json::Value
         .await
         .map_err(|e| format!("GraphQL: {e}"))?;
     let status = resp.status().as_u16();
-    let json: serde_json::Value = resp.json().await.map_err(|e| format!("GraphQL body: {e}"))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("GraphQL body: {e}"))?;
     Ok(serde_json::json!({ "statusCode": status, "json": json }))
 }
 
-async fn execute_database(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -> Result<serde_json::Value, String> {
+async fn execute_database(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
     let sql = arg_str(ctx, input, "query")?;
     if sql.trim().is_empty() {
         return Err("Database Query: empty SQL".to_string());
@@ -636,8 +698,16 @@ async fn execute_database(ctx: &FunctionRunContext<'_>, input: &serde_json::Valu
     Ok(serde_json::json!({ "rowsAffected": res.rows_affected() }))
 }
 
-async fn execute_redis(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let operation = ctx.with.get("operation").and_then(|v| v.as_str()).unwrap_or("get").to_string();
+async fn execute_redis(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let operation = ctx
+        .with
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("get")
+        .to_string();
     let key = arg_str(ctx, input, "key")?;
     match operation.as_str() {
         "set" => {
@@ -681,13 +751,19 @@ async fn execute_redis(ctx: &FunctionRunContext<'_>, input: &serde_json::Value) 
                 .one(&ctx.app.db)
                 .await
                 .map_err(|e| e.to_string())?;
-            Ok(serde_json::json!({ "key": key, "operation": "get", "value": v.and_then(|r| r.value_json).unwrap_or(serde_json::Value::Null) }))
+            Ok(
+                serde_json::json!({ "key": key, "operation": "get", "value": v.and_then(|r| r.value_json).unwrap_or(serde_json::Value::Null) }),
+            )
         }
     }
 }
 
 /// Evaluate a switch condition (jq-ish) to a boolean.
-pub fn eval_condition(ctx: &FunctionRunContext<'_>, input: &serde_json::Value, expr: &str) -> Result<bool, String> {
+pub fn eval_condition(
+    ctx: &FunctionRunContext<'_>,
+    input: &serde_json::Value,
+    expr: &str,
+) -> Result<bool, String> {
     let norm = normalize_ows_expr(expr);
     if norm.trim().is_empty() {
         return Ok(false);

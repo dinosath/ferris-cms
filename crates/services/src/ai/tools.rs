@@ -278,7 +278,9 @@ pub async fn execute_tool(
             // Return the error to the model so it can self-correct, but never
             // leak internal details beyond a safe message.
             let safe = match &e {
-                ServiceError::Forbidden => "forbidden: the current user lacks permission".to_string(),
+                ServiceError::Forbidden => {
+                    "forbidden: the current user lacks permission".to_string()
+                }
                 ServiceError::NotFound(m) => format!("not found: {m}"),
                 other => other.to_string(),
             };
@@ -301,7 +303,8 @@ async fn execute_list_types(ctx: &AppContext) -> Result<String, ServiceError> {
 }
 
 async fn execute_list(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
     let page = args.get("page").and_then(|v| v.as_i64()).unwrap_or(1);
     let page_size = args.get("pageSize").and_then(|v| v.as_i64()).unwrap_or(20);
     let params = api_types::QueryParams {
@@ -317,30 +320,49 @@ async fn execute_list(ctx: &AppContext, args: &Value) -> Result<String, ServiceE
 }
 
 async fn execute_get(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let doc = arg_str(args, "documentId").ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let doc = arg_str(args, "documentId")
+        .ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
     let resp = crate::content::cm_get(ctx, &uid, &doc, None).await?;
     Ok(json!({ "ok": true, "data": resp.data }).to_string())
 }
 
 async fn execute_create(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let data = args.get("data").cloned().unwrap_or(Value::Object(Default::default()));
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let data = args
+        .get("data")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
     let resp = crate::content::cm_create(ctx, &uid, &data).await?;
-    Ok(json!({ "ok": true, "created": true, "documentId": resp.data.get("documentId") }).to_string())
+    Ok(
+        json!({ "ok": true, "created": true, "documentId": resp.data.get("documentId") })
+            .to_string(),
+    )
 }
 
 async fn execute_update(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let doc = arg_str(args, "documentId").ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
-    let data = args.get("data").cloned().unwrap_or(Value::Object(Default::default()));
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let doc = arg_str(args, "documentId")
+        .ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
+    let data = args
+        .get("data")
+        .cloned()
+        .unwrap_or(Value::Object(Default::default()));
     let resp = crate::content::cm_update(ctx, &uid, &doc, &data).await?;
-    Ok(json!({ "ok": true, "updated": true, "documentId": resp.data.get("documentId") }).to_string())
+    Ok(
+        json!({ "ok": true, "updated": true, "documentId": resp.data.get("documentId") })
+            .to_string(),
+    )
 }
 
 async fn execute_delete(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let doc = arg_str(args, "documentId").ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let doc = arg_str(args, "documentId")
+        .ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
     crate::content::cm_delete(ctx, &uid, &doc).await?;
     Ok(json!({ "ok": true, "deleted": true }).to_string())
 }
@@ -350,11 +372,21 @@ async fn execute_translate(
     args: &Value,
     fallback_model: Option<&str>,
 ) -> Result<String, ServiceError> {
-    let text = arg_str(args, "text").ok_or_else(|| ServiceError::validation("text required", vec![]))?;
+    let text =
+        arg_str(args, "text").ok_or_else(|| ServiceError::validation("text required", vec![]))?;
     let target = arg_str(args, "targetLocale").unwrap_or_else(|| "en".to_string());
     let (translated, usage) = translate_text(ctx, &text, &target, fallback_model).await?;
     if let Some((uid, _)) = ctx.current_user.as_ref().map(|u| (u.id, ())) {
-        let _ = log_usage(ctx, uid, None, fallback_model, Some("tool.translate"), usage, Some("ok")).await;
+        let _ = log_usage(
+            ctx,
+            uid,
+            None,
+            fallback_model,
+            Some("tool.translate"),
+            usage,
+            Some("ok"),
+        )
+        .await;
     }
     Ok(json!({ "ok": true, "translated": translated }).to_string())
 }
@@ -378,15 +410,19 @@ fn to_json<T: serde::Serialize>(v: &T) -> Result<String, ServiceError> {
 // ---------------------------------------------------------------------------
 
 async fn execute_content_publish(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let doc = arg_str(args, "documentId").ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let doc = arg_str(args, "documentId")
+        .ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
     cm_publish(ctx, &uid, &doc).await?;
     Ok(json!({ "ok": true, "published": true }).to_string())
 }
 
 async fn execute_content_unpublish(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
-    let doc = arg_str(args, "documentId").ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let doc = arg_str(args, "documentId")
+        .ok_or_else(|| ServiceError::validation("documentId required", vec![]))?;
     cm_unpublish(ctx, &uid, &doc).await?;
     Ok(json!({ "ok": true, "unpublished": true }).to_string())
 }
@@ -401,7 +437,8 @@ async fn execute_content_type_list(ctx: &AppContext) -> Result<String, ServiceEr
 }
 
 async fn execute_content_type_get(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
     let schema = ctb_get(ctx, &uid).await?;
     to_json(&schema)
 }
@@ -424,11 +461,17 @@ async fn execute_content_type_save(ctx: &AppContext, args: &Value) -> Result<Str
     Ok(json!({ "ok": true, "uid": uid }).to_string())
 }
 
-async fn execute_content_type_delete(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let uid = arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
+async fn execute_content_type_delete(
+    ctx: &AppContext,
+    args: &Value,
+) -> Result<String, ServiceError> {
+    let uid =
+        arg_str(args, "uid").ok_or_else(|| ServiceError::validation("uid required", vec![]))?;
     let all = ctb_list(ctx).await;
     if !all.iter().any(|s| s.uid.as_str() == uid) {
-        return Ok(json!({ "ok": false, "error": format!("content type {uid} not found") }).to_string());
+        return Ok(
+            json!({ "ok": false, "error": format!("content type {uid} not found") }).to_string(),
+        );
     }
     ctb_apply(ctx, all, vec![core_domain::Uid::new(&uid)]).await?;
     Ok(json!({ "ok": true, "deleted": uid }).to_string())
@@ -452,8 +495,12 @@ async fn execute_workflow_get(ctx: &AppContext, args: &Value) -> Result<String, 
 }
 
 async fn execute_workflow_create(ctx: &AppContext, args: &Value) -> Result<String, ServiceError> {
-    let name = arg_str(args, "name").ok_or_else(|| ServiceError::validation("name required", vec![]))?;
-    let description = args.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let name =
+        arg_str(args, "name").ok_or_else(|| ServiceError::validation("name required", vec![]))?;
+    let description = args
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let def = args
         .get("definition")
         .map(|d| {

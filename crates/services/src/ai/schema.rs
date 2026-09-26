@@ -43,12 +43,23 @@ Return ONLY JSON.";
         max_tokens: Some(1200),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
-    let proposed = crate::ai::content::extract_json_proposal(&resp.content).ok_or_else(|| {
-        ServiceError::internal("AI returned no parseable schema — try again")
-    })?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    let proposed = crate::ai::content::extract_json_proposal(&resp.content)
+        .ok_or_else(|| ServiceError::internal("AI returned no parseable schema — try again"))?;
     if let Some(uid) = user_id {
-        let _ = log_usage(ctx, uid, Some(pid), Some(&name), Some("schema.generate"), resp.usage, Some("ok")).await;
+        let _ = log_usage(
+            ctx,
+            uid,
+            Some(pid),
+            Some(&name),
+            Some("schema.generate"),
+            resp.usage,
+            Some("ok"),
+        )
+        .await;
     }
     Ok(serde_json::json!({ "proposed": proposed, "applied": false }))
 }
@@ -59,8 +70,8 @@ pub async fn apply_generated_schema(
     schema_json: Value,
 ) -> Result<serde_json::Value, ServiceError> {
     ctx.require_admin()?;
-    let schema: core_schema::Schema =
-        serde_json::from_value(schema_json).map_err(|e| ServiceError::internal(format!("invalid schema: {e}")))?;
+    let schema: core_schema::Schema = serde_json::from_value(schema_json)
+        .map_err(|e| ServiceError::internal(format!("invalid schema: {e}")))?;
 
     let mut all = crate::content_type_builder::ctb_list(ctx).await;
     let new_uid = schema.uid.as_str().to_string();

@@ -6,13 +6,15 @@
 //! Every handler talks to `services` through `AppContext` stored as
 //! an Axum extension/state.
 
+pub mod ai;
 pub mod auth;
 pub mod content;
 pub mod ctb;
 pub mod error;
 pub mod import_export;
+pub mod sales;
+pub mod views;
 pub mod workflow;
-pub mod ai;
 
 use axum::{
     extract::{Path, Query, State},
@@ -22,7 +24,6 @@ use axum::{
     Json, Router,
 };
 use rust_embed::RustEmbed;
-use std::collections::HashMap;
 use services::{
     api_token_create, api_token_delete, api_token_list, auth_login, auth_register,
     cm_content_types, cm_create, cm_delete, cm_discard_draft, cm_get, cm_get_configuration,
@@ -32,6 +33,7 @@ use services::{
     media_upload as svc_media_upload, rbac_create_user, rbac_get_role, rbac_list_roles,
     rbac_list_users, rbac_update_permissions, AppConfig, AppContext, ServiceError,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
@@ -162,6 +164,30 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/content-manager/content-types/{uid}/configuration",
             get(cm_config_handler).put(cm_config_update_handler),
         )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views",
+            get(views::list).post(views::create),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views/reorder",
+            post(views::reorder),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views/{id}",
+            get(views::get).put(views::update).delete(views::delete),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views/{id}/duplicate",
+            post(views::duplicate),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views/{id}/default",
+            post(views::set_default),
+        )
+        .route(
+            "/admin/content-manager/content-types/{uid}/views/{id}/records",
+            get(views::records),
+        )
         // i18n
         .route(
             "/admin/i18n/locales",
@@ -271,6 +297,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(workflow::workflow_permission_actions),
         )
         .merge(import_export::router())
+        .route("/admin/sales", post(sales::create_sale))
         .merge(ai::router());
 
     // Public webhook triggers for active workflows.
@@ -302,9 +329,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         Err(_) => router.fallback(get(embedded_ui)),
     };
 
-    router
-        .with_state(state)
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+    router.with_state(state).layer(
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    )
 }
 
 /// The Dioxus WASM admin UI, embedded into the binary from `crates/api-rest/ui/`.
@@ -318,6 +348,28 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 struct UiAssets;
 
 const UI_INDEX: &str = "index.html";
+
+/// Development/test fallback used before `dx build --web` has generated the
+/// embedded UI directory. Production builds replace this with the real
+/// Dioxus bundle through `UiAssets`.
+const EMPTY_UI_INDEX: &str = "<!doctype html><html><head><meta charset=\"utf-8\"><title>ferriscms</title></head><body><div id=\"main\">ferriscms UI bundle is not built</div></body></html>";
+
+fn embedded_index_response() -> Response {
+    let (body, content_type) = match UiAssets::get(UI_INDEX) {
+        Some(index) => (index.data.into_owned(), "text/html; charset=utf-8"),
+        None => (
+            EMPTY_UI_INDEX.as_bytes().to_vec(),
+            "text/html; charset=utf-8",
+        ),
+    };
+    let mut response =
+        (StatusCode::OK, [(header::CONTENT_TYPE, content_type)], body).into_response();
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-cache"),
+    );
+    response
+}
 
 /// Serve the embedded admin UI. `/` and unknown extension-less paths return the
 /// SPA `index.html`; real files are served directly; unmatched API routes 404.
@@ -360,22 +412,13 @@ async fn embedded_ui(uri: Uri) -> Response {
         return resp;
     }
 
+    if path == UI_INDEX {
+        return embedded_index_response();
+    }
+
     // SPA fallback: serve index.html for extension-less paths.
     if !path.contains('.') {
-        if let Some(index) = UiAssets::get(UI_INDEX) {
-            let mime = mime_guess::from_path(UI_INDEX).first_or_octet_stream();
-            let mut resp = (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, mime.as_ref())],
-                index.data.into_owned(),
-            )
-                .into_response();
-            resp.headers_mut().insert(
-                header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("no-cache"),
-            );
-            return resp;
-        }
+        return embedded_index_response();
     }
 
     (StatusCode::NOT_FOUND, "not found").into_response()
@@ -493,7 +536,11 @@ async fn ctb_apply_handler(
     admin: auth::AdminCtx,
     Json(req): Json<api_types::admin::CtbApplyRequest>,
 ) -> Result<impl IntoResponse, error::AppError> {
-    let removed = req.removed.iter().map(|s| core_domain::Uid::new(s)).collect();
+    let removed = req
+        .removed
+        .iter()
+        .map(|s| core_domain::Uid::new(s))
+        .collect();
     let schemas = ctb_apply(&admin.0, req.schemas, removed).await?;
     Ok(Json(api_types::admin::CtbApplyResponse {
         data: api_types::admin::CtbApplyData {

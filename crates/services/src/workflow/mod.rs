@@ -19,12 +19,12 @@ pub use runtime_fn::*;
 pub use triggers::*;
 
 use crate::{AppContext, ServiceError};
+use ::workflow::model::OwsDocument;
 use db::entities::{workflow, workflow_execution};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 use serde::Serialize;
-use ::workflow::model::OwsDocument;
 
 /// Workflow permission actions (integrated into the existing RBAC matrix).
 pub mod action {
@@ -113,7 +113,9 @@ pub fn new_empty_document(
     version: i64,
     active: bool,
 ) -> OwsDocument {
-    use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+    use serverless_workflow_core::models::workflow::{
+        WorkflowDefinition, WorkflowDefinitionMetadata,
+    };
     let now = chrono::Utc::now();
     let metadata = WorkflowDefinitionMetadata::new(
         "default",
@@ -147,7 +149,12 @@ pub fn trigger_label(doc: &OwsDocument) -> Option<String> {
                 .chain(on.any.iter().flat_map(|v| v.iter()))
                 .chain(on.one.iter())
             {
-                if let Some(ty) = f.with.as_ref().and_then(|w| w.get("type")).and_then(|v| v.as_str()) {
+                if let Some(ty) = f
+                    .with
+                    .as_ref()
+                    .and_then(|w| w.get("type"))
+                    .and_then(|v| v.as_str())
+                {
                     if is_trigger_event(ty) {
                         labels.push(ty.to_string());
                     }
@@ -163,8 +170,13 @@ pub fn trigger_label(doc: &OwsDocument) -> Option<String> {
 
 /// Enforce a workflow permission for the current user.
 pub async fn enforce(ctx: &AppContext, perm: &str) -> Result<(), ServiceError> {
-    crate::rbac::enforce_action(&ctx.db, ctx.current_user.as_ref(), perm, action::SUBJECT_WORKFLOW)
-        .await
+    crate::rbac::enforce_action(
+        &ctx.db,
+        ctx.current_user.as_ref(),
+        perm,
+        action::SUBJECT_WORKFLOW,
+    )
+    .await
 }
 
 /// List workflows (optionally filtered by name/status).
@@ -262,10 +274,8 @@ pub async fn workflow_create(
         description: Set(workflow.definition.document.summary.clone()),
         version: Set(workflow.version),
         active: Set(workflow.active),
-        definition_json: Set(
-            serde_json::to_value(&workflow)
-                .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?,
-        ),
+        definition_json: Set(serde_json::to_value(&workflow)
+            .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?),
         created_at: Set(now),
         updated_at: Set(now),
         created_by: Set(user_id),
@@ -304,10 +314,8 @@ pub async fn workflow_save(
             am.description = Set(new_def.definition.document.summary.clone());
             am.version = Set(version);
             am.active = Set(new_def.active);
-            am.definition_json = Set(
-                serde_json::to_value(&new_def)
-                    .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?,
-            );
+            am.definition_json = Set(serde_json::to_value(&new_def)
+                .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?);
             am.updated_at = Set(now);
             am.updated_by = Set(user_id);
             am.update(&ctx.db).await?
@@ -324,10 +332,8 @@ pub async fn workflow_save(
                 description: Set(new_def.definition.document.summary.clone()),
                 version: Set(new_def.version),
                 active: Set(new_def.active),
-                definition_json: Set(
-                    serde_json::to_value(&new_def)
-                        .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?,
-                ),
+                definition_json: Set(serde_json::to_value(&new_def)
+                    .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?),
                 created_at: Set(now),
                 updated_at: Set(now),
                 created_by: Set(user_id),
@@ -388,10 +394,8 @@ pub async fn workflow_set_active(
 
     let mut am: workflow::ActiveModel = row.into();
     am.active = Set(active);
-    am.definition_json = Set(
-        serde_json::to_value(&def)
-            .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?,
-    );
+    am.definition_json = Set(serde_json::to_value(&def)
+        .map_err(|e| ServiceError::internal(format!("workflow serialize: {e}")))?);
     am.updated_at = Set(chrono::Utc::now());
     let updated = am.update(&ctx.db).await?;
     model_to_workflow(&updated)
@@ -443,9 +447,7 @@ pub async fn workflow_export_yaml(ctx: &AppContext, id: i64) -> Result<String, S
 }
 
 /// Export all workflows as a versioned bundle.
-pub async fn workflow_export_bulk(
-    ctx: &AppContext,
-) -> Result<serde_json::Value, ServiceError> {
+pub async fn workflow_export_bulk(ctx: &AppContext) -> Result<serde_json::Value, ServiceError> {
     enforce(ctx, action::VIEW).await?;
     let rows = workflow::Entity::find()
         .order_by_asc(workflow::Column::Id)
@@ -525,12 +527,17 @@ pub async fn workflow_import_bulk(
         .get("workflows")
         .cloned()
         .unwrap_or_else(|| value.clone());
-    let mut definitions: Vec<OwsDocument> = serde_json::from_value(workflows_value)
-        .map_err(|e| ServiceError::validation("workflows", vec![crate::ValidationErrorItem::new(
-            vec!["workflows".into()],
-            format!("invalid workflow bundle: {e}"),
-            "ValidationError",
-        )]))?;
+    let mut definitions: Vec<OwsDocument> =
+        serde_json::from_value(workflows_value).map_err(|e| {
+            ServiceError::validation(
+                "workflows",
+                vec![crate::ValidationErrorItem::new(
+                    vec!["workflows".into()],
+                    format!("invalid workflow bundle: {e}"),
+                    "ValidationError",
+                )],
+            )
+        })?;
 
     for definition in &definitions {
         let validation = ::workflow::validate_workflow(definition);
@@ -569,7 +576,9 @@ pub async fn seed_demo_workflows(ctx: &AppContext) -> Result<usize, ServiceError
         tasks: serde_json::Value,
         now: chrono::DateTime<chrono::Utc>,
     ) -> OwsDocument {
-        use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+        use serverless_workflow_core::models::workflow::{
+            WorkflowDefinition, WorkflowDefinitionMetadata,
+        };
         let metadata = WorkflowDefinitionMetadata::new(
             "default",
             name,
@@ -635,25 +644,31 @@ pub async fn seed_demo_workflows(ctx: &AppContext) -> Result<usize, ServiceError
     // Content Created trigger via schedule.on event.
     let mut demos: Vec<OwsDocument> = vec![demo1, demo2, demo3];
     let mut with = std::collections::HashMap::new();
+    with.insert("type".to_string(), serde_json::json!("content.created"));
     with.insert(
-        "type".to_string(),
-        serde_json::json!("content.created"),
+        "contentType".to_string(),
+        serde_json::json!("api::article.article"),
     );
-    with.insert("contentType".to_string(), serde_json::json!("api::article.article"));
-    demos[2].definition.schedule = Some(serverless_workflow_core::models::workflow::WorkflowScheduleDefinition {
-        every: None,
-        cron: None,
-        after: None,
-        on: Some(serverless_workflow_core::models::event::EventConsumptionStrategyDefinition {
-            all: None,
-            any: None,
-            one: Some(serverless_workflow_core::models::event::EventFilterDefinition {
-                with: Some(with),
-                correlate: None,
-            }),
-            until: None,
-        }),
-    });
+    demos[2].definition.schedule = Some(
+        serverless_workflow_core::models::workflow::WorkflowScheduleDefinition {
+            every: None,
+            cron: None,
+            after: None,
+            on: Some(
+                serverless_workflow_core::models::event::EventConsumptionStrategyDefinition {
+                    all: None,
+                    any: None,
+                    one: Some(
+                        serverless_workflow_core::models::event::EventFilterDefinition {
+                            with: Some(with),
+                            correlate: None,
+                        },
+                    ),
+                    until: None,
+                },
+            ),
+        },
+    );
 
     let mut created = 0;
     for def in demos {
@@ -662,7 +677,9 @@ pub async fn seed_demo_workflows(ctx: &AppContext) -> Result<usize, ServiceError
             description: Set(def.definition.document.summary.clone()),
             version: Set(1),
             active: Set(false),
-            definition_json: Set(serde_json::to_value(&def).map_err(|e| ServiceError::internal(e.to_string()))?),
+            definition_json: Set(
+                serde_json::to_value(&def).map_err(|e| ServiceError::internal(e.to_string()))?
+            ),
             created_at: Set(now),
             updated_at: Set(now),
             created_by: Set(None),

@@ -113,14 +113,9 @@ async fn computed_fields_on_real_postgres() {
     let doc_id = d["documentId"].as_str().unwrap().to_string();
 
     // Update -> recompute.
-    let updated = services::cm_update(
-        &ctx,
-        &uid,
-        &doc_id,
-        &serde_json::json!({"quantity": 20}),
-    )
-    .await
-    .expect("update");
+    let updated = services::cm_update(&ctx, &uid, &doc_id, &serde_json::json!({"quantity": 20}))
+        .await
+        .expect("update");
     assert_eq!(num(&updated.data["subtotal"]), 2000.0);
     assert_eq!(num(&updated.data["total_amount"]), 1800.0);
 
@@ -132,7 +127,11 @@ async fn computed_fields_on_real_postgres() {
     )
     .await
     .expect("filter");
-    assert_eq!(filtered.data.len(), 1, "filter on computed column: {filtered:?}");
+    assert_eq!(
+        filtered.data.len(),
+        1,
+        "filter on computed column: {filtered:?}"
+    );
     assert_eq!(num(&filtered.data[0]["total_amount"]), 1800.0);
 
     let sorted = services::cm_list(
@@ -188,8 +187,17 @@ async fn computed_fields_on_real_postgres() {
     )
     .await
     .expect("create customer");
-    assert_eq!(customer.data["full_name"], "John Smith", "pg full_name: {:?}", customer.data);
-    assert_eq!(num(&customer.data["success_rate"]), 80.0, "pg success_rate: {:?}", customer.data);
+    assert_eq!(
+        customer.data["full_name"], "John Smith",
+        "pg full_name: {:?}",
+        customer.data
+    );
+    assert_eq!(
+        num(&customer.data["success_rate"]),
+        80.0,
+        "pg success_rate: {:?}",
+        customer.data
+    );
 
     // A VIRTUAL request is upgraded to STORED on Postgres (its only mode) and
     // must still work.
@@ -212,5 +220,9 @@ async fn computed_fields_on_real_postgres() {
     let vrow = services::cm_create(&ctx, &vuid, &serde_json::json!({"a": 2, "b": 3}))
         .await
         .expect("create on virtual-upgraded schema");
-    assert_eq!(num(&vrow.data["sum"]), 5.0, "postgres upgraded to STORED: {vrow:?}");
+    assert_eq!(
+        num(&vrow.data["sum"]),
+        5.0,
+        "postgres upgraded to STORED: {vrow:?}"
+    );
 }

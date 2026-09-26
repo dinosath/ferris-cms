@@ -1,12 +1,12 @@
 //! Full-page screens for the ferriscms admin UI.
 
+pub mod ai;
 pub mod content_manager;
 pub mod content_type_builder;
 pub mod credentials;
 pub mod executions;
 pub mod home;
 pub mod import_export;
-pub mod ai;
 pub mod login;
 pub mod media;
 pub mod register;

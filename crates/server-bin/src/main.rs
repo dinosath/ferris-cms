@@ -14,8 +14,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Default to a local SQLite file next to the working directory.
     // `mode=rwc` is required: without it sqlx refuses to create the file.
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://ferriscms.db?mode=rwc".into());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite://ferriscms.db?mode=rwc".into());
 
     tracing::info!("connecting to database: {database_url}");
     let db = connect(&database_url).await?;

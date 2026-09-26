@@ -50,40 +50,29 @@ async fn seed(db: &sea_orm::DatabaseConnection, schema: &Schema, rows: i64) -> D
     for i in 0..rows {
         let doc = format!("doc-{i}");
         let values = vec![
-            (
-                "document_id".to_string(),
-                Value::String(Some(doc)),
-            ),
+            ("document_id".to_string(), Value::String(Some(doc))),
             ("locale".to_string(), Value::String(Some("en".to_string()))),
             (
                 "publication_state".to_string(),
                 Value::String(Some("draft".to_string())),
             ),
-            (
-                "created_at".to_string(),
-                Value::String(Some(now.clone())),
-            ),
-            (
-                "updated_at".to_string(),
-                Value::String(Some(now.clone())),
-            ),
+            ("created_at".to_string(), Value::String(Some(now.clone()))),
+            ("updated_at".to_string(), Value::String(Some(now.clone()))),
             ("quantity".to_string(), Value::BigInt(Some(i % 100))),
             (
                 "unit_price".to_string(),
                 Value::Double(Some((i % 1000) as f64)),
             ),
         ];
-        insert(&txn, DbBackend::Sqlite, &table, values).await.unwrap();
+        insert(&txn, DbBackend::Sqlite, &table, values)
+            .await
+            .unwrap();
     }
     txn.commit().await.unwrap();
     start.elapsed()
 }
 
-async fn time_query(
-    db: &sea_orm::DatabaseConnection,
-    schema: &Schema,
-    query: &str,
-) -> Duration {
+async fn time_query(db: &sea_orm::DatabaseConnection, schema: &Schema, query: &str) -> Duration {
     let params = api_types::QueryParams::parse(query).unwrap();
     let start = Instant::now();
     let (rows, _total) = query_rows(db, DbBackend::Sqlite, schema, &params)
@@ -113,12 +102,20 @@ async fn computed_field_performance() {
             let tag = format!("perf_{mode}_{rows}");
             let schema = schema_for(&tag, &format!("api::perf.{tag}"), stored);
             let db = connect_sqlite_memory().await.unwrap();
-            apply_schema_diff(&db, DbBackend::Sqlite, &diff(None, &schema), std::slice::from_ref(&schema))
-                .await
-                .unwrap();
+            apply_schema_diff(
+                &db,
+                DbBackend::Sqlite,
+                &diff(None, &schema),
+                std::slice::from_ref(&schema),
+            )
+            .await
+            .unwrap();
 
             let insert_ms = seed(&db, &schema, *rows).await.as_secs_f64() * 1000.0;
-            let query_ms = time_query(&db, &schema, "pagination[pageSize]=25").await.as_secs_f64() * 1000.0;
+            let query_ms = time_query(&db, &schema, "pagination[pageSize]=25")
+                .await
+                .as_secs_f64()
+                * 1000.0;
             let filter_ms = time_query(
                 &db,
                 &schema,

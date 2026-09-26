@@ -252,7 +252,11 @@ async fn erp_sales_order_computed_fields() {
         .unwrap();
     assert_eq!(upd.status(), StatusCode::OK);
     let upd = body_json(upd).await;
-    assert_eq!(num(&upd["data"]["subtotal"]), 2000.0, "subtotal after update");
+    assert_eq!(
+        num(&upd["data"]["subtotal"]),
+        2000.0,
+        "subtotal after update"
+    );
     assert_eq!(num(&upd["data"]["discount_amount"]), 200.0);
     assert_eq!(num(&upd["data"]["total_amount"]), 1800.0);
 
@@ -282,7 +286,11 @@ async fn erp_sales_order_computed_fields() {
     let sorted = body_json(sorted).await;
     let rows = sorted["data"].as_array().expect("list data");
     assert_eq!(rows.len(), 2, "two orders: {sorted}");
-    assert_eq!(num(&rows[0]["total_amount"]), 1800.0, "sorted desc: {sorted}");
+    assert_eq!(
+        num(&rows[0]["total_amount"]),
+        1800.0,
+        "sorted desc: {sorted}"
+    );
 
     // 9. Filtering by a computed field.
     let filtered = router
@@ -418,7 +426,10 @@ async fn crm_customer_computed_fields() {
         .unwrap();
     let sorted = body_json(sorted).await;
     let rows = sorted["data"].as_array().unwrap();
-    assert_eq!(rows[0]["full_name"], "Alice Brown", "sorted by full_name: {sorted}");
+    assert_eq!(
+        rows[0]["full_name"], "Alice Brown",
+        "sorted by full_name: {sorted}"
+    );
 }
 
 /// Invalid computed-field definitions are rejected by the CTB.
@@ -628,14 +639,20 @@ async fn computed_metadata_exposed_by_ctb() {
     // Single-content-type endpoint.
     let one = router
         .clone()
-        .oneshot(get("/content-type-builder/content-types/api::ledger.ledger", Some(&token)))
+        .oneshot(get(
+            "/content-type-builder/content-types/api::ledger.ledger",
+            Some(&token),
+        ))
         .await
         .unwrap();
     assert_eq!(one.status(), StatusCode::OK);
     let one = body_json(one).await;
     let balance = &one["data"]["attributes"]["balance"];
     assert_eq!(balance["computed"], serde_json::json!(true), "{balance}");
-    assert_eq!(balance["dependencies"], serde_json::json!(["debits", "credits"]));
+    assert_eq!(
+        balance["dependencies"],
+        serde_json::json!(["debits", "credits"])
+    );
 }
 
 /// Requirement 11 (bulk insert/update): `POST/PUT .../bulk` ignore user-supplied

@@ -9,6 +9,7 @@ core-domain = { workspace = true }
 core-schema = { workspace = true }
 api-types = { workspace = true }
 services = { workspace = true }
+dynamic-store = { workspace = true }
 ai = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
@@ -16,6 +17,7 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 chrono = { workspace = true }
+uuid = { workspace = true }
 sea-orm = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true }

@@ -100,6 +100,13 @@
                 },
                 "notes": {
                     "type": "richtext"
+                },
+                "global_discount_percent": {
+                    "type": "decimal",
+                    "default": 0
+                },
+                "specific_discounts": {
+                    "type": "json"
                 }
             }
         },
@@ -510,7 +517,13 @@
                     ]
                 },
                 "unit": {
-                    "type": "string"
+                    "type": "enumeration",
+                    "enum": [
+                        "unit",
+                        "box",
+                        "pallet"
+                    ],
+                    "default": "unit"
                 },
                 "uom_category": {
                     "type": "relation",

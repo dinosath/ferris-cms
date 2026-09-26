@@ -12,12 +12,14 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use services::workflow::engine::{RunOptions, execution_cancel, execution_get, execution_list, execution_retry};
+use services::workflow::engine::{
+    execution_cancel, execution_get, execution_list, execution_retry, RunOptions,
+};
 use services::workflow::{
-    action, credential_create, credential_delete, credential_get, credential_list, credential_types,
-    credential_update, workflow_create, workflow_delete, workflow_duplicate, workflow_export,
-    workflow_export_yaml, workflow_get, workflow_import, workflow_list, workflow_save,
-    workflow_set_active, workflow_validate_definition,
+    action, credential_create, credential_delete, credential_get, credential_list,
+    credential_types, credential_update, workflow_create, workflow_delete, workflow_duplicate,
+    workflow_export, workflow_export_yaml, workflow_get, workflow_import, workflow_list,
+    workflow_save, workflow_set_active, workflow_validate_definition,
 };
 use std::sync::Arc;
 
@@ -82,7 +84,13 @@ pub async fn create_workflow(
     admin: AdminCtx,
     Json(body): Json<CreateWorkflowBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let wf = workflow_create(&admin.0, &body.name, body.description.as_deref(), body.definition.as_ref()).await?;
+    let wf = workflow_create(
+        &admin.0,
+        &body.name,
+        body.description.as_deref(),
+        body.definition.as_ref(),
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "data": wf })))
 }
 
@@ -168,9 +176,7 @@ pub async fn import_workflow(
     Ok(Json(serde_json::json!({ "data": wf })))
 }
 
-pub async fn export_workflows_bulk(
-    admin: AdminCtx,
-) -> Result<Json<serde_json::Value>, AppError> {
+pub async fn export_workflows_bulk(admin: AdminCtx) -> Result<Json<serde_json::Value>, AppError> {
     let bundle = services::workflow::workflow_export_bulk(&admin.0).await?;
     Ok(Json(bundle))
 }
@@ -180,7 +186,9 @@ pub async fn import_workflows_bulk(
     Json(value): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let workflows = services::workflow::workflow_import_bulk(&admin.0, &value).await?;
-    Ok(Json(serde_json::json!({ "data": { "workflows": workflows } })))
+    Ok(Json(
+        serde_json::json!({ "data": { "workflows": workflows } }),
+    ))
 }
 
 pub async fn execute_workflow_handler(
@@ -195,7 +203,9 @@ pub async fn execute_workflow_handler(
         max_attempts: 3,
     };
     let exec_id = services::workflow::engine::execute_workflow(&admin.0, id, opts).await?;
-    Ok(Json(serde_json::json!({ "data": { "executionId": exec_id } })))
+    Ok(Json(
+        serde_json::json!({ "data": { "executionId": exec_id } }),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +225,9 @@ pub async fn get_execution(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let (execution, node_runs) = execution_get(&admin.0, id).await?;
-    Ok(Json(serde_json::json!({ "data": execution, "nodeRuns": node_runs })))
+    Ok(Json(
+        serde_json::json!({ "data": execution, "nodeRuns": node_runs }),
+    ))
 }
 
 pub async fn cancel_execution(
@@ -231,7 +243,9 @@ pub async fn retry_execution(
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let new_id = execution_retry(&admin.0, id).await?;
-    Ok(Json(serde_json::json!({ "data": { "executionId": new_id } })))
+    Ok(Json(
+        serde_json::json!({ "data": { "executionId": new_id } }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -273,7 +287,14 @@ pub async fn update_credential(
     Path(id): Path<i64>,
     Json(body): Json<CredentialBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let c = credential_update(&admin.0, id, Some(&body.name), Some(&body.credential_type), Some(&body.data)).await?;
+    let c = credential_update(
+        &admin.0,
+        id,
+        Some(&body.name),
+        Some(&body.credential_type),
+        Some(&body.data),
+    )
+    .await?;
     Ok(Json(serde_json::json!({ "data": c })))
 }
 
@@ -295,11 +316,7 @@ pub async fn list_credential_types(admin: AdminCtx) -> Result<Json<serde_json::V
 // ---------------------------------------------------------------------------
 
 pub async fn node_library(admin: AdminCtx) -> Result<Json<serde_json::Value>, AppError> {
-    let defs: Vec<_> = ::workflow::registry()
-        .all()
-        .into_iter()
-        .cloned()
-        .collect();
+    let defs: Vec<_> = ::workflow::registry().all().into_iter().cloned().collect();
     Ok(Json(serde_json::json!({ "data": defs })))
 }
 
@@ -310,8 +327,7 @@ pub async fn workflow_content_types(admin: AdminCtx) -> Result<Json<serde_json::
         .get_all()
         .into_iter()
         .filter(|s| {
-            s.kind != ::core_domain::ContentTypeKind::Component
-                && !s.kind.as_db_str().is_empty()
+            s.kind != ::core_domain::ContentTypeKind::Component && !s.kind.as_db_str().is_empty()
         })
         .map(|s| {
             serde_json::json!({
@@ -345,18 +361,32 @@ pub async fn webhook_trigger(
     // Extract the JSON body if present.
     let data = axum::body::to_bytes(body.into_body(), 2 * 1024 * 1024)
         .await
-        .map_err(|e| AppError(::services::ServiceError::internal(format!("webhook body: {e}"))))?;
+        .map_err(|e| {
+            AppError(::services::ServiceError::internal(format!(
+                "webhook body: {e}"
+            )))
+        })?;
     let payload: serde_json::Value = if data.is_empty() {
         serde_json::json!({})
     } else {
-        serde_json::from_slice(&data).unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(&data).to_string()))
+        serde_json::from_slice(&data).unwrap_or_else(|_| {
+            serde_json::Value::String(String::from_utf8_lossy(&data).to_string())
+        })
     };
 
     match ::services::workflow::triggers::workflow_for_webhook(&state.ctx, &method, &path).await {
         Some((workflow_id, _node_id)) => {
-            let exec_id =
-                ::services::workflow::triggers::execute_webhook(&state.ctx, workflow_id, &method, &path, payload).await?;
-            Ok(Json(serde_json::json!({ "data": { "executionId": exec_id } })))
+            let exec_id = ::services::workflow::triggers::execute_webhook(
+                &state.ctx,
+                workflow_id,
+                &method,
+                &path,
+                payload,
+            )
+            .await?;
+            Ok(Json(
+                serde_json::json!({ "data": { "executionId": exec_id } }),
+            ))
         }
         None => Err(AppError(::services::ServiceError::not_found(
             "no active workflow matches this webhook path",

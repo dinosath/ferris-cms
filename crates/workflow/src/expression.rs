@@ -322,12 +322,17 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, ExpressionError> {
                 i += 1;
                 toks.push(Tok::Str(s));
             }
-            c if c.is_ascii_digit() || (c == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()) => {
+            c if c.is_ascii_digit()
+                || (c == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()) =>
+            {
                 let mut num = String::new();
                 num.push(c);
                 i += 1;
                 while i < chars.len()
-                    && (chars[i].is_ascii_digit() || chars[i] == '.' || chars[i] == 'e' || chars[i] == 'E')
+                    && (chars[i].is_ascii_digit()
+                        || chars[i] == '.'
+                        || chars[i] == 'e'
+                        || chars[i] == 'E')
                 {
                     num.push(chars[i]);
                     i += 1;
@@ -398,7 +403,9 @@ impl Parser {
     fn parse(&mut self, ctx: &Context) -> Result<Value, ExpressionError> {
         let v = self.or(ctx)?;
         if self.peek().is_some() {
-            return Err(ExpressionError::new("unexpected trailing tokens in expression"));
+            return Err(ExpressionError::new(
+                "unexpected trailing tokens in expression",
+            ));
         }
         Ok(v)
     }
@@ -653,9 +660,7 @@ fn loose_eq(a: &Value, b: &Value) -> bool {
 
 fn cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
-        (Value::Number(x), Value::Number(y)) => x
-            .as_f64()
-            .partial_cmp(&y.as_f64()),
+        (Value::Number(x), Value::Number(y)) => x.as_f64().partial_cmp(&y.as_f64()),
         (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
         _ => None,
     }
@@ -755,8 +760,12 @@ fn call_function(name: &str, args: Vec<Value>) -> Result<Value, ExpressionError>
             let needle = stringify(&first(1));
             Ok(Value::Bool(hay.contains(&needle)))
         }
-        "startsWith" => Ok(Value::Bool(stringify(&first(0)).starts_with(&stringify(&first(1))))),
-        "endsWith" => Ok(Value::Bool(stringify(&first(0)).ends_with(&stringify(&first(1))))),
+        "startsWith" => Ok(Value::Bool(
+            stringify(&first(0)).starts_with(&stringify(&first(1))),
+        )),
+        "endsWith" => Ok(Value::Bool(
+            stringify(&first(0)).ends_with(&stringify(&first(1))),
+        )),
         "date" => Ok(Value::String(stringify(&first(0)))),
         "now" => Ok(Value::String("".to_string())),
         "json" => Ok(first(0)),
@@ -799,17 +808,15 @@ mod tests {
         ctx.nodes = nodes;
         ctx.workflow = json!({ "id": 42, "name": "Demo", "variables": { "rate": 0.2 } });
         ctx.execution = json!({ "id": 7, "mode": "manual" });
-        ctx.env.insert("API_URL".into(), "https://api.example.com".into());
+        ctx.env
+            .insert("API_URL".into(), "https://api.example.com".into());
         ctx
     }
 
     #[test]
     fn evaluates_references() {
         let ctx = ctx_with(json!({"email":"a@b.dev","age":30}));
-        assert_eq!(
-            evaluate_string("{{$json.email}}", &ctx).unwrap(),
-            "a@b.dev"
-        );
+        assert_eq!(evaluate_string("{{$json.email}}", &ctx).unwrap(), "a@b.dev");
         assert_eq!(
             evaluate_string("{{$node[\"Get Product\"].json.price}}", &ctx).unwrap(),
             "199.5"
@@ -870,10 +877,7 @@ mod tests {
             evaluate("{{!($json.price > 100)}}", &ctx).unwrap(),
             json!(false)
         );
-        assert_eq!(
-            evaluate("{{$json.stock != 0}}", &ctx).unwrap(),
-            json!(true)
-        );
+        assert_eq!(evaluate("{{$json.stock != 0}}", &ctx).unwrap(), json!(true));
     }
 
     #[test]
@@ -883,10 +887,7 @@ mod tests {
             evaluate_string("{{upper($json.name)}}", &ctx).unwrap(),
             "FERRIS"
         );
-        assert_eq!(
-            evaluate_string("{{lower(\"ABC\")}}", &ctx).unwrap(),
-            "abc"
-        );
+        assert_eq!(evaluate_string("{{lower(\"ABC\")}}", &ctx).unwrap(), "abc");
         assert_eq!(evaluate("{{length(\"hello\")}}", &ctx).unwrap(), json!(5));
         assert_eq!(
             evaluate_string("{{$json.name + \" the crab\"}}", &ctx).unwrap(),

@@ -12,7 +12,9 @@ use rig::completion::message::{
     AssistantContent, Message, ProviderCallId, Text as RigText, ToolCall as RigToolCall,
     ToolCallId, ToolFunction, ToolResult, ToolResultContent, UserContent,
 };
-use rig::completion::{CompletionError, CompletionModel, CompletionRequest, CompletionResponse, ToolDefinition};
+use rig::completion::{
+    CompletionError, CompletionModel, CompletionRequest, CompletionResponse, ToolDefinition,
+};
 use rig::providers::{anthropic, gemini, ollama, openai};
 
 use crate::provider::AiProvider;
@@ -113,22 +115,26 @@ impl AiProvider for RigProvider {
     async fn chat(&self, request: &AiRequest) -> Result<AiResponse, AiError> {
         let rig_request = build_request(request)?;
         let response = match &self.client {
-            RigClient::OpenAi(c) => c
-                .completion_model(request.model.clone())
-                .completion(rig_request)
-                .await,
-            RigClient::Ollama(c) => c
-                .completion_model(request.model.clone())
-                .completion(rig_request)
-                .await,
-            RigClient::Anthropic(c) => c
-                .completion_model(request.model.clone())
-                .completion(rig_request)
-                .await,
-            RigClient::Gemini(c) => c
-                .completion_model(request.model.clone())
-                .completion(rig_request)
-                .await,
+            RigClient::OpenAi(c) => {
+                c.completion_model(request.model.clone())
+                    .completion(rig_request)
+                    .await
+            }
+            RigClient::Ollama(c) => {
+                c.completion_model(request.model.clone())
+                    .completion(rig_request)
+                    .await
+            }
+            RigClient::Anthropic(c) => {
+                c.completion_model(request.model.clone())
+                    .completion(rig_request)
+                    .await
+            }
+            RigClient::Gemini(c) => {
+                c.completion_model(request.model.clone())
+                    .completion(rig_request)
+                    .await
+            }
         }
         .map_err(map_error)?;
         Ok(map_response(response, &request.model))

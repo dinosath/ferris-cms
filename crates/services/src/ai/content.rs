@@ -88,7 +88,16 @@ async fn audit(
     status: &str,
 ) {
     if let Some(uid) = user_id {
-        let _ = log_usage(ctx, uid, Some(provider_id), Some(model), Some(feature), usage, Some(status)).await;
+        let _ = log_usage(
+            ctx,
+            uid,
+            Some(provider_id),
+            Some(model),
+            Some(feature),
+            usage,
+            Some(status),
+        )
+        .await;
     }
 }
 
@@ -124,16 +133,39 @@ Do not include system metadata (id, documentId, locale, publicationState, timest
         max_tokens: Some(1200),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
     let data = extract_json(&resp.content).ok_or_else(|| {
         ServiceError::internal("AI returned no parseable JSON content — try again")
     })?;
-    audit(ctx, user_id, pid, &name, "content.generate", resp.usage, "ok").await;
+    audit(
+        ctx,
+        user_id,
+        pid,
+        &name,
+        "content.generate",
+        resp.usage,
+        "ok",
+    )
+    .await;
 
     if apply {
         let created = crate::content::cm_create(ctx, uid, &data).await?;
-        audit(ctx, user_id, pid, &name, "content.generate.apply", resp.usage, "ok").await;
-        return Ok(json!({ "proposed": data, "applied": true, "documentId": created.data.get("documentId") }));
+        audit(
+            ctx,
+            user_id,
+            pid,
+            &name,
+            "content.generate.apply",
+            resp.usage,
+            "ok",
+        )
+        .await;
+        return Ok(
+            json!({ "proposed": data, "applied": true, "documentId": created.data.get("documentId") }),
+        );
     }
     Ok(json!({ "proposed": data, "applied": false }))
 }
@@ -165,10 +197,12 @@ return the FULL updated entry JSON (keep existing fields you don't change). Retu
         max_tokens: Some(1500),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
-    let updated = extract_json(&resp.content).ok_or_else(|| {
-        ServiceError::internal("AI returned no parseable JSON — try again")
-    })?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    let updated = extract_json(&resp.content)
+        .ok_or_else(|| ServiceError::internal("AI returned no parseable JSON — try again"))?;
     let applied = crate::content::cm_update(ctx, uid, document_id, &updated).await?;
     audit(ctx, user_id, pid, &name, "content.edit", resp.usage, "ok").await;
     Ok(json!({ "updated": true, "data": applied.data }))
@@ -193,8 +227,20 @@ pub async fn translate_text(
         max_tokens: Some(800),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
     let translated = resp.content.trim().to_string();
-    audit(ctx, user_id, pid, &name, "content.translate", resp.usage, "ok").await;
+    audit(
+        ctx,
+        user_id,
+        pid,
+        &name,
+        "content.translate",
+        resp.usage,
+        "ok",
+    )
+    .await;
     Ok((translated, resp.usage))
 }

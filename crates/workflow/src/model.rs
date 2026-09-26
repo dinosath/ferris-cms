@@ -117,7 +117,10 @@ impl OwsDocument {
 
     /// Cron expression, if any.
     pub fn cron(&self) -> Option<String> {
-        self.definition.schedule.as_ref().and_then(|s| s.cron.clone())
+        self.definition
+            .schedule
+            .as_ref()
+            .and_then(|s| s.cron.clone())
     }
 }
 
@@ -351,16 +354,15 @@ pub fn default_context(definition: &WorkflowDefinition) -> serde_json::Value {
 /// An ordered view of the workflow's named tasks.
 pub fn task_entries(
     definition: &WorkflowDefinition,
-) -> Vec<(String, &serverless_workflow_core::models::task::TaskDefinition)> {
+) -> Vec<(
+    String,
+    &serverless_workflow_core::models::task::TaskDefinition,
+)> {
     definition
         .do_
         .entries
         .iter()
-        .filter_map(|e| {
-            e.iter()
-                .next()
-                .map(|(name, task)| (name.clone(), task))
-        })
+        .filter_map(|e| e.iter().next().map(|(name, task)| (name.clone(), task)))
         .collect()
 }
 

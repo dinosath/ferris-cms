@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ::workflow::model::function;
 use core_domain::Uid;
 use core_schema::Schema;
 use db::entities::{core_store, upload_file};
@@ -18,7 +19,6 @@ use ows_runtime::service::{FunctionInvoker, FunctionRequest};
 use ows_runtime_core::WorkflowError;
 use sea_orm::{ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set};
 use serde_json::{json, Value};
-use ::workflow::model::function;
 
 use crate::AppContext;
 
@@ -82,7 +82,10 @@ impl FunctionInvoker for CmsFunctionInvoker {
 // CMS content / media
 // ---------------------------------------------------------------------------
 
-async fn get_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn get_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Get Content: missing content type"));
@@ -95,7 +98,10 @@ async fn get_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<
     Ok(row.unwrap_or(Value::Null))
 }
 
-async fn find_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn find_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Find Content: missing content type"));
@@ -141,7 +147,10 @@ fn build_query_params(filters: &Value, limit: i64) -> api_types::QueryParams {
     params
 }
 
-async fn query_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn query_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Query Content: missing content type"));
@@ -157,7 +166,10 @@ async fn query_content(app: &AppContext, args: &HashMap<String, Value>) -> Resul
     Ok(Value::Array(rows))
 }
 
-async fn create_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn create_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Create Content: missing content type"));
@@ -169,7 +181,10 @@ async fn create_content(app: &AppContext, args: &HashMap<String, Value>) -> Resu
         .map_err(|e| runtime_error(format!("Create Content: {e}")))
 }
 
-async fn update_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn update_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Update Content: missing content type"));
@@ -182,7 +197,10 @@ async fn update_content(app: &AppContext, args: &HashMap<String, Value>) -> Resu
         .map_err(|e| runtime_error(format!("Update Content: {e}")))
 }
 
-async fn delete_content(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn delete_content(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let uid = arg_str(args, "contentType")?;
     if uid.is_empty() {
         return Err(runtime_error("Delete Content: missing content type"));
@@ -206,7 +224,9 @@ async fn publish_content(
     }
     let schema = load_schema(app, &uid)?;
     if !schema.draft_and_publish() {
-        return Err(runtime_error("Draft & Publish is not enabled for this content-type"));
+        return Err(runtime_error(
+            "Draft & Publish is not enabled for this content-type",
+        ));
     }
     let doc_id = arg_str(args, "documentId")?;
     let existing = dml::find_one_by_document_id(&app.db, &schema, &doc_id)
@@ -215,7 +235,10 @@ async fn publish_content(
         .ok_or_else(|| runtime_error(format!("entry {doc_id} not found")))?;
     let mut data = existing.clone();
     if let Some(obj) = data.as_object_mut() {
-        obj.insert("publicationState".into(), json!(if publish { "published" } else { "draft" }));
+        obj.insert(
+            "publicationState".into(),
+            json!(if publish { "published" } else { "draft" }),
+        );
         if publish {
             obj.insert("publishedAt".into(), json!(chrono::Utc::now().to_rfc3339()));
         }
@@ -230,7 +253,10 @@ async fn publish_content(
     Ok(row)
 }
 
-async fn get_media(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn get_media(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let id = arg_str(args, "id")?
         .parse::<i64>()
         .map_err(|_| runtime_error("Get Media: id must be a number"))?;
@@ -248,7 +274,10 @@ async fn get_media(app: &AppContext, args: &HashMap<String, Value>) -> Result<Va
     })
 }
 
-async fn upload_media(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn upload_media(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let filename = arg_str(args, "filename")?;
     if filename.is_empty() {
         return Err(runtime_error("Upload Media: missing filename"));
@@ -268,8 +297,14 @@ async fn upload_media(app: &AppContext, args: &HashMap<String, Value>) -> Result
     }))
 }
 
-async fn transform_data(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
-    let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("jsonToCsv");
+async fn transform_data(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
+    let direction = args
+        .get("direction")
+        .and_then(|v| v.as_str())
+        .unwrap_or("jsonToCsv");
     if direction == "csvToJson" {
         let csv_text = arg_str(args, "csvData")?;
         Ok(json!({ "json": csv_to_json(&csv_text)? }))
@@ -337,10 +372,16 @@ fn csv_to_json(csv: &str) -> Result<Vec<Value>, WorkflowError> {
         .collect();
     let mut out = Vec::new();
     for line in lines {
-        let fields: Vec<String> = line.split(',').map(|s| s.trim_matches('"').to_string()).collect();
+        let fields: Vec<String> = line
+            .split(',')
+            .map(|s| s.trim_matches('"').to_string())
+            .collect();
         let mut obj = serde_json::Map::new();
         for (i, col) in header.iter().enumerate() {
-            obj.insert(col.clone(), json!(fields.get(i).cloned().unwrap_or_default()));
+            obj.insert(
+                col.clone(),
+                json!(fields.get(i).cloned().unwrap_or_default()),
+            );
         }
         out.push(Value::Object(obj));
     }
@@ -351,17 +392,25 @@ fn csv_to_json(csv: &str) -> Result<Vec<Value>, WorkflowError> {
 // Integrations
 // ---------------------------------------------------------------------------
 
-async fn http_request(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
+async fn http_request(
+    app: &AppContext,
+    args: &HashMap<String, Value>,
+) -> Result<Value, WorkflowError> {
     let url = arg_str(args, "url")?;
     if url.is_empty() {
         return Err(runtime_error("HTTP: missing url"));
     }
-    let method = args.get("method").and_then(|v| v.as_str()).unwrap_or("GET").to_uppercase();
+    let method = args
+        .get("method")
+        .and_then(|v| v.as_str())
+        .unwrap_or("GET")
+        .to_uppercase();
     let headers = arg_value(args, "headers")?;
     let body = args.get("body").cloned();
     let client = reqwest::Client::new();
     let mut req = client.request(
-        reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| runtime_error("HTTP: invalid method"))?,
+        reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| runtime_error("HTTP: invalid method"))?,
         &url,
     );
     if let Some(obj) = headers.as_object() {
@@ -379,7 +428,10 @@ async fn http_request(app: &AppContext, args: &HashMap<String, Value>) -> Result
         .await
         .map_err(|e| runtime_error(format!("HTTP request failed: {e}")))?;
     let status = resp.status().as_u16();
-    let text = resp.text().await.map_err(|e| runtime_error(format!("HTTP body: {e}")))?;
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| runtime_error(format!("HTTP body: {e}")))?;
     let parsed = serde_json::from_str::<Value>(&text).unwrap_or_else(|_| Value::String(text));
     Ok(json!({ "statusCode": status, "json": parsed }))
 }
@@ -400,7 +452,10 @@ async fn graphql(app: &AppContext, args: &HashMap<String, Value>) -> Result<Valu
         .await
         .map_err(|e| runtime_error(format!("GraphQL: {e}")))?;
     let status = resp.status().as_u16();
-    let json: Value = resp.json().await.map_err(|e| runtime_error(format!("GraphQL body: {e}")))?;
+    let json: Value = resp
+        .json()
+        .await
+        .map_err(|e| runtime_error(format!("GraphQL body: {e}")))?;
     Ok(json!({ "statusCode": status, "json": json }))
 }
 
@@ -418,7 +473,11 @@ async fn database(app: &AppContext, args: &HashMap<String, Value>) -> Result<Val
 }
 
 async fn redis(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value, WorkflowError> {
-    let operation = args.get("operation").and_then(|v| v.as_str()).unwrap_or("get").to_string();
+    let operation = args
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .unwrap_or("get")
+        .to_string();
     let key = arg_str(args, "key")?;
     match operation.as_str() {
         "set" => {
@@ -431,7 +490,9 @@ async fn redis(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value,
             if let Some(e) = existing {
                 let mut am: core_store::ActiveModel = e.into();
                 am.value_json = Set(Some(value.clone()));
-                am.update(&app.db).await.map_err(|e| runtime_error(e.to_string()))?;
+                am.update(&app.db)
+                    .await
+                    .map_err(|e| runtime_error(e.to_string()))?;
             } else {
                 core_store::ActiveModel {
                     key: Set(key.clone()),
@@ -461,7 +522,9 @@ async fn redis(app: &AppContext, args: &HashMap<String, Value>) -> Result<Value,
                 .one(&app.db)
                 .await
                 .map_err(|e| runtime_error(e.to_string()))?;
-            Ok(json!({ "key": key, "operation": "get", "value": v.and_then(|r| r.value_json).unwrap_or(Value::Null) }))
+            Ok(
+                json!({ "key": key, "operation": "get", "value": v.and_then(|r| r.value_json).unwrap_or(Value::Null) }),
+            )
         }
     }
 }

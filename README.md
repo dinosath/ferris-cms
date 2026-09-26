@@ -43,6 +43,9 @@ system, or GraphQL yet):
   kinds, `New / Modified / Deleted` staging badges, undo/redo/discard.
 - **Content Manager** — schema-driven entry forms, list/edit views, filters,
   sorting, pagination, **Draft & Publish**, and discard-draft controls.
+- **Saved Content Manager views** — multiple Grid, Kanban, Gallery, and
+  Calendar presentations per content type, with persisted filters, sorts,
+  columns, defaults, duplication, ordering, and server-side record queries.
 - **Dynamic schema → real tables** — schemas are stored as JSON and applied to
   the database at runtime (SeaQuery-generated DDL). No manual SQL.
 - **Strapi-compatible REST API** — `filters`, `populate`, `sort`,
@@ -152,6 +155,26 @@ cargo test --workspace
 Tests include a full end-to-end admin workflow against the Axum router
 in-memory (`crates/api-rest/tests/auth_workflow.rs`) and dynamic-store CRUD
 integration tests.
+
+### Saved views
+
+Views are scoped to a content type and never copy records. The admin API is:
+
+```text
+GET    /admin/content-manager/content-types/:uid/views
+POST   /admin/content-manager/content-types/:uid/views
+GET    /admin/content-manager/content-types/:uid/views/:id
+PUT    /admin/content-manager/content-types/:uid/views/:id
+DELETE /admin/content-manager/content-types/:uid/views/:id
+POST   /admin/content-manager/content-types/:uid/views/:id/duplicate
+POST   /admin/content-manager/content-types/:uid/views/:id/default
+POST   /admin/content-manager/content-types/:uid/views/reorder
+GET    /admin/content-manager/content-types/:uid/views/:id/records
+```
+
+The records endpoint translates the saved typed filter/sort configuration
+through the existing dynamic-store query builder, so filtering, sorting, and
+pagination remain server-side and content-type RBAC still applies.
 
 ---
 

@@ -196,8 +196,14 @@ fn def(
         icon: icon.into(),
         category,
         fields,
-        inputs: vec![NodeInput { name: "input".into(), label: "Input".into() }],
-        outputs: vec![NodeOutput { name: "output".into(), label: "Output".into() }],
+        inputs: vec![NodeInput {
+            name: "input".into(),
+            label: "Input".into(),
+        }],
+        outputs: vec![NodeOutput {
+            name: "output".into(),
+            label: "Output".into(),
+        }],
         credentials: credentials
             .into_iter()
             .map(|ct| NodeCredentialRequirement {
@@ -272,40 +278,356 @@ pub fn builtin_definitions() -> Vec<NodeDefinition> {
     let mut defs: Vec<NodeDefinition> = Vec::new();
 
     // ---- Flow task templates ----
-    defs.push(def("set", "task", "Set", "Set data on the workflow context.", "edit-3", C::Core, vec![json_field("set", "Data to set")], vec![]));
-    defs.push(def("switch", "task", "Switch", "Route based on conditions.", "git-branch", C::Flow, vec![expr_field("when", "Condition", false)], vec![]));
-    defs.push(def("wait", "task", "Wait", "Pause for a duration.", "hourglass", C::Flow, vec![str_field("duration", "Duration", false)], vec![]));
-    defs.push(def("for", "task", "For Each", "Iterate over a collection.", "list", C::Flow, vec![str_field("in", "Expression", true)], vec![]));
-    defs.push(def("try", "task", "Try / Catch", "Handle errors gracefully.", "shield", C::Flow, vec![], vec![]));
-    defs.push(def("do", "task", "Do (sequence)", "Run subtasks in sequence.", "layers", C::Flow, vec![], vec![]));
+    defs.push(def(
+        "set",
+        "task",
+        "Set",
+        "Set data on the workflow context.",
+        "edit-3",
+        C::Core,
+        vec![json_field("set", "Data to set")],
+        vec![],
+    ));
+    defs.push(def(
+        "switch",
+        "task",
+        "Switch",
+        "Route based on conditions.",
+        "git-branch",
+        C::Flow,
+        vec![expr_field("when", "Condition", false)],
+        vec![],
+    ));
+    defs.push(def(
+        "wait",
+        "task",
+        "Wait",
+        "Pause for a duration.",
+        "hourglass",
+        C::Flow,
+        vec![str_field("duration", "Duration", false)],
+        vec![],
+    ));
+    defs.push(def(
+        "for",
+        "task",
+        "For Each",
+        "Iterate over a collection.",
+        "list",
+        C::Flow,
+        vec![str_field("in", "Expression", true)],
+        vec![],
+    ));
+    defs.push(def(
+        "try",
+        "task",
+        "Try / Catch",
+        "Handle errors gracefully.",
+        "shield",
+        C::Flow,
+        vec![],
+        vec![],
+    ));
+    defs.push(def(
+        "do",
+        "task",
+        "Do (sequence)",
+        "Run subtasks in sequence.",
+        "layers",
+        C::Flow,
+        vec![],
+        vec![],
+    ));
 
     // ---- CMS data functions ----
-    defs.push(def(GET_CONTENT, "function", "Get Content", "Fetch a content-type entry by document id.", "file-text", C::Data, vec![str_field("contentType", "Content Type UID", true), expr_field("documentId", "Document ID", true)], vec![]));
-    defs.push(def(FIND_CONTENT, "function", "Find Content", "Query content-type entries with filters.", "search", C::Data, vec![str_field("contentType", "Content Type UID", true), json_field("filters", "Filters")], vec![]));
-    defs.push(def(CREATE_CONTENT, "function", "Create Content", "Create a content-type entry.", "file-plus", C::Data, vec![str_field("contentType", "Content Type UID", true), json_field("data", "Entry data")], vec![]));
-    defs.push(def(UPDATE_CONTENT, "function", "Update Content", "Update a content-type entry by document id.", "edit", C::Data, vec![str_field("contentType", "Content Type UID", true), expr_field("documentId", "Document ID", true), json_field("data", "Entry data")], vec![]));
-    defs.push(def(DELETE_CONTENT, "function", "Delete Content", "Delete a content-type entry by document id.", "trash", C::Data, vec![str_field("contentType", "Content Type UID", true), expr_field("documentId", "Document ID", true)], vec![]));
-    defs.push(def(PUBLISH_CONTENT, "function", "Publish Content", "Publish a draft content-type entry.", "check-circle", C::Data, vec![str_field("contentType", "Content Type UID", true), expr_field("documentId", "Document ID", true)], vec![]));
-    defs.push(def(UNPUBLISH_CONTENT, "function", "Unpublish Content", "Unpublish a published content-type entry.", "x-circle", C::Data, vec![str_field("contentType", "Content Type UID", true), expr_field("documentId", "Document ID", true)], vec![]));
-    defs.push(def(GET_MEDIA, "function", "Get Media", "Fetch a media file by id.", "image", C::Data, vec![expr_field("id", "Media ID", true)], vec![]));
-    defs.push(def(UPLOAD_MEDIA, "function", "Upload Media", "Upload a media file from binary data.", "upload", C::Data, vec![str_field("filename", "File name", true), expr_field("data", "File data (base64)", false)], vec![]));
-    defs.push(def(TRANSFORM_DATA, "function", "Transform Data", "Convert between JSON and CSV.", "repeat", C::Data, vec![sel_field("direction", "Direction", vec![("jsonToCsv", "JSON → CSV"), ("csvToJson", "CSV → JSON")], "jsonToCsv")], vec![]));
-    defs.push(def(JSON, "function", "JSON", "Output static or dynamic JSON.", "braces", C::Data, vec![json_field("json", "JSON")], vec![]));
-    defs.push(def(CSV, "function", "CSV", "Output CSV text.", "table", C::Data, vec![str_field("csv", "CSV text", false)], vec![]));
+    defs.push(def(
+        GET_CONTENT,
+        "function",
+        "Get Content",
+        "Fetch a content-type entry by document id.",
+        "file-text",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            expr_field("documentId", "Document ID", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        FIND_CONTENT,
+        "function",
+        "Find Content",
+        "Query content-type entries with filters.",
+        "search",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            json_field("filters", "Filters"),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        CREATE_CONTENT,
+        "function",
+        "Create Content",
+        "Create a content-type entry.",
+        "file-plus",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            json_field("data", "Entry data"),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        UPDATE_CONTENT,
+        "function",
+        "Update Content",
+        "Update a content-type entry by document id.",
+        "edit",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            expr_field("documentId", "Document ID", true),
+            json_field("data", "Entry data"),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        DELETE_CONTENT,
+        "function",
+        "Delete Content",
+        "Delete a content-type entry by document id.",
+        "trash",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            expr_field("documentId", "Document ID", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        PUBLISH_CONTENT,
+        "function",
+        "Publish Content",
+        "Publish a draft content-type entry.",
+        "check-circle",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            expr_field("documentId", "Document ID", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        UNPUBLISH_CONTENT,
+        "function",
+        "Unpublish Content",
+        "Unpublish a published content-type entry.",
+        "x-circle",
+        C::Data,
+        vec![
+            str_field("contentType", "Content Type UID", true),
+            expr_field("documentId", "Document ID", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        GET_MEDIA,
+        "function",
+        "Get Media",
+        "Fetch a media file by id.",
+        "image",
+        C::Data,
+        vec![expr_field("id", "Media ID", true)],
+        vec![],
+    ));
+    defs.push(def(
+        UPLOAD_MEDIA,
+        "function",
+        "Upload Media",
+        "Upload a media file from binary data.",
+        "upload",
+        C::Data,
+        vec![
+            str_field("filename", "File name", true),
+            expr_field("data", "File data (base64)", false),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        TRANSFORM_DATA,
+        "function",
+        "Transform Data",
+        "Convert between JSON and CSV.",
+        "repeat",
+        C::Data,
+        vec![sel_field(
+            "direction",
+            "Direction",
+            vec![("jsonToCsv", "JSON → CSV"), ("csvToJson", "CSV → JSON")],
+            "jsonToCsv",
+        )],
+        vec![],
+    ));
+    defs.push(def(
+        JSON,
+        "function",
+        "JSON",
+        "Output static or dynamic JSON.",
+        "braces",
+        C::Data,
+        vec![json_field("json", "JSON")],
+        vec![],
+    ));
+    defs.push(def(
+        CSV,
+        "function",
+        "CSV",
+        "Output CSV text.",
+        "table",
+        C::Data,
+        vec![str_field("csv", "CSV text", false)],
+        vec![],
+    ));
 
     // ---- Core transforms ----
-    defs.push(def(TRANSFORM, "function", "Transform", "Map input items via an expression.", "shuffle", C::Core, vec![expr_field("transformExpression", "Transform expression", true)], vec![]));
-    defs.push(def(CODE, "function", "Code", "Run transform code.", "code", C::Core, vec![str_field("code", "Code", false)], vec![]));
-    defs.push(def(EDIT_FIELDS, "function", "Edit Fields", "Set or remove fields.", "sliders", C::Core, vec![str_field("field", "Field name", true)], vec![]));
+    defs.push(def(
+        TRANSFORM,
+        "function",
+        "Transform",
+        "Map input items via an expression.",
+        "shuffle",
+        C::Core,
+        vec![expr_field(
+            "transformExpression",
+            "Transform expression",
+            true,
+        )],
+        vec![],
+    ));
+    defs.push(def(
+        CODE,
+        "function",
+        "Code",
+        "Run transform code.",
+        "code",
+        C::Core,
+        vec![str_field("code", "Code", false)],
+        vec![],
+    ));
+    defs.push(def(
+        EDIT_FIELDS,
+        "function",
+        "Edit Fields",
+        "Set or remove fields.",
+        "sliders",
+        C::Core,
+        vec![str_field("field", "Field name", true)],
+        vec![],
+    ));
 
     // ---- Integrations ----
-    defs.push(def(HTTP_REQUEST, "function", "HTTP Request", "Make an HTTP request.", "globe", C::Integration, vec![sel_field("method", "Method", vec![("GET", "GET"), ("POST", "POST"), ("PUT", "PUT"), ("PATCH", "PATCH"), ("DELETE", "DELETE")], "GET"), expr_field("url", "URL", true), json_field("headers", "Headers"), json_field("body", "Body")], vec!["httpApi"]));
-    defs.push(def(WEBHOOK, "function", "Webhook", "Call an external webhook URL.", "webhook", C::Integration, vec![expr_field("url", "URL", true), json_field("body", "Body")], vec![]));
-    defs.push(def(GRAPHQL, "function", "GraphQL Request", "Send a GraphQL query.", "git-commit", C::Integration, vec![expr_field("url", "Endpoint", true), str_field("query", "Query", true)], vec![]));
-    defs.push(def(REST_API, "function", "REST API", "Call a REST API endpoint.", "link", C::Integration, vec![expr_field("url", "URL", true), str_field("method", "Method", true)], vec![]));
-    defs.push(def(DB_QUERY, "function", "Database Query", "Run a SQL query.", "database", C::Integration, vec![str_field("query", "SQL query", true)], vec![]));
-    defs.push(def(POSTGRES, "function", "PostgreSQL", "Run a query against PostgreSQL.", "server", C::Integration, vec![str_field("query", "SQL query", true)], vec!["postgres"]));
-    defs.push(def(REDIS, "function", "Redis", "Read/write Redis keys.", "zap", C::Integration, vec![sel_field("operation", "Operation", vec![("get", "Get"), ("set", "Set"), ("del", "Delete")], "get"), expr_field("key", "Key", true)], vec!["redis"]));
+    defs.push(def(
+        HTTP_REQUEST,
+        "function",
+        "HTTP Request",
+        "Make an HTTP request.",
+        "globe",
+        C::Integration,
+        vec![
+            sel_field(
+                "method",
+                "Method",
+                vec![
+                    ("GET", "GET"),
+                    ("POST", "POST"),
+                    ("PUT", "PUT"),
+                    ("PATCH", "PATCH"),
+                    ("DELETE", "DELETE"),
+                ],
+                "GET",
+            ),
+            expr_field("url", "URL", true),
+            json_field("headers", "Headers"),
+            json_field("body", "Body"),
+        ],
+        vec!["httpApi"],
+    ));
+    defs.push(def(
+        WEBHOOK,
+        "function",
+        "Webhook",
+        "Call an external webhook URL.",
+        "webhook",
+        C::Integration,
+        vec![expr_field("url", "URL", true), json_field("body", "Body")],
+        vec![],
+    ));
+    defs.push(def(
+        GRAPHQL,
+        "function",
+        "GraphQL Request",
+        "Send a GraphQL query.",
+        "git-commit",
+        C::Integration,
+        vec![
+            expr_field("url", "Endpoint", true),
+            str_field("query", "Query", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        REST_API,
+        "function",
+        "REST API",
+        "Call a REST API endpoint.",
+        "link",
+        C::Integration,
+        vec![
+            expr_field("url", "URL", true),
+            str_field("method", "Method", true),
+        ],
+        vec![],
+    ));
+    defs.push(def(
+        DB_QUERY,
+        "function",
+        "Database Query",
+        "Run a SQL query.",
+        "database",
+        C::Integration,
+        vec![str_field("query", "SQL query", true)],
+        vec![],
+    ));
+    defs.push(def(
+        POSTGRES,
+        "function",
+        "PostgreSQL",
+        "Run a query against PostgreSQL.",
+        "server",
+        C::Integration,
+        vec![str_field("query", "SQL query", true)],
+        vec!["postgres"],
+    ));
+    defs.push(def(
+        REDIS,
+        "function",
+        "Redis",
+        "Read/write Redis keys.",
+        "zap",
+        C::Integration,
+        vec![
+            sel_field(
+                "operation",
+                "Operation",
+                vec![("get", "Get"), ("set", "Set"), ("del", "Delete")],
+                "get",
+            ),
+            expr_field("key", "Key", true),
+        ],
+        vec!["redis"],
+    ));
 
     defs
 }
@@ -323,7 +645,10 @@ mod tests {
         assert!(reg.get("set").unwrap().kind == "task");
         assert!(reg.get("http.request").unwrap().kind == "function");
         assert_eq!(reg.search("").len(), reg.all().len());
-        assert!(reg.search("HTTP").iter().any(|d| d.node_type == "http.request"));
+        assert!(reg
+            .search("HTTP")
+            .iter()
+            .any(|d| d.node_type == "http.request"));
         assert!(reg.get("cms.getContent").is_some());
     }
 }

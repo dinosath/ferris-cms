@@ -26,7 +26,10 @@ pub async fn ctb_get(ctx: &AppContext, uid: &str) -> Result<Schema, ServiceError
 }
 
 /// Export content-type definitions as a versioned bundle.
-pub fn ctb_export(ctx: &AppContext, uids: Option<&[String]>) -> Result<serde_json::Value, ServiceError> {
+pub fn ctb_export(
+    ctx: &AppContext,
+    uids: Option<&[String]>,
+) -> Result<serde_json::Value, ServiceError> {
     let schemas = ctx.schema_cache.get_all();
     let schemas = match uids {
         Some(uids) if !uids.is_empty() => schemas
@@ -51,12 +54,16 @@ pub async fn ctb_import(
         .get("schemas")
         .cloned()
         .unwrap_or_else(|| value.clone());
-    let schemas: Vec<Schema> = serde_json::from_value(schemas_value)
-        .map_err(|e| ServiceError::validation("content types", vec![ValidationErrorItem::new(
-            vec!["schemas".into()],
-            format!("invalid content-type bundle: {e}"),
-            "ValidationError",
-        )]))?;
+    let schemas: Vec<Schema> = serde_json::from_value(schemas_value).map_err(|e| {
+        ServiceError::validation(
+            "content types",
+            vec![ValidationErrorItem::new(
+                vec!["schemas".into()],
+                format!("invalid content-type bundle: {e}"),
+                "ValidationError",
+            )],
+        )
+    })?;
     ctb_apply(ctx, schemas, Vec::new()).await
 }
 
@@ -265,8 +272,8 @@ pub async fn ctb_apply(
                 };
                 am.update(&txn).await?;
 
-                let diff_json = serde_json::to_value(d)
-                    .map_err(|e| ServiceError::internal(e.to_string()))?;
+                let diff_json =
+                    serde_json::to_value(d).map_err(|e| ServiceError::internal(e.to_string()))?;
                 schema_change_log::ActiveModel {
                     schema_uid: Set(d.uid.as_str().to_string()),
                     from_version: Set(row.version),

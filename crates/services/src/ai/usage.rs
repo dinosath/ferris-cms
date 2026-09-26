@@ -2,7 +2,9 @@
 
 use ai::AiUsage;
 use db::entities::ai_usage;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 
 use crate::{AppContext, ServiceError};
 
@@ -43,7 +45,9 @@ pub async fn list_usage(
     user_id: Option<i64>,
     limit: u64,
 ) -> Result<Vec<serde_json::Value>, ServiceError> {
-    let mut q = ai_usage::Entity::find().order_by_desc(ai_usage::Column::Id).limit(limit);
+    let mut q = ai_usage::Entity::find()
+        .order_by_desc(ai_usage::Column::Id)
+        .limit(limit);
     if let Some(uid) = user_id {
         q = q.filter(ai_usage::Column::UserId.eq(uid));
     }

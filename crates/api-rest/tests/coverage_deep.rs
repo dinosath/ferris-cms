@@ -385,18 +385,25 @@ async fn partial_batch_does_not_remove_unlisted_content_types() {
     let (router, _state) = setup().await;
     let token = register_admin(&router).await;
 
-    let make = |uid: &str, name: &str| serde_json::json!({
-        "uid": uid,
-        "kind": "collectionType",
-        "info": {"singularName": name, "pluralName": &format!("{name}s"), "displayName": name},
-        "options": {"draftAndPublish": true},
-        "attributes": {"name": {"type": "string"}}
-    });
+    let make = |uid: &str, name: &str| {
+        serde_json::json!({
+            "uid": uid,
+            "kind": "collectionType",
+            "info": {"singularName": name, "pluralName": &format!("{name}s"), "displayName": name},
+            "options": {"draftAndPublish": true},
+            "attributes": {"name": {"type": "string"}}
+        })
+    };
     let alpha = "api::alpha.alpha";
     let beta = "api::beta.beta";
 
     // Create two content types.
-    apply_schema(&router, &token, serde_json::json!([make(alpha, "alpha"), make(beta, "beta")])).await;
+    apply_schema(
+        &router,
+        &token,
+        serde_json::json!([make(alpha, "alpha"), make(beta, "beta")]),
+    )
+    .await;
 
     // Apply a partial batch containing ONLY `alpha`, with no `removed` list.
     // Under the old semantics this would have soft-deleted `beta`.
@@ -452,7 +459,11 @@ async fn partial_batch_does_not_remove_unlisted_content_types() {
         ))
         .await
         .unwrap();
-    assert_eq!(gone.status(), StatusCode::NOT_FOUND, "beta should be removed");
+    assert_eq!(
+        gone.status(),
+        StatusCode::NOT_FOUND,
+        "beta should be removed"
+    );
     // alpha survives the explicit removal of beta.
     let alpha_get = router
         .clone()

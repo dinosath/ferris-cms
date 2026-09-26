@@ -37,10 +37,14 @@ use crate::ServiceError;
 /// Resolve the `AiProviderKind` from the lowercase string stored on a provider row.
 pub fn kind_from_str(kind: &str) -> Result<ai::AiProviderKind, ServiceError> {
     match kind {
-        "openai" | "openai-compatible" | "openai_compatible" => Ok(ai::AiProviderKind::OpenAiCompatible),
+        "openai" | "openai-compatible" | "openai_compatible" => {
+            Ok(ai::AiProviderKind::OpenAiCompatible)
+        }
         "ollama" => Ok(ai::AiProviderKind::Ollama),
         "anthropic" => Ok(ai::AiProviderKind::Anthropic),
         "gemini" => Ok(ai::AiProviderKind::Gemini),
-        other => Err(ServiceError::internal(format!("unknown AI provider kind: {other}"))),
+        other => Err(ServiceError::internal(format!(
+            "unknown AI provider kind: {other}"
+        ))),
     }
 }

@@ -8,9 +8,7 @@
 
 use ai::{AiMessage, AiRequest, AiTool, AiToolCall};
 use db::entities::{ai_conversation, ai_message, ai_model, ai_provider};
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
 use crate::ai::providers::build_provider;
@@ -62,7 +60,10 @@ pub async fn list_conversations(ctx: &AppContext) -> Result<Vec<serde_json::Valu
     Ok(rows.into_iter().map(conversation_dto).collect())
 }
 
-pub async fn get_conversation(ctx: &AppContext, id: i64) -> Result<serde_json::Value, ServiceError> {
+pub async fn get_conversation(
+    ctx: &AppContext,
+    id: i64,
+) -> Result<serde_json::Value, ServiceError> {
     let user = ctx.require_admin()?;
     let row = ai_conversation::Entity::find_by_id(id)
         .filter(ai_conversation::Column::UserId.eq(user.id))
@@ -106,7 +107,10 @@ fn conversation_dto(row: ai_conversation::Model) -> serde_json::Value {
 // Messages
 // ---------------------------------------------------------------------------
 
-pub async fn list_messages(ctx: &AppContext, conversation_id: i64) -> Result<Vec<serde_json::Value>, ServiceError> {
+pub async fn list_messages(
+    ctx: &AppContext,
+    conversation_id: i64,
+) -> Result<Vec<serde_json::Value>, ServiceError> {
     let user = ctx.require_admin()?;
     // Ownership check.
     ai_conversation::Entity::find_by_id(conversation_id)
@@ -148,7 +152,8 @@ async fn insert_message(
     input_tokens: Option<i64>,
     output_tokens: Option<i64>,
 ) -> Result<(), ServiceError> {
-    let tool_calls_json = tool_calls.map(|c| serde_json::to_value(c.to_vec()).unwrap_or(Value::Null));
+    let tool_calls_json =
+        tool_calls.map(|c| serde_json::to_value(c.to_vec()).unwrap_or(Value::Null));
     let now = chrono::Utc::now();
     ai_message::ActiveModel {
         conversation_id: Set(conversation_id),
@@ -319,7 +324,18 @@ pub async fn send_message(
     let (provider_id, model) = resolve_provider_and_model(ctx, &conv).await?;
     let (_prow, provider) = build_provider(ctx, provider_id).await?;
 
-    insert_message(ctx, conversation_id, "user", text, None, None, None, None, None).await?;
+    insert_message(
+        ctx,
+        conversation_id,
+        "user",
+        text,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await?;
 
     let prior = ai_message::Entity::find()
         .filter(ai_message::Column::ConversationId.eq(conversation_id))
@@ -355,7 +371,10 @@ pub async fn send_message(
             max_tokens: Some(4000),
             tools: Some(tools.clone()),
         };
-        let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
+        let resp = provider
+            .chat(&request)
+            .await
+            .map_err(|e| ServiceError::internal(e.to_string()))?;
         total_in += resp.usage.input_tokens;
         total_out += resp.usage.output_tokens;
 
@@ -371,10 +390,27 @@ pub async fn send_message(
                 ));
             }
             insert_message(
-                ctx, conversation_id, "assistant", &resp.content, None, None, None,
-                Some(resp.usage.input_tokens as i64), Some(resp.usage.output_tokens as i64),
-            ).await?;
-            let _ = log_usage(ctx, user.id, Some(provider_id), Some(&model), Some("chat"), resp.usage, Some("ok")).await;
+                ctx,
+                conversation_id,
+                "assistant",
+                &resp.content,
+                None,
+                None,
+                None,
+                Some(resp.usage.input_tokens as i64),
+                Some(resp.usage.output_tokens as i64),
+            )
+            .await?;
+            let _ = log_usage(
+                ctx,
+                user.id,
+                Some(provider_id),
+                Some(&model),
+                Some("chat"),
+                resp.usage,
+                Some("ok"),
+            )
+            .await;
             return Ok(json!({
                 "content": resp.content,
                 "executedTools": executed,
@@ -385,9 +421,17 @@ pub async fn send_message(
 
         // Assistant message requesting tools.
         insert_message(
-            ctx, conversation_id, "assistant", "", Some(&calls), None, None,
-            Some(resp.usage.input_tokens as i64), Some(resp.usage.output_tokens as i64),
-        ).await?;
+            ctx,
+            conversation_id,
+            "assistant",
+            "",
+            Some(&calls),
+            None,
+            None,
+            Some(resp.usage.input_tokens as i64),
+            Some(resp.usage.output_tokens as i64),
+        )
+        .await?;
 
         // Separate mutating from safe calls without moving `calls`.
         let mut safe: Vec<AiToolCall> = Vec::new();
@@ -403,7 +447,18 @@ pub async fn send_message(
             // Execute safe calls and persist their results.
             for c in &safe {
                 let r = execute_tool(ctx, c, Some(&model)).await?;
-                insert_message(ctx, conversation_id, "tool", &r.content, None, Some(&r.call_id), Some(&r.name), None, None).await?;
+                insert_message(
+                    ctx,
+                    conversation_id,
+                    "tool",
+                    &r.content,
+                    None,
+                    Some(&r.call_id),
+                    Some(&r.name),
+                    None,
+                    None,
+                )
+                .await?;
                 executed.push(json!({ "name": r.name, "ok": true }));
             }
             // Persist a placeholder tool result for each mutating call so every
@@ -412,10 +467,17 @@ pub async fn send_message(
             // messages. The real result is written on confirmation.
             for c in &mutating {
                 insert_message(
-                    ctx, conversation_id, "tool",
-                    "{\"ok\":false,\"pendingConfirmation\":true}", None,
-                    Some(&c.id), Some(&c.name), None, None,
-                ).await?;
+                    ctx,
+                    conversation_id,
+                    "tool",
+                    "{\"ok\":false,\"pendingConfirmation\":true}",
+                    None,
+                    Some(&c.id),
+                    Some(&c.name),
+                    None,
+                    None,
+                )
+                .await?;
                 executed.push(json!({ "name": c.name, "pendingConfirmation": true }));
             }
             pending_confirmation = Some(mutating);
@@ -426,7 +488,18 @@ pub async fn send_message(
         messages.push(AiMessage::assistant_tool_calls(calls.clone()));
         for c in &calls {
             let r = execute_tool(ctx, c, Some(&model)).await?;
-            insert_message(ctx, conversation_id, "tool", &r.content, None, Some(&r.call_id), Some(&r.name), None, None).await?;
+            insert_message(
+                ctx,
+                conversation_id,
+                "tool",
+                &r.content,
+                None,
+                Some(&r.call_id),
+                Some(&r.name),
+                None,
+                None,
+            )
+            .await?;
             messages.push(AiMessage::tool(&r.name, &r.call_id, &r.content));
             executed.push(json!({ "name": r.name }));
         }
@@ -474,7 +547,18 @@ pub async fn confirm_tool_calls(
     }
     for c in &calls {
         let r = execute_tool(ctx, c, Some(&model)).await?;
-        insert_message(ctx, conversation_id, "tool", &r.content, None, Some(&r.call_id), Some(&r.name), None, None).await?;
+        insert_message(
+            ctx,
+            conversation_id,
+            "tool",
+            &r.content,
+            None,
+            Some(&r.call_id),
+            Some(&r.name),
+            None,
+            None,
+        )
+        .await?;
         executed.push(json!({ "name": r.name, "ok": r.content.contains("\"ok\":true") || !r.content.contains("\"error\"") }));
     }
 
@@ -495,12 +579,32 @@ pub async fn confirm_tool_calls(
         max_tokens: Some(4000),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
     insert_message(
-        ctx, conversation_id, "assistant", &resp.content, None, None, None,
-        Some(resp.usage.input_tokens as i64), Some(resp.usage.output_tokens as i64),
-    ).await?;
-    let _ = log_usage(ctx, user.id, Some(provider_id), Some(&model), Some("chat.confirm"), resp.usage, Some("ok")).await;
+        ctx,
+        conversation_id,
+        "assistant",
+        &resp.content,
+        None,
+        None,
+        None,
+        Some(resp.usage.input_tokens as i64),
+        Some(resp.usage.output_tokens as i64),
+    )
+    .await?;
+    let _ = log_usage(
+        ctx,
+        user.id,
+        Some(provider_id),
+        Some(&model),
+        Some("chat.confirm"),
+        resp.usage,
+        Some("ok"),
+    )
+    .await;
     Ok(json!({
         "content": resp.content,
         "executedTools": executed,

@@ -225,5 +225,4 @@ mod send_tests {
         require_send(&ctx.schema_cache);
         require_sync(&ctx.schema_cache);
     }
-
 }

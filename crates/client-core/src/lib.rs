@@ -391,6 +391,126 @@ impl Client {
         Ok(serde_json::from_value(v)?)
     }
 
+    pub async fn cm_views(
+        &self,
+        uid: &str,
+    ) -> Result<Vec<api_types::admin::ContentTypeView>, ClientError> {
+        let v = self
+            .transport
+            .get_json(&format!("/admin/content-manager/content-types/{uid}/views"))
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_create(
+        &self,
+        uid: &str,
+        req: &api_types::admin::CreateContentTypeViewRequest,
+    ) -> Result<api_types::admin::ContentTypeView, ClientError> {
+        let v = self
+            .transport
+            .post_json(
+                &format!("/admin/content-manager/content-types/{uid}/views"),
+                &serde_json::to_value(req)?,
+            )
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_update(
+        &self,
+        uid: &str,
+        id: i64,
+        req: &api_types::admin::UpdateContentTypeViewRequest,
+    ) -> Result<api_types::admin::ContentTypeView, ClientError> {
+        let v = self
+            .transport
+            .put_json(
+                &format!("/admin/content-manager/content-types/{uid}/views/{id}"),
+                &serde_json::to_value(req)?,
+            )
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_delete(
+        &self,
+        uid: &str,
+        id: i64,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.transport
+            .delete_json(&format!(
+                "/admin/content-manager/content-types/{uid}/views/{id}"
+            ))
+            .await
+    }
+
+    pub async fn cm_view_duplicate(
+        &self,
+        uid: &str,
+        id: i64,
+    ) -> Result<api_types::admin::ContentTypeView, ClientError> {
+        let v = self
+            .transport
+            .post_json(
+                &format!("/admin/content-manager/content-types/{uid}/views/{id}/duplicate"),
+                &serde_json::json!({}),
+            )
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_set_default(
+        &self,
+        uid: &str,
+        id: i64,
+    ) -> Result<api_types::admin::ContentTypeView, ClientError> {
+        let v = self
+            .transport
+            .post_json(
+                &format!("/admin/content-manager/content-types/{uid}/views/{id}/default"),
+                &serde_json::json!({}),
+            )
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_reorder(
+        &self,
+        uid: &str,
+        ids: &[i64],
+    ) -> Result<Vec<api_types::admin::ContentTypeView>, ClientError> {
+        let body = api_types::admin::ReorderContentTypeViewsRequest { ids: ids.to_vec() };
+        let v = self
+            .transport
+            .post_json(
+                &format!("/admin/content-manager/content-types/{uid}/views/reorder"),
+                &serde_json::to_value(body)?,
+            )
+            .await?;
+        Ok(serde_json::from_value(v["data"].clone())?)
+    }
+
+    pub async fn cm_view_records(
+        &self,
+        uid: &str,
+        id: i64,
+        params: &api_types::QueryParams,
+    ) -> Result<api_types::ListResponse<serde_json::Value>, ClientError> {
+        let qs = build_query_string(params);
+        let path = format!(
+            "/admin/content-manager/content-types/{uid}/views/{id}/records{}",
+            if qs.is_empty() {
+                String::new()
+            } else {
+                format!("?{qs}")
+            }
+        );
+        Ok(serde_json::from_value(
+            self.transport.get_json(&path).await?,
+        )?)
+    }
+
     pub async fn cm_get(
         &self,
         uid: &str,
@@ -951,7 +1071,10 @@ impl Client {
         req: &api_types::AiProviderCreate,
     ) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .post_json("/admin/ai/providers/test-connection", &serde_json::to_value(req)?)
+            .post_json(
+                "/admin/ai/providers/test-connection",
+                &serde_json::to_value(req)?,
+            )
             .await
     }
 
@@ -961,17 +1084,29 @@ impl Client {
         req: &api_types::AiProviderUpdate,
     ) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .put_json(&format!("/admin/ai/providers/{id}"), &serde_json::to_value(req)?)
+            .put_json(
+                &format!("/admin/ai/providers/{id}"),
+                &serde_json::to_value(req)?,
+            )
             .await
     }
 
     pub async fn ai_provider_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/ai/providers/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/ai/providers/{id}"))
+            .await
     }
 
-    pub async fn ai_models(&self, provider_id: Option<i64>) -> Result<serde_json::Value, ClientError> {
+    pub async fn ai_models(
+        &self,
+        provider_id: Option<i64>,
+    ) -> Result<serde_json::Value, ClientError> {
         match provider_id {
-            Some(pid) => self.transport.get_json(&format!("/admin/ai/providers/{pid}/models")).await,
+            Some(pid) => {
+                self.transport
+                    .get_json(&format!("/admin/ai/providers/{pid}/models"))
+                    .await
+            }
             None => self.transport.get_json("/admin/ai/models").await,
         }
     }
@@ -991,12 +1126,17 @@ impl Client {
         req: &api_types::AiModelUpdate,
     ) -> Result<serde_json::Value, ClientError> {
         self.transport
-            .put_json(&format!("/admin/ai/models/{id}"), &serde_json::to_value(req)?)
+            .put_json(
+                &format!("/admin/ai/models/{id}"),
+                &serde_json::to_value(req)?,
+            )
             .await
     }
 
     pub async fn ai_model_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/ai/models/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/ai/models/{id}"))
+            .await
     }
 
     pub async fn ai_conversations(&self) -> Result<serde_json::Value, ClientError> {
@@ -1013,11 +1153,15 @@ impl Client {
     }
 
     pub async fn ai_conversation_delete(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.delete_json(&format!("/admin/ai/conversations/{id}")).await
+        self.transport
+            .delete_json(&format!("/admin/ai/conversations/{id}"))
+            .await
     }
 
     pub async fn ai_messages(&self, id: i64) -> Result<serde_json::Value, ClientError> {
-        self.transport.get_json(&format!("/admin/ai/conversations/{id}/messages")).await
+        self.transport
+            .get_json(&format!("/admin/ai/conversations/{id}/messages"))
+            .await
     }
 
     pub async fn ai_send_message(
@@ -1025,9 +1169,14 @@ impl Client {
         id: i64,
         text: &str,
     ) -> Result<serde_json::Value, ClientError> {
-        let body = api_types::AiSendMessage { text: text.to_string() };
+        let body = api_types::AiSendMessage {
+            text: text.to_string(),
+        };
         self.transport
-            .post_json(&format!("/admin/ai/conversations/{id}/messages"), &serde_json::to_value(&body)?)
+            .post_json(
+                &format!("/admin/ai/conversations/{id}/messages"),
+                &serde_json::to_value(&body)?,
+            )
             .await
     }
 
@@ -1038,7 +1187,10 @@ impl Client {
     ) -> Result<serde_json::Value, ClientError> {
         let body = api_types::AiConfirmBody { calls };
         self.transport
-            .post_json(&format!("/admin/ai/conversations/{id}/confirm"), &serde_json::to_value(&body)?)
+            .post_json(
+                &format!("/admin/ai/conversations/{id}/confirm"),
+                &serde_json::to_value(&body)?,
+            )
             .await
     }
 
@@ -1051,7 +1203,10 @@ impl Client {
             .await
     }
 
-    pub async fn ai_edit(&self, req: &api_types::AiEditBody) -> Result<serde_json::Value, ClientError> {
+    pub async fn ai_edit(
+        &self,
+        req: &api_types::AiEditBody,
+    ) -> Result<serde_json::Value, ClientError> {
         self.transport
             .post_json("/admin/ai/edit", &serde_json::to_value(req)?)
             .await

@@ -20,7 +20,10 @@ fn tasks_of(wf: &serde_json::Value) -> Vec<(String, serde_json::Value)> {
         .map(|arr| {
             arr.iter()
                 .filter_map(|entry| {
-                    entry.as_object().and_then(|obj| obj.iter().next()).map(|(k, v)| (k.clone(), v.clone()))
+                    entry
+                        .as_object()
+                        .and_then(|obj| obj.iter().next())
+                        .map(|(k, v)| (k.clone(), v.clone()))
                 })
                 .collect()
         })
@@ -68,11 +71,22 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
                     library.set(l["data"].as_array().cloned().unwrap_or_default());
                 }
                 if let Ok(ct) = client.workflow_content_types().await {
-                    let opts = ct["data"].as_array().map(|a| a.iter().filter_map(|x| {
-                        let uid = x["uid"].as_str().unwrap_or("").to_string();
-                        let name = x["displayName"].as_str().unwrap_or("").to_string();
-                        if uid.is_empty() { None } else { Some((uid, name)) }
-                    }).collect()).unwrap_or_default();
+                    let opts = ct["data"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| {
+                                    let uid = x["uid"].as_str().unwrap_or("").to_string();
+                                    let name = x["displayName"].as_str().unwrap_or("").to_string();
+                                    if uid.is_empty() {
+                                        None
+                                    } else {
+                                        Some((uid, name))
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
                     content_types.set(opts);
                 }
                 loading.set(false);
@@ -81,10 +95,22 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
     });
 
     let tasks = wf().as_ref().map(tasks_of).unwrap_or_default();
-    let wf_name = wf().as_ref().and_then(|w| w["definition"]["document"]["name"].as_str().map(|s| s.to_string())).unwrap_or_else(|| "Untitled".into());
-    let active = wf().as_ref().and_then(|w| w["active"].as_bool()).unwrap_or(false);
+    let wf_name = wf()
+        .as_ref()
+        .and_then(|w| {
+            w["definition"]["document"]["name"]
+                .as_str()
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "Untitled".into());
+    let active = wf()
+        .as_ref()
+        .and_then(|w| w["active"].as_bool())
+        .unwrap_or(false);
     let selected_id = selected();
-    let selected_task = selected_id.as_ref().and_then(|id| tasks.iter().find(|(n, _)| n == id).cloned());
+    let selected_task = selected_id
+        .as_ref()
+        .and_then(|id| tasks.iter().find(|(n, _)| n == id).cloned());
 
     // Async actions (spawn must run from an effect).
     let mut save_req = use_signal(|| 0u32);
@@ -158,7 +184,14 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
                 spawn(async move {
                     if let Ok(v) = client.workflow_set_active(id, active).await {
                         wf2.set(Some(v["data"].clone()));
-                        g.toast(if active { "Workflow activated" } else { "Workflow deactivated" }, "success");
+                        g.toast(
+                            if active {
+                                "Workflow activated"
+                            } else {
+                                "Workflow deactivated"
+                            },
+                            "success",
+                        );
                     }
                 });
             }
@@ -171,12 +204,23 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
         let tname = name.clone();
         let is_sel = selected_id == Some(tname.clone());
         let ttype = task_type_label(task);
-        let def = library().iter().find(|d| d["nodeType"] == ttype || d["displayName"] == ttype).cloned();
-        let cat = def.as_ref().and_then(|d| d["category"].as_str()).unwrap_or("Core").to_string();
+        let def = library()
+            .iter()
+            .find(|d| d["nodeType"] == ttype || d["displayName"] == ttype)
+            .cloned();
+        let cat = def
+            .as_ref()
+            .and_then(|d| d["category"].as_str())
+            .unwrap_or("Core")
+            .to_string();
         let cat_color = category_color(&cat).to_string();
         let mut sel = selected;
         let tname_click = tname.clone();
-        let border = if is_sel { color::PRIMARY_600 } else { color::NEUTRAL_200 };
+        let border = if is_sel {
+            color::PRIMARY_600
+        } else {
+            color::NEUTRAL_200
+        };
         let bg = if is_sel { color::PRIMARY_100 } else { "#fff" };
         task_cards.push(rsx! {
             div { style: "display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid {border}; border-left:4px solid {cat_color}; border-radius:6px; background:{bg}; cursor:pointer;",
@@ -198,13 +242,30 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
     if let Some(exec) = execution().as_ref() {
         overlay_exec_id = exec["data"]["id"].as_i64().unwrap_or(0);
         overlay_exec_status = exec["data"]["status"].as_str().unwrap_or("-").to_string();
-        status_bg = if overlay_exec_status == "success" { color::SUCCESS_100 } else if overlay_exec_status == "failed" { color::DANGER_100 } else { color::NEUTRAL_100 };
-        status_fg = if overlay_exec_status == "success" { color::SUCCESS_700 } else if overlay_exec_status == "failed" { color::DANGER_700 } else { color::NEUTRAL_600 };
+        status_bg = if overlay_exec_status == "success" {
+            color::SUCCESS_100
+        } else if overlay_exec_status == "failed" {
+            color::DANGER_100
+        } else {
+            color::NEUTRAL_100
+        };
+        status_fg = if overlay_exec_status == "success" {
+            color::SUCCESS_700
+        } else if overlay_exec_status == "failed" {
+            color::DANGER_700
+        } else {
+            color::NEUTRAL_600
+        };
         let runs = exec["nodeRuns"].as_array().cloned().unwrap_or_default();
         for run in runs.iter() {
             let task_name = run["taskName"].as_str().unwrap_or("-").to_string();
             let status = run["status"].as_str().unwrap_or("notExecuted").to_string();
-            let sc = match status.as_str() { "success" => color::SUCCESS_600, "failed" => color::DANGER_600, "running" => color::WARNING_600, _ => color::NEUTRAL_300 };
+            let sc = match status.as_str() {
+                "success" => color::SUCCESS_600,
+                "failed" => color::DANGER_600,
+                "running" => color::WARNING_600,
+                _ => color::NEUTRAL_300,
+            };
             exec_badges.push(rsx! {
                 div { style: "border:1px solid {color::NEUTRAL_150}; border-left:4px solid {sc}; border-radius:4px; padding:6px 10px; font-size:12px; color:{color::NEUTRAL_800}; background:{color::NEUTRAL_0};",
                     "{task_name} · {status}"
@@ -232,11 +293,20 @@ pub fn WorkflowEditor(workflow_id: i64) -> Element {
     // Library items (precomputed).
     let mut lib_items: Vec<Element> = Vec::new();
     for d in library() {
-        let matches_cat = category() == "All" || d["category"].as_str() == Some(category().as_str());
+        let matches_cat =
+            category() == "All" || d["category"].as_str() == Some(category().as_str());
         let q = search().to_lowercase();
         let matches_search = q.is_empty()
-            || d["displayName"].as_str().unwrap_or("").to_lowercase().contains(&q)
-            || d["nodeType"].as_str().unwrap_or("").to_lowercase().contains(&q);
+            || d["displayName"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains(&q)
+            || d["nodeType"]
+                .as_str()
+                .unwrap_or("")
+                .to_lowercase()
+                .contains(&q);
         if matches_cat && matches_search {
             let node_type = d["nodeType"].as_str().unwrap_or("").to_string();
             let display = d["displayName"].as_str().unwrap_or("").to_string();
@@ -386,7 +456,11 @@ fn category_color(cat: &str) -> &'static str {
     }
 }
 
-fn add_task(wf: &mut Signal<Option<serde_json::Value>>, dirty: &mut Signal<bool>, node_type: String) {
+fn add_task(
+    wf: &mut Signal<Option<serde_json::Value>>,
+    dirty: &mut Signal<bool>,
+    node_type: String,
+) {
     let mut w = wf().clone().unwrap_or(serde_json::json!({}));
     let mut tasks = tasks_of(&w);
     let count = tasks.len();
@@ -405,13 +479,22 @@ fn add_task(wf: &mut Signal<Option<serde_json::Value>>, dirty: &mut Signal<bool>
 
 fn remove_task(wf: &mut Signal<Option<serde_json::Value>>, dirty: &mut Signal<bool>, name: &str) {
     let mut w = wf().clone().unwrap_or(serde_json::json!({}));
-    let tasks: Vec<_> = tasks_of(&w).into_iter().filter(|(n, _)| n != name).collect();
+    let tasks: Vec<_> = tasks_of(&w)
+        .into_iter()
+        .filter(|(n, _)| n != name)
+        .collect();
     set_tasks(&mut w, tasks);
     wf.set(Some(w));
     dirty.set(true);
 }
 
-fn update_task(wf: &mut Signal<Option<serde_json::Value>>, dirty: &mut Signal<bool>, name: &str, key: String, value: String) {
+fn update_task(
+    wf: &mut Signal<Option<serde_json::Value>>,
+    dirty: &mut Signal<bool>,
+    name: &str,
+    key: String,
+    value: String,
+) {
     let mut w = wf().clone().unwrap_or(serde_json::json!({}));
     let mut tasks = tasks_of(&w);
     for (n, task) in tasks.iter_mut() {

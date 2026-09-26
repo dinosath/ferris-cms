@@ -332,7 +332,7 @@ mod tests {
                 .iter()
                 .map(|(n, a)| (n.to_string(), a.clone()))
                 .collect::<IndexMap<_, _>>(),
-        metadata: None,
+            metadata: None,
         }
     }
 
@@ -393,7 +393,9 @@ mod tests {
         a.max_length = Some(5);
         let s = schema(&[("code", a)]);
 
-        assert!(validate_payload(&s, &payload(serde_json::json!({"code": "abc"})), false).is_empty());
+        assert!(
+            validate_payload(&s, &payload(serde_json::json!({"code": "abc"})), false).is_empty()
+        );
         let errors = validate_payload(&s, &payload(serde_json::json!({"code": "ab"})), false);
         assert_eq!(errors[0].code, "minLength");
         let errors = validate_payload(&s, &payload(serde_json::json!({"code": "abcdef"})), false);
@@ -406,7 +408,9 @@ mod tests {
         a.regex = Some("^[A-Z]{2}[0-9]{3}$".into());
         let s = schema(&[("sku", a)]);
 
-        assert!(validate_payload(&s, &payload(serde_json::json!({"sku": "AB123"})), false).is_empty());
+        assert!(
+            validate_payload(&s, &payload(serde_json::json!({"sku": "AB123"})), false).is_empty()
+        );
         let errors = validate_payload(&s, &payload(serde_json::json!({"sku": "nope"})), false);
         assert_eq!(errors[0].code, "regex");
     }
@@ -417,8 +421,15 @@ mod tests {
         a.enum_values = vec!["draft".into(), "published".into()];
         let s = schema(&[("status", a)]);
 
-        assert!(validate_payload(&s, &payload(serde_json::json!({"status": "draft"})), false).is_empty());
-        let errors = validate_payload(&s, &payload(serde_json::json!({"status": "archived"})), false);
+        assert!(
+            validate_payload(&s, &payload(serde_json::json!({"status": "draft"})), false)
+                .is_empty()
+        );
+        let errors = validate_payload(
+            &s,
+            &payload(serde_json::json!({"status": "archived"})),
+            false,
+        );
         assert_eq!(errors[0].code, "enum");
     }
 
@@ -436,7 +447,11 @@ mod tests {
         );
         let errors = validate_payload(&s, &payload(serde_json::json!({"items": []})), false);
         assert_eq!(errors[0].code, "min");
-        let errors = validate_payload(&s, &payload(serde_json::json!({"items": [1, 2, 3, 4]})), false);
+        let errors = validate_payload(
+            &s,
+            &payload(serde_json::json!({"items": [1, 2, 3, 4]})),
+            false,
+        );
         assert_eq!(errors[0].code, "max");
     }
 

@@ -44,12 +44,23 @@ Return ONLY JSON.";
         max_tokens: Some(500),
         tools: None,
     };
-    let resp = provider.chat(&request).await.map_err(|e| ServiceError::internal(e.to_string()))?;
-    let suggested = extract_json_proposal(&resp.content).ok_or_else(|| {
-        ServiceError::internal("AI returned no parseable metadata — try again")
-    })?;
+    let resp = provider
+        .chat(&request)
+        .await
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    let suggested = extract_json_proposal(&resp.content)
+        .ok_or_else(|| ServiceError::internal("AI returned no parseable metadata — try again"))?;
     if let Some(uid) = user_id {
-        let _ = log_usage(ctx, uid, Some(pid), Some(&name), Some("media.analyze"), resp.usage, Some("ok")).await;
+        let _ = log_usage(
+            ctx,
+            uid,
+            Some(pid),
+            Some(&name),
+            Some("media.analyze"),
+            resp.usage,
+            Some("ok"),
+        )
+        .await;
     }
     Ok(serde_json::json!({
         "filename": filename,

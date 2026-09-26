@@ -122,7 +122,9 @@ mod tests {
     use super::*;
     use crate::model::OwsDocument;
     use serverless_workflow_core::models::task::{CallTaskDefinition, TaskDefinition};
-    use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+    use serverless_workflow_core::models::workflow::{
+        WorkflowDefinition, WorkflowDefinitionMetadata,
+    };
 
     fn doc_with(tasks: Vec<(String, TaskDefinition)>) -> OwsDocument {
         let metadata = WorkflowDefinitionMetadata::new("default", "g", "1.0.0", None, None, None);

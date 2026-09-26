@@ -5,8 +5,8 @@
 //! DDL so the same statements run on SQLite and Postgres.
 
 use sea_orm::DbErr;
-use sea_orm_migration::prelude::*;
 use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm_migration::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct Migrator;
@@ -27,7 +27,76 @@ impl MigratorTrait for Migrator {
             Box::new(M20260821ImportExportPresets),
             Box::new(M20260823Ai),
             Box::new(M20260823AiPrivacy),
+            Box::new(M20260920ContentTypeViews),
         ]
+    }
+}
+
+/// Persisted, reusable presentations over the existing dynamic content tables.
+struct M20260920ContentTypeViews;
+
+impl MigrationName for M20260920ContentTypeViews {
+    fn name(&self) -> &str {
+        "m20260920_000001_content_type_views"
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for M20260920ContentTypeViews {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        IS_POSTGRES.store(
+            matches!(
+                manager.get_database_backend(),
+                sea_orm::DatabaseBackend::Postgres
+            ),
+            Ordering::Relaxed,
+        );
+        let mut t = Table::create()
+            .table(Alias::new("content_type_views"))
+            .if_not_exists()
+            .to_owned();
+        t.col(pk_col());
+        t.col(str_col("content_type_uid"));
+        t.col(str_col("name"));
+        t.col(str_col("slug"));
+        t.col(str_col("view_type"));
+        t.col(str_opt("description"));
+        t.col(bool_col("is_default"));
+        t.col(int_col("position"));
+        t.col(json_col("configuration_json"));
+        timestamps(&mut t);
+        t.col(int_opt("created_by"));
+        t.col(int_opt("updated_by"));
+        let mut fk = ForeignKey::create()
+            .name("fk_content_type_views_schema")
+            .from(
+                Alias::new("content_type_views"),
+                Alias::new("content_type_uid"),
+            )
+            .to(Alias::new("content_type_schemas"), Alias::new("uid"))
+            .on_delete(ForeignKeyAction::Cascade)
+            .to_owned();
+        t.foreign_key(&mut fk);
+        manager.create_table(t).await?;
+        create_index(
+            manager,
+            "content_type_views",
+            &["content_type_uid", "position"],
+        )
+        .await?;
+        create_unique_index(manager, "content_type_views", &["content_type_uid", "slug"]).await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(Alias::new("content_type_views"))
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await
     }
 }
 
@@ -475,11 +544,9 @@ impl MigrationTrait for M20260917DevAdmin {
         };
         let role_insert = crate::entities::admin_role::Entity::insert(role)
             .on_conflict(
-                sea_orm::sea_query::OnConflict::column(
-                    crate::entities::admin_role::COLUMN.code,
-                )
-                .do_nothing()
-                .to_owned(),
+                sea_orm::sea_query::OnConflict::column(crate::entities::admin_role::COLUMN.code)
+                    .do_nothing()
+                    .to_owned(),
             )
             .exec(db)
             .await;
@@ -905,9 +972,20 @@ impl MigrationTrait for M20260823Ai {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        for table in ["ai_usage", "ai_message", "ai_conversation", "ai_model", "ai_provider"] {
+        for table in [
+            "ai_usage",
+            "ai_message",
+            "ai_conversation",
+            "ai_model",
+            "ai_provider",
+        ] {
             manager
-                .drop_table(Table::drop().table(Alias::new(table)).if_exists().to_owned())
+                .drop_table(
+                    Table::drop()
+                        .table(Alias::new(table))
+                        .if_exists()
+                        .to_owned(),
+                )
                 .await?;
         }
         Ok(())

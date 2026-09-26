@@ -6,16 +6,14 @@
 //! JSON, execution records, node-run output, or returned by the API.
 
 use crate::{AppContext, ServiceError};
+use ::workflow::model::OwsCredential;
 use chacha20poly1305::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     ChaCha20Poly1305, Nonce,
 };
 use db::entities::workflow_credential;
-use sea_orm::{
-    ActiveModelTrait, EntityTrait, PaginatorTrait, QueryOrder, Set,
-};
+use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, QueryOrder, Set};
 use sha2::{Digest, Sha256};
-use ::workflow::model::OwsCredential;
 
 /// Credential type keys recognized by the engine.
 pub const CRED_HTTP_API: &str = "httpApi";
@@ -57,7 +55,10 @@ pub fn encrypt_value(secret: &str, plaintext: &serde_json::Value) -> Result<Stri
     let mut blob = Vec::with_capacity(nonce.len() + ct.len());
     blob.extend_from_slice(&nonce);
     blob.extend_from_slice(&ct);
-    Ok(base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &blob))
+    Ok(base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        &blob,
+    ))
 }
 
 /// Decrypt a base64 credential blob back into a JSON value.
@@ -216,9 +217,7 @@ pub async fn credential_delete(ctx: &AppContext, id: i64) -> Result<(), ServiceE
 
 /// Count of credentials (metadata helper).
 pub async fn credential_count(ctx: &AppContext) -> Result<u64, ServiceError> {
-    Ok(workflow_credential::Entity::find()
-        .count(&ctx.db)
-        .await?)
+    Ok(workflow_credential::Entity::find().count(&ctx.db).await?)
 }
 
 /// Redact sensitive values from a credential data object before it is ever
@@ -258,7 +257,8 @@ mod tests {
 
     #[test]
     fn credential_roundtrip() {
-        let data = serde_json::json!({ "headerName": "Authorization", "headerValue": "Bearer abc" });
+        let data =
+            serde_json::json!({ "headerName": "Authorization", "headerValue": "Bearer abc" });
         let enc = encrypt_value("test-secret", &data).unwrap();
         assert!(!enc.contains("Authorization"));
         let dec = decrypt_value("test-secret", &enc).unwrap();

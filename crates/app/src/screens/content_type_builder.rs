@@ -193,7 +193,9 @@ pub fn ContentTypeBuilder() -> Element {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
-                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .map(|s| {
+                                        (s.uid.as_str().to_string(), s.info.display_name.clone())
+                                    })
                                     .collect();
                                 g.ct_names.set(names);
                                 g.toast("Content type created", "success");
@@ -209,7 +211,10 @@ pub fn ContentTypeBuilder() -> Element {
                     let mut g = g.clone();
                     let mut w = working;
                     spawn(async move {
-                        let copy = w().iter().find(|s| s.uid.as_str() == uid).map(duplicate_schema);
+                        let copy = w()
+                            .iter()
+                            .find(|s| s.uid.as_str() == uid)
+                            .map(duplicate_schema);
                         if let Some(ns) = copy {
                             w.write().push(ns);
                         }
@@ -217,7 +222,9 @@ pub fn ContentTypeBuilder() -> Element {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
-                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .map(|s| {
+                                        (s.uid.as_str().to_string(), s.info.display_name.clone())
+                                    })
                                     .collect();
                                 g.ct_names.set(names);
                                 g.toast("Content type duplicated", "success");
@@ -237,7 +244,9 @@ pub fn ContentTypeBuilder() -> Element {
                             Ok(_) => {
                                 let names: Vec<(String, String)> = w()
                                     .iter()
-                                    .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                    .map(|s| {
+                                        (s.uid.as_str().to_string(), s.info.display_name.clone())
+                                    })
                                     .collect();
                                 g.ct_names.set(names);
                                 g.toast("Content type deleted", "success");
@@ -260,11 +269,18 @@ pub fn ContentTypeBuilder() -> Element {
                                 if let Some(imported) = response["data"]["schemas"].as_array() {
                                     let imported: Vec<Schema> = imported
                                         .iter()
-                                        .filter_map(|schema| serde_json::from_value(schema.clone()).ok())
+                                        .filter_map(|schema| {
+                                            serde_json::from_value(schema.clone()).ok()
+                                        })
                                         .collect();
                                     let names: Vec<(String, String)> = imported
                                         .iter()
-                                        .map(|s| (s.uid.as_str().to_string(), s.info.display_name.clone()))
+                                        .map(|s| {
+                                            (
+                                                s.uid.as_str().to_string(),
+                                                s.info.display_name.clone(),
+                                            )
+                                        })
                                         .collect();
                                     g.ct_names.set(names);
                                     w.set(imported);
@@ -557,10 +573,7 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
     });
 
     let schemas = working();
-    let selected = schemas
-        .iter()
-        .find(|s| s.uid.as_str() == uid)
-        .cloned();
+    let selected = schemas.iter().find(|s| s.uid.as_str() == uid).cloned();
     let target_types: Vec<String> = schemas
         .iter()
         .filter(|s| s.kind == ContentTypeKind::CollectionType)
@@ -580,12 +593,23 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
         .map(|s| {
             s.attributes
                 .iter()
-                .map(|(n, a)| (s.uid.as_str().to_string(), n.clone(), a.clone(), a.attr_type, a.required))
+                .map(|(n, a)| {
+                    (
+                        s.uid.as_str().to_string(),
+                        n.clone(),
+                        a.clone(),
+                        a.attr_type,
+                        a.required,
+                    )
+                })
                 .collect()
         })
         .unwrap_or_default();
     let selected_display = selected.as_ref().map(|s| s.info.display_name.clone());
-    let selected_uid_str = selected.as_ref().map(|s| s.uid.as_str().to_string()).unwrap_or_default();
+    let selected_uid_str = selected
+        .as_ref()
+        .map(|s| s.uid.as_str().to_string())
+        .unwrap_or_default();
     let uid_for_picker = uid.clone();
 
     let page_title_style = format!(
@@ -787,13 +811,26 @@ fn MetadataEditorModal(
     on_save: EventHandler<core_domain::Metadata>,
 ) -> Element {
     let mut namespace = use_signal(|| initial.namespace.clone().unwrap_or_default());
-    let mut labels: Signal<Vec<(String, String)>> =
-        use_signal(|| initial.labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-    let mut annotations: Signal<Vec<(String, String)>> =
-        use_signal(|| initial.annotations.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+    let mut labels: Signal<Vec<(String, String)>> = use_signal(|| {
+        initial
+            .labels
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    });
+    let mut annotations: Signal<Vec<(String, String)>> = use_signal(|| {
+        initial
+            .annotations
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    });
 
     let row_style = |_| format!("display:flex; gap:8px; margin-top:6px; align-items:center;");
-    let input_style = format!("flex:1; padding:8px; border:1px solid {}; border-radius:6px; font-size:13px;", color::NEUTRAL_200);
+    let input_style = format!(
+        "flex:1; padding:8px; border:1px solid {}; border-radius:6px; font-size:13px;",
+        color::NEUTRAL_200
+    );
 
     rsx! {
         Modal { title: "Content type metadata".to_string(), width: 600, on_close: move |e| on_close.call(e),
@@ -942,7 +979,7 @@ fn CreateTypeModal(on_close: EventHandler<MouseEvent>, on_create: EventHandler<S
                 None
             },
             attributes: Default::default(),
-        metadata: None,
+            metadata: None,
         }
     };
 
@@ -1100,23 +1137,69 @@ fn FieldConfigModal(
     let mut enum_values = use_signal(|| initial_attr.enum_values.join("\n"));
     // Relation config.
     let mut relation_kind = use_signal(|| relation_key(initial_attr.relation));
-    let mut relation_target = use_signal(|| initial_attr.target.as_ref().map(|u| u.as_str().to_string()).unwrap_or_default());
+    let mut relation_target = use_signal(|| {
+        initial_attr
+            .target
+            .as_ref()
+            .map(|u| u.as_str().to_string())
+            .unwrap_or_default()
+    });
     // Component config.
     let mut component_repeatable = use_signal(|| initial_attr.repeatable.unwrap_or(false));
-    let mut component_uid = use_signal(|| initial_attr.component.as_ref().map(|u| u.as_str().to_string()).unwrap_or_default());
+    let mut component_uid = use_signal(|| {
+        initial_attr
+            .component
+            .as_ref()
+            .map(|u| u.as_str().to_string())
+            .unwrap_or_default()
+    });
     // Dynamic zone config.
-    let mut dz_components: Signal<Vec<String>> = use_signal(|| initial_attr.components.iter().map(|u| u.as_str().to_string()).collect());
+    let mut dz_components: Signal<Vec<String>> = use_signal(|| {
+        initial_attr
+            .components
+            .iter()
+            .map(|u| u.as_str().to_string())
+            .collect()
+    });
     let mut dz_components_sel = use_signal(String::new);
     // Media config.
     let mut media_multiple = use_signal(|| initial_attr.multiple.unwrap_or(false));
-    let mut media_allowed = use_signal(|| initial_attr.allowed_types.first().cloned().unwrap_or_else(|| "images".to_string()));
+    let mut media_allowed = use_signal(|| {
+        initial_attr
+            .allowed_types
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "images".to_string())
+    });
     // UID config.
     let mut uid_target = use_signal(|| initial_attr.target_field.clone().unwrap_or_default());
     // Conditional visibility (Strapi conditional fields).
     let mut cond_enabled = use_signal(|| initial_attr.visible_when.is_some());
-    let mut cond_field = use_signal(|| initial_attr.visible_when.as_ref().map(|c| c.field.clone()).unwrap_or_default());
-    let mut cond_operator = use_signal(|| initial_attr.visible_when.as_ref().map(|c| match c.operator { core_schema::FieldConditionOperator::Is => "is", core_schema::FieldConditionOperator::IsNot => "isNot" }).unwrap_or("is").to_string());
-    let mut cond_value = use_signal(|| initial_attr.visible_when.as_ref().map(|c| condition_value_text(&c.value)).unwrap_or_default());
+    let mut cond_field = use_signal(|| {
+        initial_attr
+            .visible_when
+            .as_ref()
+            .map(|c| c.field.clone())
+            .unwrap_or_default()
+    });
+    let mut cond_operator = use_signal(|| {
+        initial_attr
+            .visible_when
+            .as_ref()
+            .map(|c| match c.operator {
+                core_schema::FieldConditionOperator::Is => "is",
+                core_schema::FieldConditionOperator::IsNot => "isNot",
+            })
+            .unwrap_or("is")
+            .to_string()
+    });
+    let mut cond_value = use_signal(|| {
+        initial_attr
+            .visible_when
+            .as_ref()
+            .map(|c| condition_value_text(&c.value))
+            .unwrap_or_default()
+    });
 
     // Computed / database-generated column config.
     let mut computed = use_signal(|| initial_attr.computed);
@@ -1158,7 +1241,11 @@ fn FieldConfigModal(
         } else {
             expression()
         },
-        if computed_stored() { "STORED" } else { "VIRTUAL" }
+        if computed_stored() {
+            "STORED"
+        } else {
+            "VIRTUAL"
+        }
     );
     // Syntax highlighting + realtime sample preview (sample values default to 1).
     let highlighted: Vec<(String, String)> = core_schema::tokenize(&expression())

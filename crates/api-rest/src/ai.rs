@@ -11,9 +11,9 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 
 use api_types::{
-    AiConfirmBody, AiEditBody, AiGenerateBody, AiMediaAnalyzeBody, AiModelCreate, AiModelUpdate,
-    AiProviderCreate, AiProviderUpdate, AiSchemaApplyBody, AiSchemaGenerateBody, AiSendMessage,
-    AiTranslateBody, AiConversationCreate,
+    AiConfirmBody, AiConversationCreate, AiEditBody, AiGenerateBody, AiMediaAnalyzeBody,
+    AiModelCreate, AiModelUpdate, AiProviderCreate, AiProviderUpdate, AiSchemaApplyBody,
+    AiSchemaGenerateBody, AiSendMessage, AiTranslateBody,
 };
 use services::ai;
 
@@ -25,10 +25,15 @@ use services::ServiceError;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         // Providers
-        .route("/admin/ai/providers", get(list_providers).post(create_provider))
+        .route(
+            "/admin/ai/providers",
+            get(list_providers).post(create_provider),
+        )
         .route(
             "/admin/ai/providers/{id}",
-            get(get_provider).put(update_provider).delete(delete_provider),
+            get(get_provider)
+                .put(update_provider)
+                .delete(delete_provider),
         )
         .route("/admin/ai/providers/test-connection", post(test_connection))
         .route("/admin/ai/providers/{id}/models", get(list_provider_models))
@@ -49,7 +54,10 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/admin/ai/conversations/{id}/messages", get(list_messages))
         .route("/admin/ai/conversations/{id}/messages", post(send_message))
-        .route("/admin/ai/conversations/{id}/confirm", post(confirm_tool_calls))
+        .route(
+            "/admin/ai/conversations/{id}/confirm",
+            post(confirm_tool_calls),
+        )
         // Features
         .route("/admin/ai/generate", post(generate_content))
         .route("/admin/ai/edit", post(edit_content))
@@ -127,7 +135,9 @@ async fn delete_provider(
     admin: AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::delete_provider(&admin.0, id).await.map(|_| serde_json::json!({ "deleted": true }));
+    let r = ai::delete_provider(&admin.0, id)
+        .await
+        .map(|_| serde_json::json!({ "deleted": true }));
     wrap(r)
 }
 
@@ -145,7 +155,9 @@ async fn test_connection(
     )
     .await
     {
-        Ok(models) => Ok(Json(serde_json::json!({ "data": { "ok": true, "models": models } }))),
+        Ok(models) => Ok(Json(
+            serde_json::json!({ "data": { "ok": true, "models": models } }),
+        )),
         Err(e) => Err(AppError::from(e)),
     }
 }
@@ -210,7 +222,9 @@ async fn delete_model(
     admin: AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::delete_model(&admin.0, id).await.map(|_| serde_json::json!({ "deleted": true }));
+    let r = ai::delete_model(&admin.0, id)
+        .await
+        .map(|_| serde_json::json!({ "deleted": true }));
     wrap(r)
 }
 
@@ -227,7 +241,15 @@ async fn create_conversation(
     admin: AdminCtx,
     Json(req): Json<AiConversationCreate>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::create_conversation(&admin.0, req.title, req.system_prompt, req.provider_id, req.model, req.privacy_mode).await;
+    let r = ai::create_conversation(
+        &admin.0,
+        req.title,
+        req.system_prompt,
+        req.provider_id,
+        req.model,
+        req.privacy_mode,
+    )
+    .await;
     wrap(r)
 }
 
@@ -243,7 +265,9 @@ async fn delete_conversation(
     admin: AdminCtx,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::delete_conversation(&admin.0, id).await.map(|_| serde_json::json!({ "deleted": true }));
+    let r = ai::delete_conversation(&admin.0, id)
+        .await
+        .map(|_| serde_json::json!({ "deleted": true }));
     wrap(r)
 }
 
@@ -269,11 +293,15 @@ async fn confirm_tool_calls(
     Path(id): Path<i64>,
     Json(req): Json<AiConfirmBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let calls = req.calls.into_iter().map(|c| ::ai::AiToolCall {
-        id: c.id,
-        name: c.name,
-        arguments: c.arguments,
-    }).collect();
+    let calls = req
+        .calls
+        .into_iter()
+        .map(|c| ::ai::AiToolCall {
+            id: c.id,
+            name: c.name,
+            arguments: c.arguments,
+        })
+        .collect();
     let r = ai::confirm_tool_calls(&admin.0, id, calls).await;
     wrap(r)
 }
@@ -286,7 +314,16 @@ async fn generate_content(
     admin: AdminCtx,
     Json(req): Json<AiGenerateBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::generate_content(&admin.0, &req.uid, &req.prompt, req.fields, req.apply, req.provider_id, req.model.as_deref()).await;
+    let r = ai::generate_content(
+        &admin.0,
+        &req.uid,
+        &req.prompt,
+        req.fields,
+        req.apply,
+        req.provider_id,
+        req.model.as_deref(),
+    )
+    .await;
     wrap(r)
 }
 
@@ -294,7 +331,15 @@ async fn edit_content(
     admin: AdminCtx,
     Json(req): Json<AiEditBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::edit_content(&admin.0, &req.uid, &req.document_id, &req.instruction, req.provider_id, req.model.as_deref()).await;
+    let r = ai::edit_content(
+        &admin.0,
+        &req.uid,
+        &req.document_id,
+        &req.instruction,
+        req.provider_id,
+        req.model.as_deref(),
+    )
+    .await;
     wrap(r)
 }
 
@@ -302,9 +347,14 @@ async fn translate(
     admin: AdminCtx,
     Json(req): Json<AiTranslateBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::translate_text(&admin.0, &req.text, &req.target_locale, req.model.as_deref())
-        .await
-        .map(|(translated, usage)| serde_json::json!({ "translated": translated, "usage": usage }));
+    let r = ai::translate_text(
+        &admin.0,
+        &req.text,
+        &req.target_locale,
+        req.model.as_deref(),
+    )
+    .await
+    .map(|(translated, usage)| serde_json::json!({ "translated": translated, "usage": usage }));
     wrap(r)
 }
 
@@ -312,7 +362,13 @@ async fn schema_generate(
     admin: AdminCtx,
     Json(req): Json<AiSchemaGenerateBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::generate_schema(&admin.0, &req.description, req.provider_id, req.model.as_deref()).await;
+    let r = ai::generate_schema(
+        &admin.0,
+        &req.description,
+        req.provider_id,
+        req.model.as_deref(),
+    )
+    .await;
     wrap(r)
 }
 
@@ -328,7 +384,15 @@ async fn media_analyze(
     admin: AdminCtx,
     Json(req): Json<AiMediaAnalyzeBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let r = ai::analyze_media(&admin.0, &req.filename, req.mime.as_deref(), req.context.as_deref(), req.provider_id, req.model.as_deref()).await;
+    let r = ai::analyze_media(
+        &admin.0,
+        &req.filename,
+        req.mime.as_deref(),
+        req.context.as_deref(),
+        req.provider_id,
+        req.model.as_deref(),
+    )
+    .await;
     wrap(r)
 }
 

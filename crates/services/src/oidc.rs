@@ -30,8 +30,8 @@ use openidconnect::core::{CoreClient, CoreProviderMetadata, CoreResponseType};
 use openidconnect::reqwest::http_client;
 use openidconnect::{
     AccessTokenHash, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken,
-    IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl,
-    Scope, TokenResponse,
+    IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
+    TokenResponse,
 };
 use sea_orm::{ActiveModelTrait, EntityTrait, QueryFilter, Set};
 use std::collections::HashMap;
@@ -70,7 +70,9 @@ impl OidcConfig {
     /// (i.e. any of issuer/client id/client secret is missing).
     pub fn from_env() -> Option<Self> {
         let issuer = std::env::var(ENV_ISSUER).ok().filter(|s| !s.is_empty())?;
-        let client_id = std::env::var(ENV_CLIENT_ID).ok().filter(|s| !s.is_empty())?;
+        let client_id = std::env::var(ENV_CLIENT_ID)
+            .ok()
+            .filter(|s| !s.is_empty())?;
         let client_secret = std::env::var(ENV_CLIENT_SECRET)
             .ok()
             .filter(|s| !s.is_empty())?;
@@ -178,7 +180,9 @@ pub async fn oidc_descriptor(ctx: &AppContext) -> Result<OidcDescriptor, Service
 /// Discovers the provider, generates `state` + PKCE + nonce, stores them so the
 /// callback can be matched, and returns the URL to redirect the browser to.
 pub async fn oidc_authorize_url(ctx: &AppContext) -> Result<String, ServiceError> {
-    let cfg = ctx.oidc.clone()
+    let cfg = ctx
+        .oidc
+        .clone()
         .ok_or_else(|| ServiceError::internal("OIDC is not configured"))?;
 
     let (url, state, verifier, nonce) =
@@ -187,9 +191,9 @@ pub async fn oidc_authorize_url(ctx: &AppContext) -> Result<String, ServiceError
             .map_err(|e| ServiceError::internal(format!("oidc task: {e}")))??;
 
     let key = state.secret().to_string();
-    let mut guard = pending_lock().lock().map_err(|_| {
-        ServiceError::internal("pending authorization lock poisoned".to_string())
-    })?;
+    let mut guard = pending_lock()
+        .lock()
+        .map_err(|_| ServiceError::internal("pending authorization lock poisoned".to_string()))?;
     guard.get_or_insert_with(HashMap::new).insert(
         key,
         PendingAuth {
@@ -203,7 +207,9 @@ pub async fn oidc_authorize_url(ctx: &AppContext) -> Result<String, ServiceError
 }
 
 /// Perform discovery + construct the authorization URL (blocking).
-fn build_authorize_url(cfg: &OidcConfig) -> Result<(String, CsrfToken, PkceCodeVerifier, Nonce), ServiceError> {
+fn build_authorize_url(
+    cfg: &OidcConfig,
+) -> Result<(String, CsrfToken, PkceCodeVerifier, Nonce), ServiceError> {
     let client = discovered_client(cfg)?;
 
     // Generate a PKCE challenge (and keep the verifier for the callback).
@@ -234,7 +240,9 @@ pub async fn oidc_login(
     code: &str,
     state: &str,
 ) -> Result<api_types::admin::LoginResponse, ServiceError> {
-    let cfg = ctx.oidc.clone()
+    let cfg = ctx
+        .oidc
+        .clone()
         .ok_or_else(|| ServiceError::internal("OIDC is not configured"))?;
 
     // Consume + validate the pending state.
@@ -253,11 +261,10 @@ pub async fn oidc_login(
     // Exchange the code + verify the ID token on a blocking thread.
     let (verifier, nonce) = (pending.verifier, pending.nonce);
     let code_owned = code.to_string();
-    let identity = tokio::task::spawn_blocking(move || {
-        exchange_and_verify(&cfg, code_owned, verifier, nonce)
-    })
-    .await
-    .map_err(|e| ServiceError::internal(format!("oidc task: {e}")))??;
+    let identity =
+        tokio::task::spawn_blocking(move || exchange_and_verify(&cfg, code_owned, verifier, nonce))
+            .await
+            .map_err(|e| ServiceError::internal(format!("oidc task: {e}")))??;
 
     resolve_admin_for_identity(ctx, &identity).await
 }
@@ -277,9 +284,7 @@ fn exchange_and_verify(
         .request(http_client)
         .map_err(|e| ServiceError::internal(format!("oidc token exchange: {e}")))?;
 
-    let id_token = token
-        .id_token()
-        .ok_or_else(|| ServiceError::Unauthorized)?;
+    let id_token = token.id_token().ok_or_else(|| ServiceError::Unauthorized)?;
 
     // Verify the signature, issuer, audience, expiry and nonce.
     let verifier = client.id_token_verifier();
@@ -291,9 +296,9 @@ fn exchange_and_verify(
     if let Some(expected_hash) = claims.access_token_hash() {
         let actual_hash = AccessTokenHash::from_token(
             token.access_token(),
-            &id_token.signing_alg().map_err(|e| {
-                ServiceError::internal(format!("oidc signing alg: {e}"))
-            })?,
+            &id_token
+                .signing_alg()
+                .map_err(|e| ServiceError::internal(format!("oidc signing alg: {e}")))?,
         )
         .map_err(|e| ServiceError::internal(format!("oidc at_hash: {e}")))?;
         if actual_hash != *expected_hash {
@@ -345,10 +350,7 @@ pub async fn resolve_admin_for_identity(
     ctx: &AppContext,
     identity: &OidcIdentity,
 ) -> Result<api_types::admin::LoginResponse, ServiceError> {
-    let email = identity
-        .email
-        .clone()
-        .ok_or(ServiceError::Unauthorized)?;
+    let email = identity.email.clone().ok_or(ServiceError::Unauthorized)?;
     let email_lc = email.trim().to_lowercase();
     if email_lc.is_empty() {
         return Err(ServiceError::Unauthorized);
@@ -402,7 +404,12 @@ async fn provision_oidc_admin(
     ctx: &AppContext,
     identity: &OidcIdentity,
 ) -> Result<db::entities::admin_user::Model, ServiceError> {
-    let email = identity.email.clone().unwrap_or_default().trim().to_lowercase();
+    let email = identity
+        .email
+        .clone()
+        .unwrap_or_default()
+        .trim()
+        .to_lowercase();
     if email.is_empty() {
         return Err(ServiceError::Unauthorized);
     }
@@ -448,8 +455,7 @@ async fn provision_oidc_admin(
         .insert(&ctx.db)
         .await?;
     }
-    let _ =
-        crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
+    let _ = crate::rbac::assign_user_role(&ctx.db, user.id, crate::rbac::ROLE_SUPER_ADMIN).await;
 
     Ok(user)
 }
@@ -587,11 +593,11 @@ mod tests {
 
     #[test]
     fn callback_url_parsing() {
-        let url = Url::parse(
-            "http://localhost/cb?code=abc&state=xyz&session_state=1",
-        )
-        .unwrap();
-        assert_eq!(parse_callback_url(&url).unwrap(), ("abc".into(), "xyz".into()));
+        let url = Url::parse("http://localhost/cb?code=abc&state=xyz&session_state=1").unwrap();
+        assert_eq!(
+            parse_callback_url(&url).unwrap(),
+            ("abc".into(), "xyz".into())
+        );
 
         let err_url = Url::parse("http://localhost/cb?error=access_denied").unwrap();
         assert!(parse_callback_url(&err_url).is_err());

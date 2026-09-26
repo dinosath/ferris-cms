@@ -582,13 +582,19 @@ pub fn evaluate(
                 "ABS" => Ok(num_val(to_num(&arg(0))?.abs())),
                 "ROUND" => {
                     let x = to_num(&arg(0))?;
-                    let d = if vals.len() > 1 { to_num(&arg(1))? } else { 0.0 };
+                    let d = if vals.len() > 1 {
+                        to_num(&arg(1))?
+                    } else {
+                        0.0
+                    };
                     let m = 10f64.powf(d);
                     Ok(num_val((x * m).round() / m))
                 }
                 "LOWER" => Ok(serde_json::Value::String(to_str(&arg(0)).to_lowercase())),
                 "UPPER" => Ok(serde_json::Value::String(to_str(&arg(0)).to_uppercase())),
-                "LENGTH" => Ok(serde_json::Value::from(to_str(&arg(0)).chars().count() as i64)),
+                "LENGTH" => Ok(serde_json::Value::from(
+                    to_str(&arg(0)).chars().count() as i64
+                )),
                 other => Err(format!("function `{other}` is not supported in preview")),
             }
         }
@@ -605,9 +611,7 @@ fn num_val(f: f64) -> serde_json::Value {
 
 fn to_num(v: &serde_json::Value) -> Result<f64, String> {
     match v {
-        serde_json::Value::Number(n) => n
-            .as_f64()
-            .ok_or_else(|| "number out of range".to_string()),
+        serde_json::Value::Number(n) => n.as_f64().ok_or_else(|| "number out of range".to_string()),
         serde_json::Value::String(s) => s
             .trim()
             .parse::<f64>()
@@ -686,7 +690,10 @@ mod tests {
     #[test]
     fn parses_functions_and_parens() {
         let e = parse_expression("(deals_won * 100) / (deals_won + deals_lost)").unwrap();
-        assert_eq!(e.columns(), vec!["deals_won".to_string(), "deals_lost".into()]);
+        assert_eq!(
+            e.columns(),
+            vec!["deals_won".to_string(), "deals_lost".into()]
+        );
         let f = parse_expression("ROUND(revenue - expenses, 2)").unwrap();
         assert!(matches!(f, Expr::Func { .. }));
     }
@@ -706,7 +713,10 @@ mod eval_and_tokenize_tests {
     use serde_json::{json, Map, Value};
 
     fn vals(pairs: &[(&str, Value)]) -> Map<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect()
     }
 
     fn eval(src: &str, pairs: &[(&str, Value)]) -> Value {
@@ -717,7 +727,10 @@ mod eval_and_tokenize_tests {
     #[test]
     fn evaluates_erp_and_crm_previews() {
         assert_eq!(
-            eval("quantity * unit_price", &[("quantity", json!(10)), ("unit_price", json!(100))]),
+            eval(
+                "quantity * unit_price",
+                &[("quantity", json!(10)), ("unit_price", json!(100))]
+            ),
             json!(1000)
         );
         assert_eq!(
@@ -749,8 +762,14 @@ mod eval_and_tokenize_tests {
             json!(80)
         );
         assert_eq!(eval("ROUND(10 / 3, 2)", &[]), json!(3.33));
-        assert_eq!(eval("COALESCE(note, 5)", &[("note", Value::Null)]), json!(5));
-        assert_eq!(eval("UPPER(name)", &[("name", json!("smith"))]), json!("SMITH"));
+        assert_eq!(
+            eval("COALESCE(note, 5)", &[("note", Value::Null)]),
+            json!(5)
+        );
+        assert_eq!(
+            eval("UPPER(name)", &[("name", json!("smith"))]),
+            json!("SMITH")
+        );
     }
 
     #[test]
@@ -766,7 +785,9 @@ mod eval_and_tokenize_tests {
     #[test]
     fn tokenizes_for_highlighting() {
         let toks = tokenize("quantity * unit_price + 'x'").unwrap();
-        assert!(toks.iter().any(|(k, t)| *k == TokenKind::Column && t == "quantity"));
+        assert!(toks
+            .iter()
+            .any(|(k, t)| *k == TokenKind::Column && t == "quantity"));
         assert!(toks.iter().any(|(k, _)| *k == TokenKind::Operator));
         assert!(toks.iter().any(|(k, t)| *k == TokenKind::Str && t == "'x'"));
         // Keywords vs columns.

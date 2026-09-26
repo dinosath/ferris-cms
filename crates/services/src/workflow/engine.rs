@@ -8,14 +8,14 @@
 //! Tokio runtime) so the HTTP request lifecycle is never blocked.
 
 use crate::{AppContext, ServiceError};
+use ::workflow::model::{
+    OwsDocument, OwsExecution, OwsExecutionStatus, OwsTaskRun, OwsTaskRunStatus,
+};
 use db::entities::{workflow_execution, workflow_node_run};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use serverless_workflow_core::models::task::{TaskDefinition, TaskDefinition as Task};
 use std::collections::HashMap;
 use std::sync::Arc;
-use ::workflow::model::{
-    OwsExecution, OwsExecutionStatus, OwsDocument, OwsTaskRun, OwsTaskRunStatus,
-};
-use serverless_workflow_core::models::task::{TaskDefinition, TaskDefinition as Task};
 
 use super::executors::{self, FunctionRunContext};
 
@@ -67,7 +67,9 @@ async fn create_execution(
     let exec_id = row.id;
 
     // Pre-create task-run placeholders in declaration order.
-    for (i, (name, task)) in ::workflow::model::task_entries(&workflow.definition).into_iter().enumerate()
+    for (i, (name, task)) in ::workflow::model::task_entries(&workflow.definition)
+        .into_iter()
+        .enumerate()
     {
         let _ = workflow_node_run::ActiveModel {
             execution_id: Set(exec_id),
@@ -130,7 +132,6 @@ async fn update_execution(
     Ok(())
 }
 
-
 // ---------------------------------------------------------------------------
 // Public engine API
 // ---------------------------------------------------------------------------
@@ -170,8 +171,13 @@ pub async fn execute_workflow(
             };
             let result = rt.block_on(async {
                 if let Err(e) = run_execution(&ctx, &workflow, exec_id, &opts).await {
-                    update_execution(&ctx, exec_id, OwsExecutionStatus::Failed, Some(e.to_string()))
-                        .await
+                    update_execution(
+                        &ctx,
+                        exec_id,
+                        OwsExecutionStatus::Failed,
+                        Some(e.to_string()),
+                    )
+                    .await
                 } else {
                     Ok(())
                 }
@@ -213,9 +219,7 @@ pub async fn run_execution(
         .register_definition(&workflow.definition)
         .map_err(|e| ServiceError::internal(format!("failed to compile workflow: {e}")))?;
 
-    let result = runtime
-        .run(compiled, opts.input.clone())
-        .await;
+    let result = runtime.run(compiled, opts.input.clone()).await;
     let task_order = runtime.take_task_order();
 
     match result {
@@ -289,7 +293,8 @@ pub async fn execution_list(
     status: Option<&str>,
 ) -> Result<Vec<OwsExecution>, ServiceError> {
     super::enforce(ctx, super::action::VIEW_EXECUTIONS).await?;
-    let mut query = workflow_execution::Entity::find().order_by_desc(workflow_execution::Column::StartedAt);
+    let mut query =
+        workflow_execution::Entity::find().order_by_desc(workflow_execution::Column::StartedAt);
     if let Some(wid) = workflow_id {
         query = query.filter(workflow_execution::Column::WorkflowId.eq(wid));
     }
@@ -367,7 +372,9 @@ pub async fn execution_cancel(ctx: &AppContext, exec_id: i64) -> Result<(), Serv
         .one(&ctx.db)
         .await?
         .ok_or_else(|| ServiceError::not_found("execution not found"))?;
-    if row.status == OwsExecutionStatus::Running.as_str() || row.status == OwsExecutionStatus::Waiting.as_str() {
+    if row.status == OwsExecutionStatus::Running.as_str()
+        || row.status == OwsExecutionStatus::Waiting.as_str()
+    {
         update_execution(ctx, exec_id, OwsExecutionStatus::Cancelled, None).await?;
     }
     Ok(())

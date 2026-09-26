@@ -92,7 +92,8 @@ pub fn AiSettings() -> Element {
     let mut model_name = use_signal(|| String::new());
     let mut model_tools = use_signal(|| true);
 
-    let mut provider_req: Signal<Option<(String, String, String, String, bool)>> = use_signal(|| None);
+    let mut provider_req: Signal<Option<(String, String, String, String, bool)>> =
+        use_signal(|| None);
     let mut delete_provider_req: Signal<Option<i64>> = use_signal(|| None);
     let mut model_req: Signal<Option<(i64, String, bool)>> = use_signal(|| None);
     let mut delete_model_req: Signal<Option<i64>> = use_signal(|| None);
@@ -261,7 +262,11 @@ pub fn AiSettings() -> Element {
                         Ok(v) => {
                             let models: Vec<String> = v["data"]["models"]
                                 .as_array()
-                                .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+                                .map(|a| {
+                                    a.iter()
+                                        .filter_map(|m| m.as_str().map(String::from))
+                                        .collect()
+                                })
                                 .unwrap_or_default();
                             dm.set(models);
                             st.set(Some((true, "Connected".to_string())));
@@ -579,7 +584,11 @@ pub fn AiAssistant() -> Element {
                         title: title(),
                         system_prompt: None,
                         provider_id: None,
-                        model: if model().is_empty() { None } else { Some(model()) },
+                        model: if model().is_empty() {
+                            None
+                        } else {
+                            Some(model())
+                        },
                         privacy_mode: privacy(),
                     };
                     match client.ai_conversation_create(&body).await {
@@ -622,9 +631,14 @@ pub fn AiAssistant() -> Element {
                         match arr.last() {
                             Some(last)
                                 if last["role"].as_str() == Some("assistant")
-                                    && last["toolCalls"].as_array().map(|a| !a.is_empty()).unwrap_or(false) =>
+                                    && last["toolCalls"]
+                                        .as_array()
+                                        .map(|a| !a.is_empty())
+                                        .unwrap_or(false) =>
                             {
-                                pend.set(Some(serde_json::json!({ "calls": last["toolCalls"].clone() })));
+                                pend.set(Some(
+                                    serde_json::json!({ "calls": last["toolCalls"].clone() }),
+                                ));
                             }
                             _ => pend.set(None),
                         }
@@ -760,7 +774,12 @@ pub fn AiAssistant() -> Element {
 
     let model_options: Vec<(String, String)> = models()
         .iter()
-        .map(|m| (m["name"].as_str().unwrap_or("").to_string(), m["name"].as_str().unwrap_or("").to_string()))
+        .map(|m| {
+            (
+                m["name"].as_str().unwrap_or("").to_string(),
+                m["name"].as_str().unwrap_or("").to_string(),
+            )
+        })
         .collect();
 
     let pending_count: usize = pending()
@@ -768,7 +787,8 @@ pub fn AiAssistant() -> Element {
         .and_then(|p| p["calls"].as_array())
         .map(|a| a.len())
         .unwrap_or(0);
-    let confirm_text = format!("The assistant wants to run {pending_count} action(s) that modify content.");
+    let confirm_text =
+        format!("The assistant wants to run {pending_count} action(s) that modify content.");
 
     // Chat history rendered as a table (click a row to open, delete per row).
     let convo_rows: Vec<Element> = conversations()

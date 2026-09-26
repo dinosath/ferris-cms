@@ -191,8 +191,10 @@ fn render_expr_impl(e: &CExpr, schema: Option<&Schema>, ph: Ph) -> SimpleExpr {
             }
         }
         CExpr::Func { name, args } => {
-            let rendered: Vec<SimpleExpr> =
-                args.iter().map(|a| render_expr_impl(a, schema, ph)).collect();
+            let rendered: Vec<SimpleExpr> = args
+                .iter()
+                .map(|a| render_expr_impl(a, schema, ph))
+                .collect();
             Expr::FunctionCall(Func::cust(Alias::new(name)).args(rendered))
         }
     }
@@ -257,7 +259,10 @@ fn col_def(
         if let Some(src) = attr.expression.as_deref() {
             match core_schema::parse_expression(src) {
                 Ok(parsed) => {
-                    c.generated(render_expr_impl(&parsed, Some(schema), Ph::of(backend)), stored);
+                    c.generated(
+                        render_expr_impl(&parsed, Some(schema), Ph::of(backend)),
+                        stored,
+                    );
                 }
                 Err(e) => {
                     // Validation should have rejected this earlier; fall back to
@@ -731,6 +736,14 @@ async fn apply_update<C: ConnectionTrait>(
 
     // removed attributes: unmap only (Part IV §8 default)
     for name in &diff.removed_attrs {
+        // Removed columns are intentionally retained for data safety, but a
+        // retained column must no longer enforce the old schema's NOT NULL
+        // constraint. Otherwise imports that omit the removed field still
+        // fail at the database layer even though the field is no longer part
+        // of the active schema.
+        if backend == DbBackend::Sqlite {
+            rebuild_sqlite_nullability(db, table, &column_name(name), false).await?;
+        }
         actions.push(format!(
             "unmapped column {}.{} (retained)",
             table,
@@ -752,10 +765,12 @@ async fn alter_nullability<C: ConnectionTrait>(
 ) -> Result<(), StoreError> {
     match backend {
         DbBackend::Postgres => {
-            let action = if required { "SET NOT NULL" } else { "DROP NOT NULL" };
-            let sql = format!(
-                "ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" {action}"
-            );
+            let action = if required {
+                "SET NOT NULL"
+            } else {
+                "DROP NOT NULL"
+            };
+            let sql = format!("ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" {action}");
             db.execute_unprepared(&sql).await?;
         }
         DbBackend::MySql => {
@@ -778,7 +793,11 @@ async fn alter_nullability<C: ConnectionTrait>(
             // retained while only the requested nullability changes.
             rebuild_sqlite_nullability(db, table, column, required).await?;
         }
-        other => return Err(StoreError::Unsupported(format!("backend {other:?} not supported for DDL"))),
+        other => {
+            return Err(StoreError::Unsupported(format!(
+                "backend {other:?} not supported for DDL"
+            )))
+        }
     }
     actions.push(format!(
         "changed nullability {}.{} -> {}",
@@ -808,7 +827,9 @@ async fn rebuild_sqlite_nullability<C: ConnectionTrait>(
         .query_one(&q)
         .await?
         .ok_or_else(|| StoreError::Unsupported(format!("table {table} not found")))?;
-    let create_sql: String = row.try_get("", "sql").map_err(|e| StoreError::Db(e.into()))?;
+    let create_sql: String = row
+        .try_get("", "sql")
+        .map_err(|e| StoreError::Db(e.into()))?;
     let index_q = Query::select()
         .expr(Expr::col(Alias::new("sql")))
         .from(Alias::new("sqlite_master"))
@@ -826,22 +847,37 @@ async fn rebuild_sqlite_nullability<C: ConnectionTrait>(
         .filter_map(|row| row.try_get::<String>("", "sql").ok())
         .collect();
     let old = format!("\"{}\"", column.replace('"', "\"\""));
-    let start = create_sql.find(&old).ok_or_else(|| StoreError::Unsupported(format!("column {column} not found")))?;
-    let end = create_sql[start..].find(',').map(|i| start + i).unwrap_or_else(|| create_sql.len() - 1);
+    // Relation fields and legacy columns do not always have a column on the
+    // host table. They are retained/unmapped as metadata only, so there is
+    // nothing to rebuild in that case.
+    let Some(start) = create_sql.find(&old) else {
+        return Ok(());
+    };
+    let end = create_sql[start..]
+        .find(',')
+        .map(|i| start + i)
+        .unwrap_or_else(|| create_sql.len() - 1);
     let mut definition = create_sql[start..end].to_string();
     if required {
-        if !definition.to_ascii_uppercase().contains("NOT NULL") { definition.push_str(" NOT NULL"); }
+        if !definition.to_ascii_uppercase().contains("NOT NULL") {
+            definition.push_str(" NOT NULL");
+        }
     } else {
         let upper = definition.to_ascii_uppercase();
-        if let Some(i) = upper.find("NOT NULL") { definition.replace_range(i..i + 8, ""); }
+        if let Some(i) = upper.find("NOT NULL") {
+            definition.replace_range(i..i + 8, "");
+        }
     }
     let mut rebuilt = create_sql.clone();
     rebuilt.replace_range(start..end, &definition);
     let temp = format!("{table}__nullability_rebuild");
-    db.execute_unprepared(&format!("ALTER TABLE \"{table}\" RENAME TO \"{temp}\"")).await?;
+    db.execute_unprepared(&format!("ALTER TABLE \"{table}\" RENAME TO \"{temp}\""))
+        .await?;
     db.execute_unprepared(&rebuilt).await?;
-    db.execute_unprepared(&format!("INSERT INTO \"{table}\" SELECT * FROM \"{temp}\"")).await?;
-    db.execute_unprepared(&format!("DROP TABLE \"{temp}\"")).await?;
+    db.execute_unprepared(&format!("INSERT INTO \"{table}\" SELECT * FROM \"{temp}\""))
+        .await?;
+    db.execute_unprepared(&format!("DROP TABLE \"{temp}\""))
+        .await?;
     for index_sql in indexes {
         db.execute_unprepared(&index_sql).await?;
     }
@@ -861,8 +897,14 @@ async fn add_attribute_storage<C: ConnectionTrait>(
     if attr.attr_type.is_scalar_column() {
         let col = column_name(name);
         // Added columns are always nullable; service enforces `required`.
-        add_column_if_supported(db, backend, table, col_def(backend, schema, &col, attr, true, true), actions)
-            .await?;
+        add_column_if_supported(
+            db,
+            backend,
+            table,
+            col_def(backend, schema, &col, attr, true, true),
+            actions,
+        )
+        .await?;
         if attr.unique || attr.attr_type == FieldType::Uid {
             create_index_stmt(db, backend, table, &[col.as_str()], true, actions).await?;
         }
@@ -1085,7 +1127,10 @@ mod generated_column_tests {
         let a = computed(FieldType::Decimal, "revenue - expenses", Some(false));
         let sql = create_sql(DbBackend::Postgres, &a, false);
         assert!(sql.contains("STORED"), "postgres DDL: {sql}");
-        assert!(!sql.contains("VIRTUAL"), "postgres must not emit VIRTUAL: {sql}");
+        assert!(
+            !sql.contains("VIRTUAL"),
+            "postgres must not emit VIRTUAL: {sql}"
+        );
     }
 
     #[test]
@@ -1098,7 +1143,11 @@ mod generated_column_tests {
 
     #[test]
     fn concat_expression_renders_portably() {
-        let a = computed(FieldType::Text, "first_name || ' ' || last_name", Some(true));
+        let a = computed(
+            FieldType::Text,
+            "first_name || ' ' || last_name",
+            Some(true),
+        );
         let sql = create_sql(DbBackend::Sqlite, &a, false);
         assert!(sql.contains("||"), "concat DDL: {sql}");
     }
@@ -1134,9 +1183,19 @@ mod generated_column_tests {
         let schema = schema_with("total", &a, &[]);
         let mut t = Table::create();
         t.table(Alias::new("ct_orders"));
-        t.col(col_def(DbBackend::Sqlite, &schema, "total", &a, false, false));
+        t.col(col_def(
+            DbBackend::Sqlite,
+            &schema,
+            "total",
+            &a,
+            false,
+            false,
+        ));
         let sql = t.build(SqliteQueryBuilder);
-        assert!(sql.contains("STORED"), "default storage must be STORED: {sql}");
+        assert!(
+            sql.contains("STORED"),
+            "default storage must be STORED: {sql}"
+        );
         assert!(
             !sql.to_uppercase().contains("NOT NULL"),
             "generated column must not be NOT NULL: {sql}"

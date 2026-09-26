@@ -5,7 +5,7 @@
 //! follows each task's `then` transition (defaulting to the next declaration).
 //! This module resolves a deterministic execution sequence and detects cycles.
 
-use crate::model::{OwsDocument, task_entries};
+use crate::model::{task_entries, OwsDocument};
 use serverless_workflow_core::models::task::TaskDefinition;
 use std::collections::HashSet;
 
@@ -121,7 +121,9 @@ fn find_task<'a>(
         .map(|(_, t)| t)
 }
 
-fn task_common(task: &TaskDefinition) -> Option<&serverless_workflow_core::models::task::TaskDefinitionFields> {
+fn task_common(
+    task: &TaskDefinition,
+) -> Option<&serverless_workflow_core::models::task::TaskDefinitionFields> {
     use serverless_workflow_core::models::task::TaskDefinition as T;
     match task {
         T::Call(t) => Some(&t.common),
@@ -169,8 +171,12 @@ pub fn referenced_tasks(doc: &OwsDocument) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::model::OwsDocument;
-    use serverless_workflow_core::models::task::{CallTaskDefinition, TaskDefinition, WaitTaskDefinition};
-    use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+    use serverless_workflow_core::models::task::{
+        CallTaskDefinition, TaskDefinition, WaitTaskDefinition,
+    };
+    use serverless_workflow_core::models::workflow::{
+        WorkflowDefinition, WorkflowDefinitionMetadata,
+    };
 
     fn doc_with(tasks: Vec<(String, TaskDefinition)>) -> OwsDocument {
         let metadata = WorkflowDefinitionMetadata::new("default", "g", "1.0.0", None, None, None);

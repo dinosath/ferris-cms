@@ -27,6 +27,6 @@ pub mod providers;
 pub mod types;
 
 pub use provider::{from_config, AiProvider};
-pub use providers::rig::{list_provider_models, RigProvider};
 pub use providers::registry;
+pub use providers::rig::{list_provider_models, RigProvider};
 pub use types::*;

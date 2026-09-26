@@ -6,8 +6,8 @@ use ui::design::tokens::{color, typography, SIDEBAR_WIDTH};
 use crate::app::{use_global, Route};
 use crate::components::{Breadcrumbs, Button, Icon, NavItem, Toast};
 use crate::screens::{
-    ai, content_manager, content_type_builder, credentials, executions, home, import_export,
-    media, settings, workflow_editor, workflows,
+    ai, content_manager, content_type_builder, credentials, executions, home, import_export, media,
+    settings, workflow_editor, workflows,
 };
 
 #[component]

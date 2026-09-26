@@ -614,12 +614,23 @@ async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Res
         .await?
         .json()
         .await?;
-    let detected = analyze["data"]["datasets"][0]["detectedContentType"]["uid"].as_str().unwrap_or("");
+    let detected = analyze["data"]["datasets"][0]["detectedContentType"]["uid"]
+        .as_str()
+        .unwrap_or("");
     assert_eq!(detected, uid, "preferUid should win");
-    let mapping: Vec<Value> = analyze["data"]["datasets"][0]["suggestedMapping"].as_array().cloned().unwrap_or_default();
-    let target_map: Vec<String> = mapping.iter().filter_map(|m| m["targetField"].as_str().map(|s| s.to_string())).collect();
+    let mapping: Vec<Value> = analyze["data"]["datasets"][0]["suggestedMapping"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let target_map: Vec<String> = mapping
+        .iter()
+        .filter_map(|m| m["targetField"].as_str().map(|s| s.to_string()))
+        .collect();
     for t in ["Name", "Price", "Quantity"] {
-        assert!(target_map.contains(&t.to_string()), "mapping should target '{t}', got {target_map:?}");
+        assert!(
+            target_map.contains(&t.to_string()),
+            "mapping should target '{t}', got {target_map:?}"
+        );
     }
 
     // Import with the suggested mapping.
@@ -636,14 +647,19 @@ async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Res
 
     // The read must expose values under the capitalized attribute names.
     let list: Value = client
-        .get(format!("{base}/admin/content-manager/collection-types/{uid}"))
+        .get(format!(
+            "{base}/admin/content-manager/collection-types/{uid}"
+        ))
         .bearer_auth(&token)
         .send()
         .await?
         .json()
         .await?;
     let row = list["data"][0].clone();
-    assert!(row["Name"].as_str().is_some(), "Name present under capital key");
+    assert!(
+        row["Name"].as_str().is_some(),
+        "Name present under capital key"
+    );
     assert!(row["Price"].is_number(), "Price present under capital key");
     assert!(
         row["Quantity"].is_number(),
@@ -655,7 +671,9 @@ async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Res
 
     // Required-field validation: a record missing Name/Price must be rejected.
     let bad_content = r#"[{"quantity":5}]"#;
-    let bad_mapping: Vec<Value> = serde_json::from_str(r#"[{"sourceField":"quantity","targetField":"Quantity","transform":"none","status":"autoMapped"}]"#)?;
+    let bad_mapping: Vec<Value> = serde_json::from_str(
+        r#"[{"sourceField":"quantity","targetField":"Quantity","transform":"none","status":"autoMapped"}]"#,
+    )?;
     let bad: Value = client
         .post(format!("{base}/admin/import-export/import"))
         .bearer_auth(&token)
@@ -664,10 +682,19 @@ async fn import_preserves_attribute_case_and_validates_required() -> anyhow::Res
         .await?
         .json()
         .await?;
-    assert_eq!(bad["data"]["created"], 0, "no entry created for missing required fields");
-    assert_eq!(bad["data"]["failed"], 1, "record missing required fields rejected");
+    assert_eq!(
+        bad["data"]["created"], 0,
+        "no entry created for missing required fields"
+    );
+    assert_eq!(
+        bad["data"]["failed"], 1,
+        "record missing required fields rejected"
+    );
     let msg = bad["data"]["errors"][0]["message"].as_str().unwrap_or("");
-    assert!(msg.contains("required field 'Name'"), "reports missing required Name, got: {msg}");
+    assert!(
+        msg.contains("required field 'Name'"),
+        "reports missing required Name, got: {msg}"
+    );
 
     Ok(())
 }

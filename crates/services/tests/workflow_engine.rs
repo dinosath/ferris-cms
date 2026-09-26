@@ -2,13 +2,16 @@
 //! execution persistence. Uses a temp FILE sqlite so the background worker
 //! thread shares the database with the test thread.
 
+use ::workflow::model::OwsDocument;
 use db::{seed, Migrator};
 use sea_orm_migration::MigratorTrait;
-use services::{AppConfig, AppContext};
 use serverless_workflow_core::models::task::TaskDefinition;
 use serverless_workflow_core::models::workflow::{WorkflowDefinition, WorkflowDefinitionMetadata};
+use services::{AppConfig, AppContext};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use ::workflow::model::OwsDocument;
+
+static TEST_DATABASE_ID: AtomicU64 = AtomicU64::new(0);
 
 fn app_config() -> AppConfig {
     AppConfig {
@@ -24,13 +27,12 @@ async fn setup() -> AppContext {
     let db_path = base.join(format!(
         "ferris-wfengine-{}-{}.db",
         std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        TEST_DATABASE_ID.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::write(&db_path, b"").unwrap();
-    let db = db::connect(&format!("sqlite://{}", db_path.display())).await.unwrap();
+    let db = db::connect(&format!("sqlite://{}", db_path.display()))
+        .await
+        .unwrap();
     Migrator::up(&db, None).await.unwrap();
     seed::seed(&db).await.unwrap();
     let ctx = AppContext::new(db, app_config());
@@ -65,10 +67,12 @@ fn set_task(set: serde_json::Value) -> TaskDefinition {
 }
 
 fn call_fn(name: &str, with: serde_json::Value) -> TaskDefinition {
-    let with = with.as_object().map(|o| {
-        o.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-    });
-    TaskDefinition::Call(serverless_workflow_core::models::task::CallTaskDefinition::new(name, with, None))
+    let with = with
+        .as_object()
+        .map(|o| o.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
+    TaskDefinition::Call(
+        serverless_workflow_core::models::task::CallTaskDefinition::new(name, with, None),
+    )
 }
 
 /// Set a task's `then` flow directive.
@@ -94,7 +98,10 @@ fn switch_task(cases: Vec<(String, String, Option<String>)>) -> TaskDefinition {
     use serverless_workflow_core::models::task::{SwitchCaseDefinition, SwitchTaskDefinition};
     let mut sw = SwitchTaskDefinition::new();
     for (name, when, then) in cases {
-        let case = SwitchCaseDefinition { when: Some(when), then };
+        let case = SwitchCaseDefinition {
+            when: Some(when),
+            then,
+        };
         let mut m = std::collections::HashMap::new();
         m.insert(name, case);
         sw.switch.entries.push(m);
@@ -112,7 +119,11 @@ fn for_task(each: &str, in_: &str, body: TaskDefinition) -> TaskDefinition {
     TaskDefinition::For(ForTaskDefinition::new(loop_def, do_, None))
 }
 
-async fn save_and_run(ctx: &AppContext, wf: OwsDocument, input: serde_json::Value) -> (i64, serde_json::Value) {
+async fn save_and_run(
+    ctx: &AppContext,
+    wf: OwsDocument,
+    input: serde_json::Value,
+) -> (i64, serde_json::Value) {
     let saved = services::workflow_save(ctx, None, &wf).await.unwrap();
     let exec_id = services::engine::execute_workflow(
         ctx,
@@ -150,8 +161,14 @@ async fn run_statuses(ctx: &AppContext, exec_id: i64) -> Vec<(String, String)> {
 #[tokio::test]
 async fn branches_on_condition() {
     let ctx = setup().await;
-    let mut true_branch = call_fn("data.json", serde_json::json!({ "json": { "path": "true" } }));
-    let mut false_branch = call_fn("data.json", serde_json::json!({ "json": { "path": "false" } }));
+    let mut true_branch = call_fn(
+        "data.json",
+        serde_json::json!({ "json": { "path": "true" } }),
+    );
+    let mut false_branch = call_fn(
+        "data.json",
+        serde_json::json!({ "json": { "path": "false" } }),
+    );
     then_of(&mut true_branch, "exit");
     then_of(&mut false_branch, "exit");
     let wf = make_doc(
@@ -164,8 +181,16 @@ async fn branches_on_condition() {
             (
                 "branch".to_string(),
                 switch_task(vec![
-                    ("featured".to_string(), "${ .featured }".to_string(), Some("trueBranch".to_string())),
-                    ("default".to_string(), String::new(), Some("falseBranch".to_string())),
+                    (
+                        "featured".to_string(),
+                        "${ .featured }".to_string(),
+                        Some("trueBranch".to_string()),
+                    ),
+                    (
+                        "default".to_string(),
+                        String::new(),
+                        Some("falseBranch".to_string()),
+                    ),
                 ]),
             ),
             ("trueBranch".to_string(), true_branch),
@@ -175,7 +200,12 @@ async fn branches_on_condition() {
     let (exec_id, detail) = save_and_run(&ctx, wf, serde_json::json!({ "name": "x" })).await;
     assert_eq!(detail["status"], "success", "branch execution succeeded");
     let st = run_statuses(&ctx, exec_id).await;
-    let find = |name: &str| st.iter().find(|(n, _)| n == name).map(|(_, s)| s.clone()).unwrap_or_default();
+    let find = |name: &str| {
+        st.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, s)| s.clone())
+            .unwrap_or_default()
+    };
     assert_eq!(find("trueBranch"), "success");
     assert_eq!(find("falseBranch"), "notExecuted");
 }
@@ -188,9 +218,16 @@ async fn loop_executes_multiple_iterations() {
         vec![
             (
                 "loop".to_string(),
-                for_task("item", ".items", call_fn("data.json", serde_json::json!({ "json": { "ok": true } }))),
+                for_task(
+                    "item",
+                    ".items",
+                    call_fn("data.json", serde_json::json!({ "json": { "ok": true } })),
+                ),
             ),
-            ("after".to_string(), call_fn("data.json", serde_json::json!({ "json": { "done": true } }))),
+            (
+                "after".to_string(),
+                call_fn("data.json", serde_json::json!({ "json": { "done": true } })),
+            ),
         ],
     );
     let (exec_id, detail) = save_and_run(&ctx, wf, serde_json::json!({ "items": [1, 2, 3] })).await;
@@ -214,15 +251,24 @@ async fn error_stops_execution() {
                     serde_json::json!({ "method": "GET", "url": "http://127.0.0.1:9/", "authentication": "none" }),
                 ),
             ),
-            ("downstream".to_string(), call_fn("data.json", serde_json::json!({ "json": {} }))),
+            (
+                "downstream".to_string(),
+                call_fn("data.json", serde_json::json!({ "json": {} })),
+            ),
         ],
     );
     let (exec_id, detail) = save_and_run(&ctx, wf, serde_json::json!({})).await;
     let status = detail["status"].as_str().unwrap_or("").to_string();
-    assert!(status == "failed", "execution should fail when a task errors (got {status})");
+    assert!(
+        status == "failed",
+        "execution should fail when a task errors (got {status})"
+    );
     let st = run_statuses(&ctx, exec_id).await;
     assert_eq!(
-        st.iter().find(|(n, _)| n == "bad").map(|(_, s)| s.clone()).unwrap_or_default(),
+        st.iter()
+            .find(|(n, _)| n == "bad")
+            .map(|(_, s)| s.clone())
+            .unwrap_or_default(),
         "failed"
     );
 }
@@ -233,14 +279,25 @@ async fn execution_is_persisted() {
     let wf = make_doc(
         "Persist",
         vec![
-            ("set".to_string(), set_task(serde_json::json!({ "greeting": "hello" }))),
-            ("output".to_string(), call_fn("data.json", serde_json::json!({ "json": { "done": true } }))),
+            (
+                "set".to_string(),
+                set_task(serde_json::json!({ "greeting": "hello" })),
+            ),
+            (
+                "output".to_string(),
+                call_fn("data.json", serde_json::json!({ "json": { "done": true } })),
+            ),
         ],
     );
     let (exec_id, detail) = save_and_run(&ctx, wf, serde_json::json!({})).await;
     assert_eq!(detail["status"], "success");
-    let (execution, runs) = services::engine::execution_get(&ctx, exec_id).await.unwrap();
+    let (execution, runs) = services::engine::execution_get(&ctx, exec_id)
+        .await
+        .unwrap();
     assert_eq!(execution.id, exec_id);
-    assert_eq!(execution.status, ::workflow::model::OwsExecutionStatus::Success);
+    assert_eq!(
+        execution.status,
+        ::workflow::model::OwsExecutionStatus::Success
+    );
     assert!(runs.iter().any(|r| r.task_name == "output"));
 }

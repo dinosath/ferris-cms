@@ -28,7 +28,7 @@ fn schema(uid: &str, singular: &str, plural: &str, attrs: Vec<(&str, Attribute)>
             .into_iter()
             .map(|(n, a)| (n.to_string(), a))
             .collect::<IndexMap<_, _>>(),
-    metadata: None,
+        metadata: None,
     }
 }
 
@@ -397,11 +397,7 @@ async fn insert_one_rejects_invalid_payload() {
         "api::product.product",
         "product",
         "products",
-        vec![
-            ("title", title),
-            ("qty", qty),
-            ("sku", sku),
-        ],
+        vec![("title", title), ("qty", qty), ("sku", sku)],
     );
     let d = diff(None, &s);
     ddl::apply_schema_diff(&db, DbBackend::Sqlite, &d, &[s.clone()])

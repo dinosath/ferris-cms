@@ -12,8 +12,8 @@
 //! - `i18n` — locale CRUD, localized content lookup
 //! - `schema_cache` — lock-free schema cache (arc-swap), rebuilt on save
 
-mod api_tokens;
 pub mod ai;
+mod api_tokens;
 mod auth;
 mod content;
 mod content_type_builder;
@@ -22,11 +22,13 @@ pub mod import_export;
 mod media;
 pub mod oidc;
 mod rbac;
+pub mod sales;
 mod schema_cache;
+pub mod views;
 pub mod workflow;
 
-pub use api_tokens::*;
 pub use ai::*;
+pub use api_tokens::*;
 pub use auth::*;
 pub use content::*;
 pub use content_type_builder::*;

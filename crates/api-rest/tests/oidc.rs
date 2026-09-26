@@ -62,7 +62,11 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 async fn oidc_disabled_when_unconfigured() {
     let router = setup().await;
 
-    let status = router.clone().oneshot(get("/admin/oidc/status")).await.unwrap();
+    let status = router
+        .clone()
+        .oneshot(get("/admin/oidc/status"))
+        .await
+        .unwrap();
     assert_eq!(status.status(), StatusCode::OK, "status is 200");
     let status_json = body_json(status).await;
     assert_eq!(status_json["data"]["enabled"], serde_json::json!(false));
