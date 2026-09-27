@@ -1,4 +1,8 @@
-//! REST-level coverage for the imported ERP sales scenarios.
+//! REST/e2e coverage for the ERP Sales Invoice JSON content types.
+//!
+//! These tests deliberately use only the generic Content Manager REST API.
+//! There is no sales-specific REST service: the JSON content type owns the
+//! line calculations and relations.
 
 use api_rest::{build_router, AppState};
 use axum::body::Body;
@@ -60,10 +64,7 @@ async fn register(router: &axum::Router) -> String {
         .oneshot(request(
             "POST",
             "/admin/register-admin",
-            serde_json::json!({
-                "email": "sales-rest@test.dev",
-                "password": "StrongPass123!"
-            }),
+            serde_json::json!({"email":"sales-rest@test.dev","password":"StrongPass123!"}),
             None,
         ))
         .await
@@ -76,25 +77,14 @@ async fn register(router: &axum::Router) -> String {
 }
 
 fn mapping(source: &str, target: &str) -> Value {
-    serde_json::json!({
-        "sourceField": source,
-        "targetField": target,
-        "transform": "none",
-        "status": "autoMapped",
-        "confidence": 1.0
-    })
+    serde_json::json!({"sourceField":source,"targetField":target,"transform":"none","status":"autoMapped","confidence":1.0})
 }
 
-fn import_file(dataset: &str, uid: &str, mappings: Vec<Value>, sample: &str) -> Value {
+fn import_file(dataset: &str, uid: &str, mappings: Vec<Value>) -> Value {
     serde_json::json!({
-        "filename": "erp-sample.json",
-        "dataset": dataset,
-        "content": sample,
-        "uid": uid,
-        "mapping": mappings,
-        "mode": "createOnly",
-        "importState": "draft",
-        "locale": "en"
+        "filename":"erp-sample.json", "dataset":dataset,
+        "content":include_str!("../../../examples/content-types/erp-sample.json"),
+        "uid":uid, "mapping":mappings, "mode":"createOnly", "importState":"draft", "locale":"en"
     })
 }
 
@@ -112,180 +102,151 @@ async fn import_sample(router: &axum::Router, token: &str) {
         .await
         .unwrap();
     assert_eq!(schema.status(), StatusCode::OK);
+    let import = router.clone().oneshot(request("POST", "/admin/import-export/import", serde_json::json!({
+        "files":[
+            import_file("packagings", "api::packaging.packaging", vec![mapping("Code","code"),mapping("Name","name"),mapping("Units","units")]),
+            import_file("products", "api::product.product", vec![mapping("Sku","sku"),mapping("Name","name"),mapping("Price","sale_price"),mapping("Packaging","packaging")]),
+            import_file("customers", "api::organization.organization", vec![mapping("Code","tax_id"),mapping("Name","legal_name"),mapping("GlobalDiscountPercent","global_discount_percent"),mapping("SpecificPrices","specific_prices")])
+        ]
+    }), Some(token))).await.unwrap();
+    assert_eq!(import.status(), StatusCode::OK);
+    let body = json(import).await;
+    assert_eq!(body["data"]["created"], 8);
+    assert_eq!(body["data"]["failed"], 0);
+}
 
-    let sample = include_str!("../../../examples/content-types/erp-sample.json");
-    let import = router
+async fn list_entry(
+    router: &axum::Router,
+    uid: &str,
+    token: &str,
+    field: &str,
+    value: &str,
+) -> Value {
+    let response = router
         .clone()
         .oneshot(request(
-            "POST",
-            "/admin/import-export/import",
-            serde_json::json!({
-                "files": [
-                    import_file("products", "api::product.product", vec![
-                        mapping("Sku", "sku"), mapping("Name", "name"),
-                        mapping("Unit", "unit"), mapping("Price", "sale_price"),
-                        mapping("Attributes", "attributes")
-                    ], sample),
-                    import_file("customers", "api::organization.organization", vec![
-                        mapping("Code", "tax_id"), mapping("Name", "legal_name"),
-                        mapping("GlobalDiscountPercent", "global_discount_percent"),
-                        mapping("SpecificDiscounts", "specific_discounts")
-                    ], sample)
-                ]
-            }),
+            "GET",
+            &format!("/admin/content-manager/collection-types/{uid}"),
+            Value::Null,
             Some(token),
         ))
         .await
         .unwrap();
-    assert_eq!(import.status(), StatusCode::OK);
-    let body = json(import).await;
-    assert_eq!(body["data"]["created"], 5);
-    assert_eq!(body["data"]["failed"], 0);
+    assert_eq!(response.status(), StatusCode::OK);
+    json(response).await["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry[field] == value)
+        .cloned()
+        .unwrap()
 }
 
 #[tokio::test]
-async fn rest_import_and_global_discount_sale_match_business_totals() {
+async fn rest_imports_erp_and_creates_sales_invoice_graph_with_generated_line_amounts() {
     let router = setup().await;
     let token = register(&router).await;
     import_sample(&router, &token).await;
-    let products = router
+
+    let product = list_entry(&router, "api::product.product", &token, "sku", "PRODUCT-1").await;
+    let packaging = list_entry(&router, "api::packaging.packaging", &token, "code", "box").await;
+    let customer = list_entry(
+        &router,
+        "api::organization.organization",
+        &token,
+        "tax_id",
+        "PRODUCT15",
+    )
+    .await;
+
+    let invoice = router.clone().oneshot(request("POST", "/admin/content-manager/collection-types/api::sales-invoice.sales-invoice", serde_json::json!({"data":{
+        "document_number":"REST-INV-1","status":"draft","currency":"EUR","payment_status":"unpaid",
+        "customer":{"documentId":customer["documentId"]},
+        "pre_discount_amount":50,"discount_amount":5,"net_amount":45,"charges_amount":2,"vat_amount":12,"tax_amount":1,"total_amount":60,"withholding_amount":3,"payable_amount":57
+    }}), Some(&token))).await.unwrap();
+    assert_eq!(invoice.status(), StatusCode::OK);
+    let invoice = json(invoice).await["data"].clone();
+
+    let line = router.clone().oneshot(request("POST", "/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line", serde_json::json!({"data":{
+        "invoice":{"documentId":invoice["documentId"]},"product":{"documentId":product["documentId"]},"packaging":{"documentId":packaging["documentId"]},
+        "quantity":2,"unit_price":50,"base_unit_price":2.5,"discount_rate":10,"price_source":"customer"
+    }}), Some(&token))).await.unwrap();
+    assert_eq!(line.status(), StatusCode::OK);
+    let line = json(line).await["data"].clone();
+    assert_eq!(line["pre_discount_amount"], 100.0);
+    assert_eq!(line["discount_amount"], 10.0);
+    assert_eq!(line["net_amount"], 90.0);
+    assert_eq!(line["line_total"], 90.0);
+
+    let attached = router
         .clone()
         .oneshot(request(
-            "GET",
-            "/admin/content-manager/collection-types/api::product.product",
-            Value::Null,
+            "PUT",
+            &format!(
+                "/admin/content-manager/collection-types/api::sales-invoice.sales-invoice/{}",
+                invoice["documentId"].as_str().unwrap()
+            ),
+            serde_json::json!({"data":{"lines":[{"documentId":line["documentId"]}]}}),
             Some(&token),
         ))
         .await
         .unwrap();
-    assert_eq!(products.status(), StatusCode::OK);
-    assert_eq!(json(products).await["data"].as_array().unwrap().len(), 3);
-    let unauthenticated = router
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/admin/sales",
-            serde_json::json!({"customerCode":"GLOBAL10","lines":[]}),
-            None,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
-    let sale = router
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/admin/sales",
-            serde_json::json!({
-                "customerCode":"GLOBAL10",
-                "lines":[
-                    {"sku":"PRODUCT-1","quantity":2,"unit":"pallet"},
-                    {"sku":"PRODUCT-2","quantity":3,"unit":"box"},
-                    {"sku":"PRODUCT-C","quantity":5,"unit":"box"}
-                ]
-            }),
-            Some(&token),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(sale.status(), StatusCode::OK);
-    let response = json(sale).await;
-    let invoice = response["invoice"].clone();
-    let sale = response["data"].clone();
-    assert_eq!(sale["lines"][0]["finalQuantity"], 2800.0);
-    assert_eq!(sale["lines"][1]["finalQuantity"], 60.0);
-    assert_eq!(sale["lines"][2]["finalQuantity"], 120.0);
-    assert_eq!(sale["grossAmount"], 29_710.0);
-    assert_eq!(sale["discountAmount"], 2_971.0);
-    assert_eq!(sale["finalAmount"], 26_739.0);
-    let invoice_id = invoice["documentId"].as_str().unwrap();
-    let stored_invoice = router
+    assert_eq!(attached.status(), StatusCode::OK);
+    let detail = router
         .clone()
         .oneshot(request(
             "GET",
             &format!(
-                "/admin/content-manager/collection-types/api::sales-invoice.sales-invoice/{invoice_id}"
+                "/admin/content-manager/collection-types/api::sales-invoice.sales-invoice/{}",
+                invoice["documentId"].as_str().unwrap()
             ),
             Value::Null,
             Some(&token),
         ))
         .await
         .unwrap();
-    assert_eq!(stored_invoice.status(), StatusCode::OK);
-    let stored_invoice = json(stored_invoice).await["data"].clone();
-    assert_eq!(stored_invoice["total_amount"], 26_739.0);
-    assert_eq!(stored_invoice["discount_amount"], 2_971.0);
-    let stored_lines = router
+    let detail = json(detail).await["data"].clone();
+    assert_eq!(detail["lines"].as_array().unwrap().len(), 1);
+    assert!(detail["customer"]["tax_id"].is_string());
+    let line_detail = router
         .clone()
         .oneshot(request(
             "GET",
-            "/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line",
+            &format!(
+                "/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line/{}",
+                line["documentId"].as_str().unwrap()
+            ),
             Value::Null,
             Some(&token),
         ))
         .await
         .unwrap();
-    assert_eq!(stored_lines.status(), StatusCode::OK);
-    assert_eq!(
-        json(stored_lines).await["data"].as_array().unwrap().len(),
-        3
-    );
+    let line_detail = json(line_detail).await["data"].clone();
+    assert!(line_detail["product"]["sku"].is_string());
+    assert!(line_detail["invoice"]["document_number"].is_string());
 }
 
 #[tokio::test]
-async fn rest_import_and_manual_price_discount_sales_match_business_totals() {
+async fn rest_content_type_recomputes_editable_line_values_and_rejects_generated_writes() {
     let router = setup().await;
     let token = register(&router).await;
     import_sample(&router, &token).await;
-    let specific_sale = router
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/admin/sales",
-            serde_json::json!({
-                "customerCode":"PRODUCT15",
-                "lines":[
-                    {"sku":"PRODUCT-1","quantity":1,"unit":"box"},
-                    {"sku":"PRODUCT-2","quantity":2,"unit":"pallet"},
-                    {"sku":"PRODUCT-C","quantity":4,"unit":"box"}
-                ]
-            }),
-            Some(&token),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(specific_sale.status(), StatusCode::OK);
-    let specific_sale = json(specific_sale).await["data"].clone();
-    assert_eq!(specific_sale["grossAmount"], 39_468.0);
-    assert_eq!(specific_sale["discountAmount"], 30.0);
-    assert_eq!(specific_sale["finalAmount"], 39_438.0);
+    let product = list_entry(&router, "api::product.product", &token, "sku", "PRODUCT-1").await;
+    let line = router.clone().oneshot(request("POST", "/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line", serde_json::json!({"data":{
+        "product":{"documentId":product["documentId"]},"quantity":3,"unit_price":9,"discount_rate":25
+    }}), Some(&token))).await.unwrap();
+    assert_eq!(line.status(), StatusCode::OK);
+    let line = json(line).await["data"].clone();
+    assert_eq!(line["pre_discount_amount"], 27.0);
+    assert_eq!(line["discount_amount"], 6.75);
+    assert_eq!(line["net_amount"], 20.25);
 
-    let manual_global = router
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/admin/sales",
-            serde_json::json!({
-                "customerCode":"PRODUCT15","manualGlobalDiscountPercent":5,
-                "lines":[
-                    {"sku":"PRODUCT-1","quantity":2,"unit":"unit","manualUnitPrice":9},
-                    {"sku":"PRODUCT-2","quantity":1,"unit":"box"},
-                    {"sku":"PRODUCT-C","quantity":1,"unit":"box"}
-                ]
-            }),
-            Some(&token),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(manual_global.status(), StatusCode::OK);
-    assert_eq!(json(manual_global).await["data"]["finalAmount"], 437.0);
+    let updated = router.clone().oneshot(request("PUT", &format!("/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line/{}", line["documentId"].as_str().unwrap()), serde_json::json!({"data":{"quantity":4,"unit_price":10,"discount_rate":0}}), Some(&token))).await.unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated = json(updated).await["data"].clone();
+    assert_eq!(updated["pre_discount_amount"], 40.0);
+    assert_eq!(updated["line_total"], 40.0);
 
-    let manual_line = router.clone().oneshot(request("POST", "/admin/sales", serde_json::json!({
-        "customerCode":"PRODUCT15","manualGlobalDiscountPercent":5,
-        "lines":[{"sku":"PRODUCT-1","quantity":1,"unit":"box","manualUnitPrice":11,"manualDiscountPercent":25}]
-    }), Some(&token))).await.unwrap();
-    assert_eq!(manual_line.status(), StatusCode::OK);
-    let manual_line = json(manual_line).await["data"].clone();
-    assert_eq!(manual_line["lines"][0]["discountPercent"], 25.0);
-    assert_eq!(manual_line["finalAmount"], 165.0);
+    let rejected = router.clone().oneshot(request("PUT", &format!("/admin/content-manager/collection-types/api::sales-invoice-line.sales-invoice-line/{}", line["documentId"].as_str().unwrap()), serde_json::json!({"data":{"line_total":999}}), Some(&token))).await.unwrap();
+    assert_eq!(rejected.status(), StatusCode::BAD_REQUEST);
 }

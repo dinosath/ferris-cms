@@ -1,39 +1,30 @@
 {
+  "packagings": [
+    { "Code": "unit", "Name": "Unit", "Units": 1 },
+    { "Code": "box", "Name": "Box", "Units": 20 },
+    { "Code": "pallet", "Name": "Pallet", "Units": 1400 }
+  ],
   "products": [
     {
       "Sku": "PRODUCT-1",
       "Name": "Product 1",
-      "Unit": "unit",
-      "Price": 10,
-      "Attributes": {
-        "packaging": {
-          "box": { "units": 20 },
-          "pallet": { "boxes": 70, "units": 1400 }
-        }
-      }
+      "Price": 2.85,
+      "VatRate": 24,
+      "Packaging": ["unit", "box", "pallet"]
     },
     {
       "Sku": "PRODUCT-2",
       "Name": "Product 2",
-      "Unit": "unit",
       "Price": 12.5,
-      "Attributes": {
-        "packaging": {
-          "box": { "units": 20 },
-          "pallet": { "boxes": 77, "units": 1540 }
-        }
-      }
+      "VatRate": 24,
+      "Packaging": ["unit", "box", "pallet"]
     },
     {
       "Sku": "PRODUCT-C",
       "Name": "Product C",
-      "Unit": "unit",
       "Price": 8,
-      "Attributes": {
-        "packaging": {
-          "box": { "units": 24 }
-        }
-      }
+      "VatRate": 24,
+      "Packaging": ["unit", "box"]
     }
   ],
   "customers": [
@@ -41,13 +32,13 @@
       "Code": "GLOBAL10",
       "Name": "Global 10% Customer",
       "GlobalDiscountPercent": 10,
-      "SpecificDiscounts": {}
+      "SpecificPrices": {}
     },
     {
       "Code": "PRODUCT15",
-      "Name": "Product 1 Discount Customer",
+      "Name": "Product 1 Fixed Price Customer",
       "GlobalDiscountPercent": 0,
-      "SpecificDiscounts": { "PRODUCT-1": 15 }
+      "SpecificPrices": { "PRODUCT-1": 2.5 }
     }
   ]
 }

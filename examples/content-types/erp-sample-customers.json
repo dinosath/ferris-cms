@@ -3,14 +3,14 @@
     "Code": "GLOBAL10",
     "Name": "Global 10% Customer",
     "GlobalDiscountPercent": 10,
-    "SpecificDiscounts": {}
+    "SpecificPrices": {}
   },
   {
     "Code": "PRODUCT15",
-    "Name": "Product 1 Discount Customer",
+    "Name": "Product 1 Fixed Price Customer",
     "GlobalDiscountPercent": 0,
-    "SpecificDiscounts": {
-      "PRODUCT-1": 15
+    "SpecificPrices": {
+      "PRODUCT-1": 2.5
     }
   }
 ]

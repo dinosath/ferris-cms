@@ -15,7 +15,7 @@ content-type UIDs.
 
 ## ERP
 
-- `erp/product.json`: products, services, prices, VAT, barcodes, and stock policy
+- `erp/product.json`: products, packaging relations, services, prices, VAT, barcodes, and stock policy
 - `erp/warehouse.json`: warehouses, stores, and transit locations
 - `erp/inventory-item.json`: per-location stock balances and reorder points
 - `erp/inventory-movement.json`: auditable receipts, issues, returns, transfers, and adjustments

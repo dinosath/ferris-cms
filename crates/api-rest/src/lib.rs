@@ -12,7 +12,6 @@ pub mod content;
 pub mod ctb;
 pub mod error;
 pub mod import_export;
-pub mod sales;
 pub mod views;
 pub mod workflow;
 
@@ -298,7 +297,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(workflow::workflow_permission_actions),
         )
         .merge(import_export::router())
-        .route("/admin/sales", post(sales::create_sale))
         .merge(ai::router());
 
     // Public webhook triggers for active workflows.

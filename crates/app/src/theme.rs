@@ -131,6 +131,81 @@ html, body {{ margin:0; min-width:0; }}
 .table-row .row-actions {{ opacity:0; transition:opacity .12s ease; }}
 .table-row:hover .row-actions {{ opacity:1; }}
 
+/* ============================ Content Manager ============================ */
+.cm-screen {{ min-height:calc(100vh - 56px); background:{neutral100}; }}
+.cm-page {{ max-width:1360px; margin:0 auto; padding:28px 32px 48px; }}
+.cm-heading-row {{ display:flex; align-items:flex-start; justify-content:space-between; gap:20px; margin-bottom:24px; }}
+.cm-kicker {{ font-size:12px; font-weight:600; color:{primary600}; margin-bottom:6px; }}
+.cm-page-title {{ margin:0; font-size:24px; line-height:1.2; font-weight:600; color:{neutral900}; }}
+.cm-page-subtitle {{ margin:6px 0 0; font-size:14px; color:{neutral600}; }}
+.cm-toolbar {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:16px; }}
+.cm-search {{ flex:1 1 260px; max-width:380px; }}
+.cm-segment {{ display:inline-flex; align-items:center; padding:3px; gap:2px; border:1px solid {neutral200}; border-radius:6px; background:#fff; }}
+.cm-segment button {{ height:32px; padding:0 12px; border:0; border-radius:4px; background:transparent; color:{neutral600}; font:600 12px inherit; cursor:pointer; }}
+.cm-segment button:hover {{ color:{primary600}; background:{neutral100}; }}
+.cm-segment button.cm-segment-active {{ background:{primary100}; color:{primary700}; }}
+.cm-surface {{ background:#fff; border:1px solid {neutral150}; border-radius:6px; box-shadow:0 1px 3px rgba(33,33,52,.05); overflow:hidden; }}
+.cm-surface-header {{ display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 20px; border-bottom:1px solid {neutral150}; }}
+.cm-surface-title {{ font-size:14px; font-weight:600; color:{neutral800}; }}
+.cm-table {{ width:100%; border-collapse:collapse; background:#fff; }}
+.cm-table th {{ text-align:left; padding:11px 16px; background:{neutral100}; border-bottom:1px solid {neutral150}; color:{neutral600}; font-size:11px; font-weight:600; white-space:nowrap; }}
+.cm-table td {{ padding:13px 16px; border-bottom:1px solid {neutral150}; color:{neutral800}; font-size:13px; }}
+.cm-table tbody tr:last-child td {{ border-bottom:0; }}
+.cm-table-row {{ transition:background-color .1s ease; }}
+.cm-table-row:hover {{ background:{primary100}; }}
+.cm-table-link {{ padding:0; border:0; background:transparent; color:{primary600}; font:600 13px inherit; text-align:left; cursor:pointer; }}
+.cm-table-link:hover {{ color:{primary700}; text-decoration:underline; }}
+.cm-row-actions {{ display:flex; gap:4px; opacity:.55; transition:opacity .1s ease; }}
+.cm-table-row:hover .cm-row-actions, .cm-row-actions:focus-within {{ opacity:1; }}
+.cm-filter-chip {{ display:inline-flex; align-items:center; gap:6px; min-height:28px; padding:4px 9px; border-radius:4px; background:{primary100}; color:{primary700}; font-size:11px; }}
+.cm-filter-chip button {{ padding:0; border:0; background:transparent; color:inherit; cursor:pointer; font-size:14px; line-height:1; }}
+
+.cm-editor {{ min-height:calc(100vh - 56px); background:{neutral100}; }}
+.cm-editor-topbar {{ position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:12px; min-height:64px; padding:0 32px; background:#fff; border-bottom:1px solid {neutral150}; }}
+.cm-editor-back {{ display:inline-flex; align-items:center; gap:8px; padding:0; border:0; background:transparent; color:{neutral600}; font:600 13px inherit; cursor:pointer; }}
+.cm-editor-back:hover {{ color:{primary600}; }}
+.cm-editor-title {{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:20px; font-weight:600; color:{neutral900}; }}
+.cm-editor-actions {{ display:flex; align-items:center; gap:8px; margin-left:auto; flex-wrap:wrap; justify-content:flex-end; }}
+.cm-editor-body {{ max-width:1180px; margin:0 auto; padding:28px 32px 48px; display:grid; grid-template-columns:minmax(0,1fr) 296px; gap:24px; align-items:start; }}
+.cm-editor-main {{ min-width:0; }}
+.cm-form-card {{ padding:24px; background:#fff; border:1px solid {neutral150}; border-radius:6px; box-shadow:0 1px 3px rgba(33,33,52,.05); }}
+.cm-form-title {{ margin:0 0 18px; font-size:15px; font-weight:600; color:{neutral800}; }}
+.cm-field-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; row-gap:0; }}
+.cm-field-grid .field {{ min-width:0; }}
+.cm-form-section {{ margin-top:24px; padding-top:20px; border-top:1px solid {neutral150}; }}
+.cm-info-card {{ padding:20px; background:#fff; border:1px solid {neutral150}; border-radius:6px; box-shadow:0 1px 3px rgba(33,33,52,.05); }}
+.cm-info-title {{ margin:0 0 16px; font-size:14px; font-weight:600; color:{neutral800}; }}
+.cm-meta-list {{ display:flex; flex-direction:column; gap:13px; }}
+.cm-meta-row {{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; font-size:12px; }}
+.cm-meta-label {{ color:{neutral500}; }}
+.cm-meta-value {{ color:{neutral800}; font-weight:500; text-align:right; word-break:break-word; }}
+.cm-relation-field {{ margin:0 0 18px; padding:16px; background:{neutral50}; border:1px solid {neutral150}; border-radius:4px; }}
+.cm-relation-heading {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
+.cm-relation-label {{ font-size:12px; font-weight:600; color:{neutral700}; }}
+.cm-relation-help {{ font-size:11px; color:{neutral500}; }}
+.cm-relation-row {{ display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:8px 10px; margin-bottom:8px; background:#fff; border:1px solid {neutral150}; border-radius:4px; }}
+.cm-relation-name {{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; color:{neutral800}; }}
+.cm-relation-remove {{ flex:0 0 auto; padding:4px 6px; border:0; background:transparent; color:{danger600}; font-size:11px; cursor:pointer; }}
+.cm-relation-remove:hover {{ background:{danger100}; border-radius:3px; }}
+.cm-relation-empty {{ padding:4px 0 10px; color:{neutral500}; font-size:12px; }}
+.cm-add-relation {{ padding:9px 12px; border:1px dashed {primary600}; border-radius:4px; background:#fff; color:{primary600}; font-size:12px; font-weight:600; cursor:pointer; }}
+.cm-add-relation:hover {{ background:{primary100}; }}
+
+@media (max-width: 850px) {{
+    .cm-page {{ padding:22px 20px 36px; }}
+    .cm-heading-row {{ flex-direction:column; }}
+    .cm-editor-topbar {{ padding:0 20px; }}
+    .cm-editor-body {{ grid-template-columns:1fr; padding:22px 20px 36px; }}
+    .cm-editor-actions {{ margin-left:0; }}
+}}
+@media (max-width: 620px) {{
+    .cm-field-grid {{ grid-template-columns:1fr; }}
+    .cm-toolbar {{ align-items:stretch; }}
+    .cm-search {{ max-width:none; flex-basis:100%; }}
+    .cm-segment {{ width:100%; }}
+    .cm-segment button {{ flex:1; }}
+}}
+
 /* ============================ Badge ============================ */
 .badge {{ display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:4px;
     font-size:11px; font-weight:600; line-height:1; }}
@@ -244,6 +319,8 @@ html, body {{ margin:0; min-width:0; }}
         neutral600 = color::NEUTRAL_600,
         neutral700 = color::NEUTRAL_700,
         neutral800 = color::NEUTRAL_800,
+        neutral900 = color::NEUTRAL_900,
+        neutral50 = color::NEUTRAL_50,
         success100 = color::SUCCESS_100,
         warning100 = color::WARNING_100,
         warning600 = color::WARNING_600,

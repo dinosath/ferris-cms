@@ -229,7 +229,9 @@ Run the backend and the web UI together with cargo-make. The `--no-workspace`
 flag prevents cargo-make from trying to run the task in every workspace crate.
 The backend listens on port `8080`; the Dioxus web server uses port `8081`.
 In development mode, the migration creates `admin` / `admin` as a local
-Super Admin.
+Super Admin, and the server imports the ERP content types and sample data from
+`examples/content-types/`. The import runs in upsert mode, so restarting the
+development server does not duplicate the examples.
 
 Install [cargo-make](https://github.com/sagiegurari/cargo-make) if it is not
 already available:
@@ -248,6 +250,10 @@ Without cargo-make, use two terminals from the repository root:
 # Terminal 1: Axum backend
 FERRISCMS_ENV=development cargo run
 ```
+
+The development bootstrap is configured in `config/dev.toml` under
+`[dev.bootstrap]`. Set `enabled = false` there to run the development server
+without importing the ERP examples.
 
 ```bash
 # Terminal 2: Dioxus web UI

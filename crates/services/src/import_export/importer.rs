@@ -242,7 +242,10 @@ async fn dml_insert(
 ) -> Result<WriteOutcome, ServiceError> {
     let data = JsonValue::Object(target.clone());
     match dynamic_store::dml::insert_one(&ctx.db, schema, &data, user_id).await {
-        Ok(_) => Ok(WriteOutcome::Created),
+        Ok(row) => {
+            crate::content::persist_relations(ctx, schema, &row, &data).await?;
+            Ok(WriteOutcome::Created)
+        }
         Err(e) => {
             errors.push(ImportErrorDto {
                 file: cfg.filename.clone(),
@@ -271,7 +274,10 @@ async fn dml_update(
 ) -> Result<WriteOutcome, ServiceError> {
     let data = JsonValue::Object(target.clone());
     match dynamic_store::dml::update_one(&ctx.db, schema, doc, &data, user_id).await {
-        Ok(_) => Ok(WriteOutcome::Updated),
+        Ok(row) => {
+            crate::content::persist_relations(ctx, schema, &row, &data).await?;
+            Ok(WriteOutcome::Updated)
+        }
         Err(e) => {
             errors.push(ImportErrorDto {
                 file: cfg.filename.clone(),

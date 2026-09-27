@@ -6,7 +6,7 @@
 
 use crate::{AppContext, ServiceError, ValidationErrorItem};
 use api_types::{EntryResponse, ListResponse, Pagination, QueryParams};
-use core_domain::{ContentTypeKind, Uid};
+use core_domain::{fk_column, relation_join_table, ContentTypeKind, RelationKind, Uid};
 use core_schema::Schema;
 use dynamic_store::dml;
 use sea_orm::TransactionTrait;
@@ -77,9 +77,13 @@ pub async fn cm_get(
         schema.uid.as_str(),
     )
     .await?;
-    let row = dml::find_one_by_document_id(&ctx.db, &schema, document_id)
+    let mut row = dml::find_one_by_document_id(&ctx.db, &schema, document_id)
         .await?
         .ok_or_else(|| ServiceError::not_found(format!("entry {document_id} not found")))?;
+    let row_object = row
+        .as_object_mut()
+        .ok_or_else(|| ServiceError::internal("stored entry is not a JSON object"))?;
+    populate_relations(ctx, &schema, row_object).await?;
     Ok(EntryResponse {
         data: row,
         meta: None,
@@ -108,6 +112,7 @@ pub async fn cm_create(
     .await?;
 
     let row = dml::insert_one(&ctx.db, &schema, data, user_id).await?;
+    persist_relations(ctx, &schema, &row, data).await?;
     // Fire the `content.created` trigger for active workflows (async, best-effort).
     let _ = crate::workflow::triggers::dispatch_cms_event(
         ctx,
@@ -145,6 +150,7 @@ pub async fn cm_update(
     .await?;
 
     let row = dml::update_one(&ctx.db, &schema, document_id, data, user_id).await?;
+    persist_relations(ctx, &schema, &row, data).await?;
     let _ = crate::workflow::triggers::dispatch_cms_event(
         ctx,
         "content.updated",
@@ -156,6 +162,289 @@ pub async fn cm_update(
         data: row,
         meta: None,
     })
+}
+
+/// Persist relation values supplied alongside a content entry. The dynamic
+/// store keeps relation links separate from scalar writes; this helper makes
+/// relations behave like ordinary content-manager fields for creates, updates,
+/// and imports.
+pub async fn persist_relations(
+    ctx: &AppContext,
+    schema: &core_schema::Schema,
+    row: &JsonValue,
+    data: &JsonValue,
+) -> Result<(), ServiceError> {
+    let Some(owner_id) = row.get("id").and_then(JsonValue::as_i64) else {
+        return Err(ServiceError::internal("created entry has no id"));
+    };
+    let Some(input) = data.as_object() else {
+        return Ok(());
+    };
+
+    for (name, attr) in &schema.attributes {
+        if attr.attr_type != core_domain::FieldType::Relation || !input.contains_key(name) {
+            continue;
+        }
+        let Some(target_uid) = attr.target.as_ref() else {
+            continue;
+        };
+        let target_schema = load_schema(ctx, target_uid.as_str())?;
+        let values = relation_values(input.get(name).unwrap());
+        let target_ids = resolve_relation_ids(ctx, &target_schema, &values).await?;
+
+        match attr.relation.unwrap_or(RelationKind::ManyToOne) {
+            RelationKind::ManyToMany | RelationKind::ManyWay => {
+                let join = relation_join_table(&schema.table_name(), name);
+                dml::replace_join_links(
+                    &ctx.db,
+                    ctx.db_backend(),
+                    &join,
+                    &fk_column(&schema.info.singular_name),
+                    &fk_column(&target_schema.info.singular_name),
+                    &format!("{}_order", core_domain::column_name(name)),
+                    owner_id,
+                    &target_ids,
+                )
+                .await
+                .map_err(ServiceError::from)?;
+            }
+            RelationKind::OneWay | RelationKind::OneToOne | RelationKind::ManyToOne => {
+                dml::update_by_id(
+                    &ctx.db,
+                    ctx.db_backend(),
+                    &schema.table_name(),
+                    owner_id,
+                    vec![(
+                        fk_column(name),
+                        sea_orm::Value::BigInt(target_ids.first().copied()),
+                    )],
+                )
+                .await
+                .map_err(ServiceError::from)?;
+            }
+            RelationKind::OneToMany => {
+                // The inverse side owns the FK. Reconcile it so an invoice form
+                // can attach, replace, or remove its lines by submitting the
+                // `lines` relation normally.
+                let Some(inverse_name) = attr.mapped_by.as_deref() else {
+                    continue;
+                };
+                let existing = dml::query_rows(
+                    &ctx.db,
+                    ctx.db_backend(),
+                    &target_schema,
+                    &QueryParams {
+                        pagination: Some(api_types::PaginationParams::Page {
+                            page: 1,
+                            page_size: 1_000_000,
+                            with_count: Some(false),
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(ServiceError::from)?
+                .0;
+                for existing_row in existing {
+                    let Some(target_id) = existing_row.get("id").and_then(JsonValue::as_i64) else {
+                        continue;
+                    };
+                    if !target_ids.contains(&target_id) {
+                        dml::update_by_id(
+                            &ctx.db,
+                            ctx.db_backend(),
+                            &target_schema.table_name(),
+                            target_id,
+                            vec![(fk_column(inverse_name), sea_orm::Value::BigInt(None))],
+                        )
+                        .await
+                        .map_err(ServiceError::from)?;
+                    }
+                }
+                for target_id in target_ids {
+                    dml::update_by_id(
+                        &ctx.db,
+                        ctx.db_backend(),
+                        &target_schema.table_name(),
+                        target_id,
+                        vec![(
+                            fk_column(inverse_name),
+                            sea_orm::Value::BigInt(Some(owner_id)),
+                        )],
+                    )
+                    .await
+                    .map_err(ServiceError::from)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Add relation references to a single-entry response. List responses remain
+/// scalar-only for efficient tables; the editor gets relation objects/arrays
+/// that can be sent back through the normal content-manager write API.
+async fn populate_relations(
+    ctx: &AppContext,
+    schema: &core_schema::Schema,
+    row: &mut serde_json::Map<String, JsonValue>,
+) -> Result<(), ServiceError> {
+    let Some(owner_id) = row.get("id").and_then(JsonValue::as_i64) else {
+        return Ok(());
+    };
+
+    for (name, attr) in &schema.attributes {
+        if attr.attr_type != core_domain::FieldType::Relation {
+            continue;
+        }
+        let Some(target_uid) = attr.target.as_ref() else {
+            continue;
+        };
+        let target_schema = load_schema(ctx, target_uid.as_str())?;
+        let target_ids = match attr.relation.unwrap_or(RelationKind::ManyToOne) {
+            RelationKind::ManyToMany | RelationKind::ManyWay => {
+                let join = relation_join_table(&schema.table_name(), name);
+                dml::fetch_join_links(
+                    &ctx.db,
+                    ctx.db_backend(),
+                    &join,
+                    &fk_column(&schema.info.singular_name),
+                    &fk_column(&target_schema.info.singular_name),
+                    &format!("{}_order", core_domain::column_name(name)),
+                    owner_id,
+                )
+                .await
+                .map_err(ServiceError::from)?
+            }
+            RelationKind::OneToMany => {
+                let Some(inverse_name) = attr.mapped_by.as_deref() else {
+                    continue;
+                };
+                let (rows, _) = dml::query_rows(
+                    &ctx.db,
+                    ctx.db_backend(),
+                    &target_schema,
+                    &QueryParams {
+                        pagination: Some(api_types::PaginationParams::Page {
+                            page: 1,
+                            page_size: 1_000_000,
+                            with_count: Some(false),
+                        }),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(ServiceError::from)?;
+                rows.into_iter()
+                    .filter(|target| {
+                        target.get(inverse_name).and_then(JsonValue::as_i64) == Some(owner_id)
+                    })
+                    .filter_map(|target| target.get("id").and_then(JsonValue::as_i64))
+                    .collect()
+            }
+            RelationKind::OneWay | RelationKind::OneToOne | RelationKind::ManyToOne => row
+                .get(name)
+                .and_then(JsonValue::as_i64)
+                .into_iter()
+                .collect(),
+        };
+
+        let mut references = Vec::with_capacity(target_ids.len());
+        for target_id in target_ids {
+            if let Some(target) =
+                dml::find_by_id(&ctx.db, ctx.db_backend(), &target_schema, target_id)
+                    .await
+                    .map_err(ServiceError::from)?
+            {
+                references.push(JsonValue::Object(target));
+            }
+        }
+
+        if matches!(
+            attr.relation.unwrap_or(RelationKind::ManyToOne),
+            RelationKind::ManyToMany | RelationKind::ManyWay | RelationKind::OneToMany
+        ) {
+            row.insert(name.clone(), JsonValue::Array(references));
+        } else {
+            row.insert(
+                name.clone(),
+                references.into_iter().next().unwrap_or(JsonValue::Null),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn relation_values(value: &JsonValue) -> Vec<JsonValue> {
+    if value.is_null() {
+        return Vec::new();
+    }
+    let value = value
+        .as_object()
+        .and_then(|object| {
+            object
+                .get("set")
+                .or_else(|| object.get("connect"))
+                .or_else(|| object.get("disconnect"))
+        })
+        .unwrap_or(value);
+    value.as_array().cloned().unwrap_or_else(|| {
+        if value.is_null() {
+            Vec::new()
+        } else {
+            vec![value.clone()]
+        }
+    })
+}
+
+async fn resolve_relation_ids(
+    ctx: &AppContext,
+    target_schema: &core_schema::Schema,
+    values: &[JsonValue],
+) -> Result<Vec<i64>, ServiceError> {
+    if values.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (rows, _) = dml::query_rows(
+        &ctx.db,
+        ctx.db_backend(),
+        target_schema,
+        &QueryParams {
+            pagination: Some(api_types::PaginationParams::Page {
+                page: 1,
+                page_size: 1_000_000,
+                with_count: Some(false),
+            }),
+            ..Default::default()
+        },
+    )
+    .await
+    .map_err(ServiceError::from)?;
+    values
+        .iter()
+        .map(|value| {
+            let candidate = value
+                .as_object()
+                .and_then(|object| {
+                    object
+                        .get("id")
+                        .or_else(|| object.get("documentId"))
+                        .or_else(|| object.get("code"))
+                        .or_else(|| object.get("sku"))
+                })
+                .unwrap_or(value);
+            rows.iter()
+                .find(|row| {
+                    row.get("id") == Some(candidate)
+                        || ["documentId", "code", "sku", "name"]
+                            .iter()
+                            .any(|field| row.get(*field) == Some(candidate))
+                })
+                .and_then(|row| row.get("id"))
+                .and_then(JsonValue::as_i64)
+                .ok_or_else(|| ServiceError::not_found(format!("relation target `{value}`")))
+        })
+        .collect()
 }
 
 /// Remove user-supplied values for computed fields. Bulk writes ignore them so

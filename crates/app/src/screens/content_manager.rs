@@ -13,8 +13,8 @@ use ui::design::tokens::{color, typography};
 
 use crate::app::{use_global, Route};
 use crate::components::{
-    Badge, Button, Card, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal,
-    Pagination, Spinner, StatusIndicator, TextField, Toggle,
+    Badge, Button, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal, Pagination,
+    Spinner, StatusIndicator, TextField, Toggle,
 };
 
 /// Marker document id used for a brand-new entry in the edit view.
@@ -286,25 +286,25 @@ pub fn ContentManager() -> Element {
         let target_name = target.clone();
         let target_act = target.clone();
         rows.push(rsx! {
-            tr { style: "border-bottom:1px solid {color::NEUTRAL_150}; cursor:pointer;",
+            tr { class: "cm-table-row", style: "cursor:pointer;",
                 onclick: move |_| open_tr.set(target_tr.clone()),
-                td { style: "padding:12px 16px;",
-                    button { style: "background:none; border:none; color:{color::PRIMARY_600}; font-weight:600; cursor:pointer; font-size:14px; text-align:left;",
+                td {
+                    button { class: "cm-table-link",
                         onclick: move |_| open_name.set(target_name.clone()),
                         "{name}"
                     }
                 }
-                td { style: "padding:12px 16px;", {type_badge_cm(kind)} }
-                td { style: "padding:12px 16px; font-size:14px; color:{color::NEUTRAL_700};", "{cnt}" }
-                td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{updated_display}" }
-                td { style: "padding:12px 16px;",
+                td { {type_badge_cm(kind)} }
+                td { "{cnt}" }
+                td { style: "color:{color::NEUTRAL_600};", "{updated_display}" }
+                td {
                     if draft_pub {
                         Badge { text: "Draft & publish".to_string(), kind: "modified".to_string() }
                     } else {
                         Badge { text: "Standard".to_string(), kind: "neutral".to_string() }
                     }
                 }
-                td { style: "padding:12px 16px;",
+                td {
                     Button { label: "Open".to_string(), size: "sm".to_string(), on_click: move |_| open_act.set(target_act.clone()) }
                 }
             }
@@ -313,26 +313,29 @@ pub fn ContentManager() -> Element {
 
     let count = all.len();
     rsx! {
-        div { style: "padding:32px; max-width:1200px;",
-            div { style: "display:flex; align-items:center; justify-content:space-between; margin-bottom:24px;",
-                div { style: "display:flex; flex-direction:column; gap:4px;",
-                    span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "Content Manager" }
-                    span { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};", "Create, read, update and delete your content." }
+        div { class: "cm-screen",
+            div { class: "cm-page",
+                div { class: "cm-heading-row",
+                    div {
+                        div { class: "cm-kicker", "Workspace" }
+                        h1 { class: "cm-page-title", "Content Manager" }
+                        p { class: "cm-page-subtitle", "Create, read, update and publish your content." }
+                    }
                 }
-            }
 
-            div { style: "display:flex; gap:12px; margin-bottom:16px; align-items:center; flex-wrap:wrap;",
-                div { style: "flex:1; max-width:360px;",
-                    TextField {
-                        value: search(),
-                        placeholder: "Search content types".to_string(),
+                div { class: "cm-toolbar",
+                    div { class: "cm-search",
+                        TextField {
+                            value: search(),
+                            placeholder: "Search content types".to_string(),
                         oninput: move |v| search.set(v),
                     }
                 }
-                div { style: "display:flex; gap:4px; flex-wrap:wrap;",
+                    div { class: "cm-segment",
                     CmTypeChip { label: "All".to_string(), active: filter() == "all", on_click: move |_| filter.set("all".into()) }
                     CmTypeChip { label: "Collection Types".to_string(), active: filter() == "collection", on_click: move |_| filter.set("collection".into()) }
                     CmTypeChip { label: "Single Types".to_string(), active: filter() == "single", on_click: move |_| filter.set("single".into()) }
+                    }
                 }
             }
 
@@ -355,10 +358,13 @@ pub fn ContentManager() -> Element {
                     icon: "search".to_string(),
                 }
             } else {
-                Card {
-                    header: format!("{count} content types"),
+                div { class: "cm-surface",
+                    div { class: "cm-surface-header",
+                        span { class: "cm-surface-title", "{count} content types" }
+                        span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "Choose a type to open its entries" }
+                    }
                     div { style: "overflow-x:auto;",
-                        table { style: "width:100%; border-collapse:collapse;",
+                        table { class: "cm-table",
                             thead {
                                 tr {
                                     CmTableTh { label: "Content Type".to_string() }
@@ -636,9 +642,9 @@ pub fn ContentManagerEntries(uid: String) -> Element {
         let uid_open = uid.clone();
         let cell_id = id.clone();
         rows.push(rsx! {
-            tr { style: "border-bottom:1px solid {color::NEUTRAL_150}; cursor:pointer;",
+            tr { class: "cm-table-row", style: "cursor:pointer;",
                 onclick: move |_| open_entry.set(Route::ContentManagerEntry { uid: uid_open.clone(), document_id: rid.clone() }),
-                td { style: "padding:12px 16px;",
+                td {
                     Checkbox {
                         checked: selected,
                         label: String::new(),
@@ -651,8 +657,8 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     }
                 }
                 {cells.into_iter()}
-                td { style: "padding:12px 16px;",
-                    div { style: "display:flex; gap:4px;",
+                td {
+                    div { class: "cm-row-actions",
                         IconButton { name: "pencil".to_string(), aria_label: "Edit".to_string(),
                             on_click: move |e: MouseEvent| { e.stop_propagation(); edit_entry.set(Route::ContentManagerEntry { uid: uid_edit.clone(), document_id: edit_id.clone() }); } }
                         IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Delete".to_string(),
@@ -719,13 +725,15 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     }
 
     rsx! {
-        div { style: "padding:32px; max-width:1200px;",
-            div { style: "display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; gap:12px;",
+        div { class: "cm-screen",
+            div { class: "cm-page",
+            div { class: "cm-heading-row",
                 div { style: "display:flex; align-items:center; gap:12px;",
                     Button { label: "← Back to Content Types".to_string(), variant: "secondary".to_string(), size: "sm".to_string(), on_click: move |_| route.set(Route::ContentManager) }
                     div { style: "display:flex; flex-direction:column; gap:2px;",
-                        span { style: "font-size:{typography::DELTA_SIZE}; font-weight:600; color:{color::NEUTRAL_900};", "{header_name}" }
-                        span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "Collection type · {total} entries" }
+                        div { class: "cm-kicker", "Collection type" }
+                        h1 { class: "cm-page-title", "{header_name}" }
+                        span { class: "cm-page-subtitle", "{total} entries" }
                     }
                 }
                 div { style: "display:flex; align-items:center; gap:8px;",
@@ -735,7 +743,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                 }
             }
 
-            div { style: "display:flex; gap:12px; margin-bottom:16px; align-items:center;",
+            div { class: "cm-toolbar",
                 if !view_options.is_empty() {
                     div { style: "display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid {color::NEUTRAL_200}; border-radius:6px; background:#fff;",
                         span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "View" }
@@ -747,7 +755,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     }
                 }
                 Button { label: "+ New view".to_string(), variant: "secondary".to_string(), on_click: move |_| create_view_open.set(true) }
-                div { style: "flex:1; max-width:320px;",
+                div { class: "cm-search",
                     TextField { value: search(), label: String::new(), placeholder: "Search entries".to_string(), oninput: move |v| search.set(v) }
                 }
                 Button { label: "Filters".to_string(), variant: "secondary".to_string(), on_click: move |_| filter_open.set(true) }
@@ -796,7 +804,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
             if !filters().is_empty() {
                 div { style: "display:flex; flex-wrap:wrap; gap:8px; padding-bottom:8px;",
                     for (idx, (f, op, v)) in filters().into_iter().enumerate() {
-                        div { style: "display:flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:{color::PRIMARY_100}; color:{color::PRIMARY_700}; font-size:{typography::PI_SIZE};",
+                        div { class: "cm-filter-chip",
                             span { "{f} {op} \"{v}\"" }
                             button { style: "background:none; border:none; color:{color::PRIMARY_700}; cursor:pointer; font-size:14px;",
                                 onclick: move |_| {
@@ -845,12 +853,12 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     EmptyState { title: "No results".to_string(), subtitle: "No entries match your search or filters.".to_string(), icon: "search".to_string() }
                 }
             } else {
-                Card { padding: 0,
+                div { class: "cm-surface",
                     div { style: "overflow-x:auto;",
-                        table { style: "width:100%; border-collapse:collapse; background:#fff;",
+                        table { class: "cm-table",
                             thead {
                                 tr { style: "border-bottom:1px solid {color::NEUTRAL_150};",
-                                    th { style: "padding:10px 16px; width:40px;",
+                                th { style: "padding:10px 16px; width:40px; background:{color::NEUTRAL_100}; border-bottom:1px solid {color::NEUTRAL_150};",
                                         Checkbox {
                                             checked: !filtered.is_empty() && selected_ids().len() == filtered.len(),
                                             label: String::new(),
@@ -861,7 +869,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                                         }
                                     }
                                     {header_cells.into_iter()}
-                                    th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600};", "Actions" }
+                                    th { style: "text-align:left; padding:10px 16px; font-size:{typography::LABEL_SIZE}; font-weight:600; color:{color::NEUTRAL_600}; background:{color::NEUTRAL_100}; border-bottom:1px solid {color::NEUTRAL_150};", "Actions" }
                                 }
                             }
                             tbody { {rows.into_iter()} }
@@ -876,6 +884,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     on_page_change: move |p| { if (1..=page_count).contains(&p) { page.set(p); load_req.set(load_req() + 1); } },
                     on_page_size_change: move |ps| { page_size.set(ps); page.set(1); load_req.set(load_req() + 1); },
                 }
+            }
             }
         }
 
@@ -1004,9 +1013,12 @@ fn render_cell(e: &serde_json::Value, key: &str) -> Element {
             td { style: "padding:12px 16px; font-size:13px; color:{color::NEUTRAL_600};", "{id}" }
         };
     }
-    let value = e.get(key).map(|v| v.to_string()).unwrap_or_default();
+    let value = e
+        .get(key)
+        .map(display_value)
+        .unwrap_or_else(|| "—".to_string());
     rsx! {
-        td { style: "padding:12px 16px; font-size:14px; color:{color::NEUTRAL_800};", "{value}" }
+        td { style: "font-size:13px; color:{color::NEUTRAL_800};", "{value}" }
     }
 }
 
@@ -1293,28 +1305,209 @@ pub fn ContentManagerEntry(uid: String, document_id: String) -> Element {
     }
 }
 
+fn relation_is_many(attr: &core_schema::Attribute) -> bool {
+    matches!(
+        attr.relation,
+        Some(
+            core_domain::RelationKind::ManyToMany
+                | core_domain::RelationKind::ManyWay
+                | core_domain::RelationKind::OneToMany
+        )
+    )
+}
+
+fn relation_document_id(value: &serde_json::Value) -> Option<String> {
+    value
+        .as_object()
+        .and_then(|object| object.get("documentId"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+        .or_else(|| value.as_str().map(ToOwned::to_owned))
+}
+
+fn relation_selection(value: Option<&serde_json::Value>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    if let Some(values) = value.as_array() {
+        return values.iter().filter_map(relation_document_id).collect();
+    }
+    relation_document_id(value).into_iter().collect()
+}
+
+fn relation_payload(ids: &[String]) -> serde_json::Value {
+    serde_json::Value::Array(
+        ids.iter()
+            .map(|id| serde_json::json!({"documentId": id}))
+            .collect(),
+    )
+}
+
+fn relation_label(value: &serde_json::Value) -> String {
+    let object = value.as_object();
+    ["name", "title", "legal_name", "code", "sku", "documentId"]
+        .iter()
+        .find_map(|field| object.and_then(|object| object.get(*field)))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+        .or_else(|| relation_document_id(value))
+        .or_else(|| {
+            value
+                .get("id")
+                .and_then(|id| id.as_i64())
+                .map(|id| id.to_string())
+        })
+        .unwrap_or_else(|| display_value(value))
+}
+
+/// Schema-driven relation picker used by both new and existing entries.
+/// Single relations are assigned with one dropdown; collection relations keep
+/// a selected list with explicit add/remove controls.
+#[component]
+fn RelationField(
+    name: String,
+    attr: core_schema::Attribute,
+    form: Signal<serde_json::Map<String, serde_json::Value>>,
+) -> Element {
+    let global = use_global();
+    let mut targets = use_signal(Vec::<serde_json::Value>::new);
+    let mut loaded = use_signal(|| false);
+    let target_uid = attr.target.as_ref().map(|uid| uid.as_str().to_string());
+    let is_many = relation_is_many(&attr);
+
+    let g_load = global.clone();
+    let target_uid_load = target_uid.clone();
+    use_effect(move || {
+        if !loaded() {
+            loaded.set(true);
+            if let Some(target_uid) = target_uid_load.clone() {
+                let client = g_load.client.clone();
+                spawn(async move {
+                    let params = QueryParams {
+                        pagination: Some(PaginationParams::Page {
+                            page: 1,
+                            page_size: 1_000,
+                            with_count: Some(false),
+                        }),
+                        ..Default::default()
+                    };
+                    if let Ok(response) = client.cm_list(&target_uid, &params).await {
+                        targets.set(response.data);
+                    }
+                });
+            }
+        }
+    });
+
+    let selected = relation_selection(form().get(&name));
+    let mut options: Vec<(String, String)> = vec![(String::new(), "Select relation".to_string())];
+    for target in targets().iter() {
+        if let Some(id) = relation_document_id(target) {
+            if !is_many || !selected.contains(&id) {
+                options.push((id, relation_label(target)));
+            }
+        }
+    }
+
+    if !is_many {
+        let selected_id = selected.first().cloned().unwrap_or_default();
+        let field_name = name.clone();
+        let clear_name = field_name.clone();
+        return rsx! {
+            div { class: "cm-relation-field",
+                div { class: "cm-relation-heading",
+                    span { class: "cm-relation-label", "{name}" }
+                    span { class: "cm-relation-help", "One relation" }
+                }
+                if let Some(selected_value) = selected.first() {
+                    div { class: "cm-relation-row",
+                        span { class: "cm-relation-name",
+                            {targets().iter().find(|target| relation_document_id(target).as_deref() == Some(selected_value.as_str())).map(relation_label).unwrap_or_else(|| selected_value.clone())}
+                        }
+                        button { class: "cm-relation-remove", aria_label: "Remove relation", onclick: move |_| { form.write().insert(clear_name.clone(), serde_json::Value::Null); }, "Remove" }
+                    }
+                }
+                Dropdown {
+                    label: if selected_id.is_empty() { "Select relation".to_string() } else { "Change relation".to_string() },
+                    options,
+                    value: selected_id,
+                    onchange: move |value: String| {
+                        if value.is_empty() {
+                            form.write().insert(field_name.clone(), serde_json::Value::Null);
+                        } else {
+                            form.write().insert(field_name.clone(), serde_json::json!({"documentId": value}));
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    let add_name = name.clone();
+    let selected_for_add = selected.clone();
+    let mut form_for_add = form;
+    rsx! {
+        div { class: "cm-relation-field",
+            div { class: "cm-relation-heading",
+                span { class: "cm-relation-label", "{name}" }
+                span { class: "cm-relation-help", "Multiple relations · add or remove entries" }
+            }
+            if selected.is_empty() {
+                div { class: "cm-relation-empty", "No relations selected" }
+            }
+            for selected_id in selected.iter() {
+                {
+                    let selected_id = selected_id.clone();
+                    let remove_name = name.clone();
+                    let remove_id = selected_id.clone();
+                    let target_label = targets()
+                        .iter()
+                        .find(|target| relation_document_id(target).as_deref() == Some(selected_id.as_str()))
+                        .map(relation_label)
+                        .unwrap_or_else(|| selected_id.clone());
+                    rsx! {
+                        div { key: "{remove_id}", class: "cm-relation-row",
+                            span { class: "cm-relation-name", "{target_label}" }
+                            button { class: "cm-relation-remove",
+                                onclick: move |_| {
+                                    let mut ids = relation_selection(form().get(&remove_name));
+                                    ids.retain(|id| id != &remove_id);
+                                    form.write().insert(remove_name.clone(), relation_payload(&ids));
+                                },
+                                "Remove"
+                            }
+                        }
+                    }
+                }
+            }
+            Dropdown {
+                label: "Add relation".to_string(),
+                options,
+                value: String::new(),
+                onchange: move |value: String| {
+                    if !value.is_empty() && !selected_for_add.contains(&value) {
+                        let mut ids = relation_selection(form_for_add().get(&add_name));
+                        if !ids.contains(&value) { ids.push(value); }
+                        form_for_add.write().insert(add_name.clone(), relation_payload(&ids));
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn CmTableTh(label: String) -> Element {
     rsx! {
-        th { style: "text-align:left; padding:12px 16px; font-size:12px; font-weight:600; color:{color::NEUTRAL_600}; background:{color::NEUTRAL_100}; border-bottom:1px solid {color::NEUTRAL_150};", "{label}" }
+        th { class: "cm-table-th", "{label}" }
     }
 }
 
 #[component]
 fn CmTypeChip(label: String, active: bool, on_click: EventHandler<MouseEvent>) -> Element {
-    let style = if active {
-        format!(
-            "padding:8px 14px; border-radius:4px; border:1px solid {p}; background:{p}; color:#fff; font-size:13px; font-weight:600; cursor:pointer;",
-            p = color::PRIMARY_600
-        )
-    } else {
-        format!(
-            "padding:8px 14px; border-radius:4px; border:1px solid {c}; background:#fff; color:{t}; font-size:13px; font-weight:600; cursor:pointer;",
-            c = color::NEUTRAL_200, t = color::NEUTRAL_700
-        )
-    };
+    let class = if active { "cm-segment-active" } else { "" };
     rsx! {
-        button { style: "{style}", onclick: move |e| on_click.call(e), "{label}" }
+        button { class: "{class}", onclick: move |e| on_click.call(e), "{label}" }
     }
 }
 
@@ -1556,6 +1749,12 @@ fn EntryEditView(
             )
         })
         .collect();
+    let relation_fields: Vec<(String, core_schema::Attribute)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, a)| a.attr_type == FieldType::Relation)
+        .map(|(name, a)| (name.clone(), a.clone()))
+        .collect();
 
     // Computed fields: shown read-only and stripped from the save payload.
     let computed_fields: Vec<(String, FieldType, Option<String>, String, serde_json::Value)> =
@@ -1600,11 +1799,11 @@ fn EntryEditView(
     let del_doc = doc.clone();
 
     rsx! {
-        div { style: "flex:1; min-width:0;",
-            div { style: "{top_bar}",
-                button { style: "{back_style}", onclick: move |_| on_back.call(()), "←" }
-                span { style: "{title_style}", "{title}" }
-                div { style: "flex:1;" }
+        div { class: "cm-editor",
+            div { class: "cm-editor-topbar", style: "{top_bar}",
+                button { class: "cm-editor-back", style: "{back_style}", onclick: move |_| on_back.call(()), "← Back" }
+                span { class: "cm-editor-title", style: "{title_style}", "{title}" }
+                div { class: "cm-editor-actions",
                 if let Some(status) = status() {
                     span { style: "font-size:{typography::BODY_SIZE}; color:{color::SUCCESS_600};", "{status}" }
                 }
@@ -1628,9 +1827,9 @@ fn EntryEditView(
                         saving.set(true);
                         spawn(async move {
                             let res = if is_new {
-                                g.client.cm_create(&uid, &data).await
+                                g.client.cm_create(&uid, &data).await.map(|_| ()).map_err(|e| e)
                             } else {
-                                g.client.cm_update(&uid, &doc, &data).await
+                                g.client.cm_update(&uid, &doc, &data).await.map(|_| ()).map_err(|e| e)
                             };
                             saving.set(false);
                             match res {
@@ -1690,13 +1889,16 @@ fn EntryEditView(
                         }
                     }
                 }
+                }
             }
-            div { style: "display:flex; gap:32px; padding:32px;",
-                div { style: "flex:1; max-width:900px;",
+            div { class: "cm-editor-body",
+                div { class: "cm-editor-main",
                     if let Some(status) = status() {
                         div { style: "{status_style}", "{status}" }
                     }
-                    Card { padding: 24,
+                        div { class: "cm-form-card",
+                        h2 { class: "cm-form-title", "Content" }
+                        div { class: "cm-field-grid",
                         for (name, ft, enum_values, attr) in scalar.into_iter() {
                             if attr.is_visible(&form()) {
                                 match ft {
@@ -1726,6 +1928,13 @@ fn EntryEditView(
                                 },
                             }
                             }
+                        }
+                        }
+                        div { class: "cm-form-section",
+                            h2 { class: "cm-form-title", "Relations" }
+                        for (name, attr) in relation_fields.into_iter() {
+                            RelationField { key: "relation-{name}", name, attr, form }
+                        }
                         }
                         for (label, name, comp_uid, _repeatable) in component_fields.into_iter() {
                             div { key: "comp-{name}", style: "margin:16px 0; border:1px solid {color::NEUTRAL_150}; border-radius:4px; padding:12px;",
@@ -1779,15 +1988,13 @@ fn EntryEditView(
                         }
                     }
                 }
-                div { style: "width:320px; min-width:320px;",
-                    Card { padding: 24,
-                        div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Information" }
-                        div { style: "display:flex; flex-direction:column; gap:8px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_600};",
-                            div { style: "display:flex; justify-content:space-between; align-items:center;", span { "State" }, StatusIndicator { status: "draft".to_string() } }
-                            div { style: "display:flex; justify-content:space-between;", span { "Document ID" }, span { "{document_id}" } }
-                            div { style: "display:flex; justify-content:space-between;", span { "Content type" }, span { "{schema.info.display_name}" } }
+                div { class: "cm-info-card",
+                        h2 { class: "cm-info-title", "Information" }
+                        div { class: "cm-meta-list",
+                            div { class: "cm-meta-row", span { class: "cm-meta-label", "State" }, StatusIndicator { status: "draft".to_string() } }
+                            div { class: "cm-meta-row", span { class: "cm-meta-label", "Document ID" }, span { class: "cm-meta-value", "{document_id}" } }
+                            div { class: "cm-meta-row", span { class: "cm-meta-label", "Content type" }, span { class: "cm-meta-value", "{schema.info.display_name}" } }
                         }
-                    }
                 }
             }
         }

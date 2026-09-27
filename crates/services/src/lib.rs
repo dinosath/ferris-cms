@@ -22,7 +22,6 @@ pub mod import_export;
 mod media;
 pub mod oidc;
 mod rbac;
-pub mod sales;
 mod schema_cache;
 pub mod views;
 pub mod workflow;

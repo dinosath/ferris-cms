@@ -1,6 +1,43 @@
 {
     "format": "ferriscms-content-types",
     "version": 1,
+    "bootstrap": {
+        "imports": [
+            {
+                "dataset": "packagings",
+                "uid": "api::packaging.packaging",
+                "matchField": "code",
+                "mapping": [
+                    { "sourceField": "Code", "targetField": "code", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Name", "targetField": "name", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Units", "targetField": "units", "transform": "none", "status": "autoMapped", "confidence": 1.0 }
+                ]
+            },
+            {
+                "dataset": "products",
+                "uid": "api::product.product",
+                "matchField": "sku",
+                "mapping": [
+                    { "sourceField": "Sku", "targetField": "sku", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Name", "targetField": "name", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Price", "targetField": "sale_price", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "VatRate", "targetField": "vat_rate", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Packaging", "targetField": "packaging", "transform": "none", "status": "autoMapped", "confidence": 1.0 }
+                ]
+            },
+            {
+                "dataset": "customers",
+                "uid": "api::organization.organization",
+                "matchField": "tax_id",
+                "mapping": [
+                    { "sourceField": "Code", "targetField": "tax_id", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "Name", "targetField": "legal_name", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "GlobalDiscountPercent", "targetField": "global_discount_percent", "transform": "none", "status": "autoMapped", "confidence": 1.0 },
+                    { "sourceField": "SpecificPrices", "targetField": "specific_prices", "transform": "none", "status": "autoMapped", "confidence": 1.0 }
+                ]
+            }
+        ]
+    },
     "schemas": [
         {
             "uid": "api::customer-group.customer-group",
@@ -105,8 +142,13 @@
                     "type": "decimal",
                     "default": 0
                 },
-                "specific_discounts": {
+                "specific_prices": {
                     "type": "json"
+                },
+                "customer_group": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::customer-group.customer-group"
                 }
             }
         },
@@ -132,8 +174,12 @@
                 "product": {
                     "type": "relation",
                     "relation": "manyToOne",
-                    "target": "api::product.product",
-                    "required": true
+                    "target": "api::product.product"
+                },
+                "product_category": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product-category.product-category"
                 },
                 "customer": {
                     "type": "relation",
@@ -200,7 +246,8 @@
                 "invoice": {
                     "type": "relation",
                     "relation": "manyToOne",
-                    "target": "api::sales-invoice.sales-invoice"
+                    "target": "api::sales-invoice.sales-invoice",
+                    "inversedBy": "lines"
                 },
                 "provider": {
                     "type": "string"
@@ -470,6 +517,78 @@
             }
         },
         {
+            "uid": "api::packaging.packaging",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "packaging",
+                "pluralName": "packagings",
+                "displayName": "Packaging"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "code": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "code"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "units": {
+                    "type": "decimal",
+                    "required": true
+                }
+            }
+        },
+        {
+            "uid": "api::product-category.product-category",
+            "kind": "collectionType",
+            "info": {
+                "singularName": "product-category",
+                "pluralName": "product-categories",
+                "displayName": "Product Category"
+            },
+            "metadata": {
+                "namespace": "erp",
+                "labels": {
+                    "application": "erp",
+                    "domain": "catalog",
+                    "pricing": "true"
+                }
+            },
+            "options": {
+                "draftAndPublish": true
+            },
+            "attributes": {
+                "code": {
+                    "type": "uid",
+                    "required": true,
+                    "unique": true,
+                    "targetField": "code"
+                },
+                "name": {
+                    "type": "string",
+                    "required": true
+                },
+                "parent": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product-category.product-category"
+                }
+            }
+        },
+        {
             "uid": "api::product.product",
             "kind": "collectionType",
             "info": {
@@ -516,14 +635,15 @@
                         "discontinued"
                     ]
                 },
-                "unit": {
-                    "type": "enumeration",
-                    "enum": [
-                        "unit",
-                        "box",
-                        "pallet"
-                    ],
-                    "default": "unit"
+                "packaging": {
+                    "type": "relation",
+                    "relation": "manyToMany",
+                    "target": "api::packaging.packaging"
+                },
+                "product_category": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::product-category.product-category"
                 },
                 "uom_category": {
                     "type": "relation",
@@ -544,10 +664,15 @@
                     "target": "api::unit-of-measure.unit-of-measure"
                 },
                 "vat_rate": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
                 },
                 "sale_price": {
                     "type": "decimal"
+                },
+                "default_discount_percent": {
+                    "type": "decimal",
+                    "default": 0
                 },
                 "cost_price": {
                     "type": "decimal"
@@ -594,6 +719,11 @@
                     "relation": "manyToOne",
                     "target": "api::product.product"
                 },
+                "packaging": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::packaging.packaging"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -606,9 +736,6 @@
                     "required": true
                 },
                 "discount_rate": {
-                    "type": "decimal"
-                },
-                "tax_rate": {
                     "type": "decimal"
                 },
                 "net_amount": {
@@ -703,7 +830,16 @@
                 "currency": {
                     "type": "string"
                 },
+                "gross_amount": {
+                    "type": "decimal"
+                },
                 "net_amount": {
+                    "type": "decimal"
+                },
+                "charges_amount": {
+                    "type": "decimal"
+                },
+                "vat_amount": {
                     "type": "decimal"
                 },
                 "tax_amount": {
@@ -713,6 +849,12 @@
                     "type": "decimal"
                 },
                 "total_amount": {
+                    "type": "decimal"
+                },
+                "withholding_amount": {
+                    "type": "decimal"
+                },
+                "payable_amount": {
                     "type": "decimal"
                 },
                 "amount_paid": {
@@ -765,6 +907,11 @@
                     "relation": "manyToOne",
                     "target": "api::product.product"
                 },
+                "packaging": {
+                    "type": "relation",
+                    "relation": "manyToOne",
+                    "target": "api::packaging.packaging"
+                },
                 "description": {
                     "type": "string"
                 },
@@ -775,6 +922,9 @@
                 "unit_price": {
                     "type": "decimal",
                     "required": true
+                },
+                "base_unit_price": {
+                    "type": "decimal"
                 },
                 "price_rule": {
                     "type": "relation",
@@ -791,26 +941,49 @@
                     ]
                 },
                 "discount_rate": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
                 },
-                "tax_rate": {
-                    "type": "decimal"
-                },
-                "net_amount": {
+                "pre_discount_amount": {
                     "type": "decimal",
                     "computed": true,
-                    "expression": "quantity * unit_price",
+                    "expression": "ROUND(quantity * unit_price, 2)",
                     "stored": true,
                     "dependencies": [
                         "quantity",
                         "unit_price"
                     ]
                 },
-                "tax_amount": {
-                    "type": "decimal"
+                "discount_amount": {
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "ROUND(quantity * unit_price * COALESCE(discount_rate, 0) / 100, 2)",
+                    "stored": true,
+                    "dependencies": [
+                        "quantity",
+                        "unit_price",
+                        "discount_rate"
+                    ]
+                },
+                "net_amount": {
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "ROUND(quantity * unit_price - COALESCE(discount_amount, 0), 2)",
+                    "stored": true,
+                    "dependencies": [
+                        "quantity",
+                        "unit_price",
+                        "discount_amount"
+                    ]
                 },
                 "line_total": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "computed": true,
+                    "expression": "net_amount",
+                    "stored": true,
+                    "dependencies": [
+                        "net_amount"
+                    ]
                 }
             }
         },
@@ -820,7 +993,7 @@
             "info": {
                 "singularName": "sales-invoice",
                 "pluralName": "sales-invoices",
-                "displayName": "Sales Invoice or Receipt"
+                "displayName": "Sales Invoice"
             },
             "metadata": {
                 "namespace": "erp",
@@ -839,15 +1012,6 @@
                     "required": true,
                     "unique": true,
                     "targetField": "document_number"
-                },
-                "document_type": {
-                    "type": "enumeration",
-                    "enum": [
-                        "retail_receipt",
-                        "invoice",
-                        "credit_note",
-                        "proforma"
-                    ]
                 },
                 "status": {
                     "type": "enumeration",
@@ -872,26 +1036,52 @@
                 },
                 "lines": {
                     "type": "relation",
-                    "relation": "manyToMany",
-                    "target": "api::sales-invoice-line.sales-invoice-line"
+                    "relation": "oneToMany",
+                    "target": "api::sales-invoice-line.sales-invoice-line",
+                    "mappedBy": "invoice"
                 },
                 "currency": {
                     "type": "string"
                 },
+                "pre_discount_amount": {
+                    "type": "decimal",
+                    "default": 0
+                },
                 "net_amount": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
+                },
+                "charges_amount": {
+                    "type": "decimal",
+                    "default": 0
+                },
+                "vat_amount": {
+                    "type": "decimal",
+                    "default": 0
                 },
                 "tax_amount": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
                 },
                 "discount_amount": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
                 },
                 "total_amount": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
+                },
+                "withholding_amount": {
+                    "type": "decimal",
+                    "default": 0
+                },
+                "payable_amount": {
+                    "type": "decimal",
+                    "default": 0
                 },
                 "amount_paid": {
-                    "type": "decimal"
+                    "type": "decimal",
+                    "default": 0
                 },
                 "payment_status": {
                     "type": "enumeration",

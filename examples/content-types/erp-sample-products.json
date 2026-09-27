@@ -2,48 +2,22 @@
   {
     "Sku": "PRODUCT-1",
     "Name": "Product 1",
-    "Unit": "unit",
-    "Price": 10,
-    "Attributes": {
-      "packaging": {
-        "box": {
-          "units": 20
-        },
-        "pallet": {
-          "boxes": 70,
-          "units": 1400
-        }
-      }
-    }
+    "Price": 2.85,
+    "VatRate": 24,
+    "Packaging": ["unit", "box", "pallet"]
   },
   {
     "Sku": "PRODUCT-2",
     "Name": "Product 2",
-    "Unit": "unit",
     "Price": 12.5,
-    "Attributes": {
-      "packaging": {
-        "box": {
-          "units": 20
-        },
-        "pallet": {
-          "boxes": 77,
-          "units": 1540
-        }
-      }
-    }
+    "VatRate": 24,
+    "Packaging": ["unit", "box", "pallet"]
   },
   {
     "Sku": "PRODUCT-C",
     "Name": "Product C",
-    "Unit": "unit",
     "Price": 8,
-    "Attributes": {
-      "packaging": {
-        "box": {
-          "units": 24
-        }
-      }
-    }
+    "VatRate": 24,
+    "Packaging": ["unit", "box"]
   }
 ]

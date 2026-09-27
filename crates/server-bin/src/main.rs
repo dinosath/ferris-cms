@@ -3,7 +3,9 @@ use axum_conf::Config as AxumConfig;
 use db::{connect, seed, Migrator};
 use sea_orm_migration::MigratorTrait;
 use serde::Deserialize;
-use services::{bootstrap_admin, load_schema_cache, AppConfig, ImportConfig};
+use services::{
+    bootstrap_admin, load_current_user, load_schema_cache, AppConfig, CurrentUser, ImportConfig,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -11,10 +13,71 @@ use std::sync::Arc;
 struct FerrisConfig {
     #[serde(default)]
     import: ImportConfig,
+    #[serde(default)]
+    dev: DevConfig,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct DevConfig {
+    bootstrap: DevBootstrapConfig,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(default)]
+struct DevBootstrapConfig {
+    /// Import the configured content types and data on development startup.
+    enabled: bool,
+    /// Path to a content-type bundle, relative to the process directory.
+    content_types: String,
+    /// Path to the sample data bundle, relative to the process directory.
+    data: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct DevContentBundle {
+    bootstrap: DevContentBootstrap,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
+struct DevContentBootstrap {
+    imports: Vec<DevContentImport>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DevContentImport {
+    dataset: String,
+    uid: String,
+    mapping: Vec<api_types::MappingDto>,
+    #[serde(default)]
+    match_field: Option<String>,
+}
+
+impl Default for DevBootstrapConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            content_types: String::new(),
+            data: String::new(),
+        }
+    }
 }
 
 fn load_config() -> AxumConfig<FerrisConfig> {
-    let environment = std::env::var("RUST_ENV").unwrap_or_else(|_| "prod".into());
+    // FERRISCMS_ENV is the documented/make-task setting. Keep RUST_ENV as a
+    // compatible fallback for deployments that already use it.
+    let configured_environment = std::env::var("FERRISCMS_ENV")
+        .or_else(|_| std::env::var("RUST_ENV"))
+        .unwrap_or_else(|_| "prod".into());
+    let normalized_environment = configured_environment.to_ascii_lowercase();
+    let environment = match normalized_environment.as_str() {
+        "development" => "dev".to_string(),
+        "production" => "prod".to_string(),
+        other => other.to_string(),
+    };
     match AxumConfig::<FerrisConfig>::from_toml_file(&environment) {
         Ok(config) => config,
         Err(error) => {
@@ -92,6 +155,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => tracing::warn!("admin bootstrap skipped: {e}"),
     }
 
+    if runtime_config.app.dev.bootstrap.enabled {
+        run_dev_bootstrap(&state.ctx, &runtime_config.app.dev.bootstrap).await?;
+    }
+
     let app = build_router(state);
 
     let addr: SocketAddr = std::env::var("BIND_ADDR")
@@ -113,6 +180,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+async fn first_admin(
+    ctx: &services::AppContext,
+) -> Result<CurrentUser, Box<dyn std::error::Error>> {
+    use db::entities::admin_user;
+    use db::sea_orm::{EntityTrait, QueryOrder};
+
+    let user = admin_user::Entity::find()
+        .order_by_asc(admin_user::Column::Id)
+        .one(&ctx.db)
+        .await?
+        .ok_or("development bootstrap requires a local admin user")?;
+    Ok(load_current_user(&ctx.db, user.id).await?)
 }
 
 /// Serve the app router over TLS using an X.509 cert chain + private key in PEM
@@ -147,4 +228,132 @@ mod tests {
         assert_eq!(config.app.import.json.max_file_bytes, 10 * 1024 * 1024);
         assert_eq!(config.http.full_bind_addr(), "0.0.0.0:8080");
     }
+
+    #[test]
+    fn development_config_loads_erp_bootstrap() {
+        let config =
+            AxumConfig::<FerrisConfig>::from_toml(include_str!("../../../config/dev.toml"))
+                .unwrap();
+        assert!(config.app.dev.bootstrap.enabled);
+        assert_eq!(
+            config.app.dev.bootstrap.content_types,
+            "examples/content-types/erp.json"
+        );
+        assert_eq!(
+            config.app.dev.bootstrap.data,
+            "examples/content-types/erp-sample.json"
+        );
+    }
+
+    #[tokio::test]
+    async fn development_bootstrap_imports_erp_types_and_data() {
+        let db = db::connect_sqlite_memory().await.unwrap();
+        db::Migrator::up(&db, None).await.unwrap();
+        db::seed::seed(&db).await.unwrap();
+
+        let ctx = services::AppContext::new(
+            db,
+            services::AppConfig {
+                db_driver: "sqlite".into(),
+                ..Default::default()
+            },
+        );
+        services::provision_admin(&ctx, "dev-admin", "dev-admin@ferriscms.test", "admin")
+            .await
+            .unwrap();
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let bootstrap = DevBootstrapConfig {
+            enabled: true,
+            content_types: root
+                .join("examples/content-types/erp.json")
+                .to_string_lossy()
+                .into_owned(),
+            data: root
+                .join("examples/content-types/erp-sample.json")
+                .to_string_lossy()
+                .into_owned(),
+        };
+        run_dev_bootstrap(&ctx, &bootstrap).await.unwrap();
+
+        let admin_ctx = ctx.with_user(Some(first_admin(&ctx).await.unwrap()));
+        for (uid, expected) in [
+            ("api::packaging.packaging", 3),
+            ("api::product.product", 3),
+            ("api::organization.organization", 2),
+        ] {
+            let entries = services::cm_list(&admin_ctx, uid, &api_types::QueryParams::default())
+                .await
+                .unwrap();
+            assert_eq!(entries.data.len(), expected, "unexpected rows for {uid}");
+        }
+    }
+}
+
+/// Import the configured content bundle and its optional data bootstrap for
+/// local development.
+///
+/// The import uses stable unique fields and `Upsert`, so restarting a dev
+/// server refreshes the examples instead of duplicating them. It runs with
+/// the local Super Admin identity because the regular import service enforces
+/// the same content-manager permissions as an HTTP import.
+async fn run_dev_bootstrap(
+    ctx: &services::AppContext,
+    config: &DevBootstrapConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let content_types = std::fs::read_to_string(&config.content_types)?;
+    let sample_data = std::fs::read_to_string(&config.data)?;
+    let admin = first_admin(ctx).await?;
+    let import_ctx = ctx.with_user(Some(admin));
+
+    let bundle: serde_json::Value = serde_json::from_str(&content_types)?;
+    let bootstrap: DevContentBundle = serde_json::from_value(bundle.clone())?;
+    services::ctb_import(&import_ctx, &bundle).await?;
+
+    let filename = std::path::Path::new(&config.data)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("bootstrap.json")
+        .to_string();
+    let response = services::run_import(
+        &import_ctx,
+        &api_types::ImportRequest {
+            files: bootstrap
+                .bootstrap
+                .imports
+                .into_iter()
+                .map(|import| api_types::FileImportConfig {
+                    filename: filename.clone(),
+                    dataset: import.dataset,
+                    content: sample_data.clone(),
+                    uid: import.uid,
+                    mapping: import.mapping,
+                    mode: api_types::ImportMode::Upsert,
+                    match_field: import.match_field,
+                    state_field: None,
+                    import_state: api_types::ImportState::Draft,
+                    locale_field: None,
+                    locale: "en".into(),
+                    csv_delimiter: None,
+                    csv_has_header: None,
+                })
+                .collect(),
+        },
+    )
+    .await?;
+
+    if response.failed > 0 {
+        return Err(format!(
+            "development data bootstrap failed for {} rows: {:?}",
+            response.failed, response.errors
+        )
+        .into());
+    }
+
+    tracing::info!(
+        created = response.created,
+        updated = response.updated,
+        "development content bundle and sample data loaded"
+    );
+    Ok(())
 }
