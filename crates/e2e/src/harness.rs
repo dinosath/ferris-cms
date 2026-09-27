@@ -64,6 +64,7 @@ impl E2eHarness {
             jwt_expiry_secs: 30 * 24 * 3600,
             admin_registration_open: true,
             media_storage_dir: tmp.path().join("media").display().to_string(),
+            import: Default::default(),
         };
 
         let state = Arc::new(AppState::new(dbh.clone(), config));

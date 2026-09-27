@@ -26,6 +26,7 @@ async fn app_config() -> AppConfig {
             .join("ferris-oidc-test")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

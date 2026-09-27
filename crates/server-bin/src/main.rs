@@ -1,16 +1,35 @@
 use api_rest::{build_router, AppState};
+use axum_conf::Config as AxumConfig;
 use db::{connect, seed, Migrator};
 use sea_orm_migration::MigratorTrait;
-use services::{bootstrap_admin, load_schema_cache, AppConfig};
+use serde::Deserialize;
+use services::{bootstrap_admin, load_schema_cache, AppConfig, ImportConfig};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing_subscriber::EnvFilter;
+
+#[derive(Clone, Debug, Default, Deserialize)]
+struct FerrisConfig {
+    #[serde(default)]
+    import: ImportConfig,
+}
+
+fn load_config() -> AxumConfig<FerrisConfig> {
+    let environment = std::env::var("RUST_ENV").unwrap_or_else(|_| "prod".into());
+    match AxumConfig::<FerrisConfig>::from_toml_file(&environment) {
+        Ok(config) => config,
+        Err(error) => {
+            eprintln!("could not load config/{environment}.toml ({error}); using defaults");
+            AxumConfig::<FerrisConfig>::default()
+                .with_bind_addr("0.0.0.0")
+                .with_bind_port(8080)
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
-        .init();
+    let runtime_config = load_config();
+    runtime_config.setup_tracing();
 
     // Default to a local SQLite file next to the working directory.
     // `mode=rwc` is required: without it sqlx refuses to create the file.
@@ -38,6 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         jwt_expiry_secs: 30 * 24 * 3600,
         admin_registration_open: true,
         media_storage_dir: std::env::var("MEDIA_STORAGE_DIR").unwrap_or_else(|_| "media".into()),
+        import: runtime_config.app.import.clone(),
     };
 
     let state = Arc::new(AppState::new(db.clone(), config));
@@ -75,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = build_router(state);
 
     let addr: SocketAddr = std::env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:8080".into())
+        .unwrap_or_else(|_| runtime_config.http.full_bind_addr())
         .parse()?;
 
     // Optional HTTPS: when TLS_CERT_FILE and TLS_KEY_FILE point at a cert/key
@@ -112,4 +132,19 @@ async fn serve_tls(
         .serve(app.into_make_service())
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_config_loads_json_import_settings() {
+        let config =
+            AxumConfig::<FerrisConfig>::from_toml(include_str!("../../../config/prod.toml"))
+                .unwrap();
+        assert!(config.app.import.json.enabled);
+        assert_eq!(config.app.import.json.max_file_bytes, 10 * 1024 * 1024);
+        assert_eq!(config.http.full_bind_addr(), "0.0.0.0:8080");
+    }
 }

@@ -69,6 +69,9 @@ sea-orm-migration = "2.0"
 sea-query = "1.0"
 
 axum = { version = "0.8", features = ["multipart", "macros"] }
+axum-conf = { version = "0.8.2", default-features = false, features = ["tower-http-06"] }
+axum-test = "22.0.0-rc.1"
+axum-tracing-opentelemetry = "0.39.1"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "fs", "trace", "limit"] }
 

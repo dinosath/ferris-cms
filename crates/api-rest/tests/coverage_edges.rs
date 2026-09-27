@@ -22,6 +22,7 @@ fn app_config() -> AppConfig {
             .join("ferris-edges")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

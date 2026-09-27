@@ -20,6 +20,7 @@ fn config() -> AppConfig {
             .join("ferris-sales-rest")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

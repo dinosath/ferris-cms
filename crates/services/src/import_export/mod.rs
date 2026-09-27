@@ -24,6 +24,31 @@ use crate::ServiceError;
 pub use exporter::run_export;
 pub use importer::run_import;
 
+/// Validate the configured limits for a JSON import payload.
+pub fn validate_json_import(
+    ctx: &AppContext,
+    filename: &str,
+    content: &str,
+) -> Result<(), ServiceError> {
+    if !matches!(parser::detect_format(filename, content), DataFormat::Json) {
+        return Ok(());
+    }
+
+    let config = &ctx.config.import.json;
+    if !config.enabled {
+        return Err(ServiceError::bad_payload(
+            "JSON imports are disabled by server configuration",
+        ));
+    }
+    if content.len() > config.max_file_bytes {
+        return Err(ServiceError::bad_payload(format!(
+            "JSON file exceeds the configured limit of {} bytes",
+            config.max_file_bytes
+        )));
+    }
+    Ok(())
+}
+
 /// Analyze uploaded files: parse into datasets, infer schemas, and detect the
 /// most likely target content type for each dataset.
 pub async fn analyze(
@@ -33,6 +58,7 @@ pub async fn analyze(
     let schemas = crate::content_type_builder::ctb_list(ctx).await;
     let mut datasets = Vec::new();
     for file in &req.files {
+        validate_json_import(ctx, &file.filename, &file.content)?;
         let parsed = parser::parse_content_with_csv(
             &file.filename,
             &file.content,

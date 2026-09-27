@@ -25,6 +25,7 @@ fn app_config() -> AppConfig {
             .join("ferris-workflow-test")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

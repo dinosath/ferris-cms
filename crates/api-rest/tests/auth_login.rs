@@ -29,6 +29,7 @@ fn app_config() -> AppConfig {
             .join("ferris-auth-login-test")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

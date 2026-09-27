@@ -23,6 +23,7 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
+use axum_tracing_opentelemetry::middleware::{OtelAxumLayer, OtelInResponseLayer};
 use rust_embed::RustEmbed;
 use services::{
     api_token_create, api_token_delete, api_token_list, auth_login, auth_register,
@@ -329,12 +330,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         Err(_) => router.fallback(get(embedded_ui)),
     };
 
-    router.with_state(state).layer(
-        CorsLayer::new()
-            .allow_origin(Any)
-            .allow_methods(Any)
-            .allow_headers(Any),
-    )
+    router
+        .with_state(state)
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+        .layer(OtelInResponseLayer::default())
+        .layer(OtelAxumLayer::default())
 }
 
 /// The Dioxus WASM admin UI, embedded into the binary from `crates/api-rest/ui/`.

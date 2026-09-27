@@ -1,0 +1,15 @@
+# Production defaults. Secrets and database credentials should be supplied via
+# environment variables or deployment secrets.
+[http]
+bind_addr = "0.0.0.0"
+bind_port = 8080
+max_payload_size_bytes = "16MiB"
+cors = {}
+
+[logging]
+format = "json"
+
+[import.json]
+enabled = true
+max_file_bytes = 10485760
+default_dataset = "data"

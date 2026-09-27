@@ -19,6 +19,7 @@ async fn setup() -> axum::Router {
             jwt_expiry_secs: 3600,
             admin_registration_open: true,
             media_storage_dir: std::env::temp_dir().display().to_string(),
+            import: Default::default(),
         },
     ));
     load_schema_cache(&db, &state.ctx.schema_cache)

@@ -484,10 +484,10 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                         Ok(resp) => {
                             let response_total =
                                 resp.meta.pagination.as_ref().map(|p| p.total).unwrap_or(0);
-                            let response_page_count = (response_total as f64
-                                / page_size.max(1) as f64)
-                                .ceil()
-                                .max(1.0) as i64;
+                            let response_page_count =
+                                (response_total as f64 / page_size.max(1) as f64)
+                                    .ceil()
+                                    .max(1.0) as i64;
 
                             // Counts can change between rendering the pagination controls and
                             // receiving the next page (for example after an entry is deleted).

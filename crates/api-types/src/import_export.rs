@@ -207,7 +207,9 @@ pub struct FileImportConfig {
 }
 
 fn default_dataset() -> String {
-    "data".to_string()
+    // Leave this empty so the server's configured JSON default can be applied
+    // consistently for requests that omit `dataset`.
+    String::new()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

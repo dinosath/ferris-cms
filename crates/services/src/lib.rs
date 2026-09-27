@@ -162,6 +162,46 @@ pub struct AppConfig {
     pub admin_registration_open: bool,
     /// Directory for storing uploaded media files.
     pub media_storage_dir: String,
+    /// Import behavior, including JSON file limits and dataset defaults.
+    pub import: ImportConfig,
+}
+
+/// Import configuration shared by the API and import service.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(default)]
+pub struct ImportConfig {
+    /// JSON-specific import settings.
+    pub json: JsonImportConfig,
+}
+
+impl Default for ImportConfig {
+    fn default() -> Self {
+        Self {
+            json: JsonImportConfig::default(),
+        }
+    }
+}
+
+/// Controls how JSON files are accepted by the import pipeline.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(default)]
+pub struct JsonImportConfig {
+    /// Whether JSON imports are enabled.
+    pub enabled: bool,
+    /// Maximum UTF-8 payload size accepted for one JSON file.
+    pub max_file_bytes: usize,
+    /// Dataset selected when a request does not name one explicitly.
+    pub default_dataset: String,
+}
+
+impl Default for JsonImportConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_file_bytes: 10 * 1024 * 1024,
+            default_dataset: "data".into(),
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -172,6 +212,7 @@ impl Default for AppConfig {
             jwt_expiry_secs: 30 * 24 * 3600,
             admin_registration_open: true,
             media_storage_dir: "media".into(),
+            import: ImportConfig::default(),
         }
     }
 }
@@ -247,6 +288,14 @@ impl AppContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn json_import_config_has_safe_defaults() {
+        let config = JsonImportConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.max_file_bytes, 10 * 1024 * 1024);
+        assert_eq!(config.default_dataset, "data");
+    }
 
     #[test]
     fn service_error_display_and_helpers() {

@@ -33,6 +33,7 @@ async fn app_config() -> AppConfig {
             .join("ferris-computed")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

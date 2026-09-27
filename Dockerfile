@@ -4,6 +4,7 @@ WORKDIR /app
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY config ./config
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev binaryen curl musl-tools \
@@ -35,6 +36,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM gcr.io/distroless/static-debian13 AS runtime
 
 COPY --from=builder /app/ferriscms /usr/local/bin/ferriscms
+COPY --from=builder /app/config /data/config
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 WORKDIR /data

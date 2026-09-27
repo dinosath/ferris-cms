@@ -78,6 +78,7 @@ pub async fn import_dataset(
     cfg: &FileImportConfig,
     schema: &Schema,
 ) -> Result<(ImportSummary, Vec<ImportErrorDto>), ServiceError> {
+    super::validate_json_import(ctx, &cfg.filename, &cfg.content)?;
     let parse = || {
         parser::parse_content_with_csv(
             &cfg.filename,
@@ -87,17 +88,19 @@ pub async fn import_dataset(
         )
     };
     let datasets = parse().map_err(ServiceError::Internal)?;
+    let requested_dataset = if cfg.dataset.trim().is_empty() {
+        ctx.config.import.json.default_dataset.as_str()
+    } else {
+        cfg.dataset.as_str()
+    };
     let dataset = datasets
-        .into_iter()
-        .find(|d| d.name == cfg.dataset)
-        .unwrap_or_else(|| {
-            parse()
-                .ok()
-                .and_then(|mut ds| ds.pop())
-                .unwrap_or(parser::Dataset {
-                    name: cfg.dataset.clone(),
-                    records: vec![],
-                })
+        .iter()
+        .find(|d| d.name == requested_dataset)
+        .cloned()
+        .or_else(|| datasets.first().cloned())
+        .unwrap_or(parser::Dataset {
+            name: requested_dataset.to_string(),
+            records: vec![],
         });
 
     let total = dataset.records.len();

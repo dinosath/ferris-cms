@@ -26,6 +26,7 @@ fn app_config() -> AppConfig {
             .join("ferris-deep")
             .display()
             .to_string(),
+        import: Default::default(),
     }
 }
 

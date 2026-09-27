@@ -1,0 +1,15 @@
+# Local development configuration. Environment variables such as DATABASE_URL
+# and JWT_SECRET continue to override the values read by the server directly.
+[http]
+bind_addr = "127.0.0.1"
+bind_port = 8080
+max_payload_size_bytes = "16MiB"
+cors = {}
+
+[logging]
+format = "pretty"
+
+[import.json]
+enabled = true
+max_file_bytes = 10485760
+default_dataset = "data"

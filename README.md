@@ -176,6 +176,27 @@ The records endpoint translates the saved typed filter/sort configuration
 through the existing dynamic-store query builder, so filtering, sorting, and
 pagination remain server-side and content-type RBAC still applies.
 
+### Server configuration and JSON imports
+
+The server loads `config/{RUST_ENV}.toml` through `axum-conf`; `RUST_ENV`
+defaults to `prod`. `BIND_ADDR` still overrides the configured bind address,
+and database, JWT, and media settings remain available through their existing
+environment variables.
+
+JSON imports are controlled under `[import.json]`:
+
+```toml
+[import.json]
+enabled = true
+max_file_bytes = 10485760
+default_dataset = "data"
+```
+
+JSON imports are enabled by default, limited to 10 MiB, and support either a
+top-level array or an object containing named array datasets. The import
+request's `dataset` selects a named dataset; `default_dataset` is used when it
+is omitted or empty.
+
 ---
 
 ## Running
