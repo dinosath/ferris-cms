@@ -42,6 +42,29 @@ pub enum UnOp {
     Not,
 }
 
+/// Aggregate functions that may traverse a declared relation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AggregateFunction {
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+impl AggregateFunction {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.to_ascii_uppercase().as_str() {
+            "COUNT" => Some(Self::Count),
+            "SUM" => Some(Self::Sum),
+            "AVG" => Some(Self::Avg),
+            "MIN" => Some(Self::Min),
+            "MAX" => Some(Self::Max),
+            _ => None,
+        }
+    }
+}
+
 /// A parsed computed-field expression.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
@@ -51,6 +74,17 @@ pub enum Expr {
     Str(String),
     Bool(bool),
     Null,
+    /// A relation field path used as the argument to an aggregate function.
+    RelationColumn {
+        relation: String,
+        column: String,
+    },
+    /// A persisted aggregate over a declared relation.
+    RelationAggregate {
+        relation: String,
+        column: Option<String>,
+        function: AggregateFunction,
+    },
     Binary {
         op: BinOp,
         left: Box<Expr>,
@@ -92,9 +126,86 @@ impl Expr {
                     a.collect_columns(out);
                 }
             }
-            Expr::Number(_) | Expr::Str(_) | Expr::Bool(_) | Expr::Null => {}
+            Expr::Number(_)
+            | Expr::Str(_)
+            | Expr::Bool(_)
+            | Expr::Null
+            | Expr::RelationColumn { .. }
+            | Expr::RelationAggregate { .. } => {}
         }
     }
+
+    /// Relation aggregates contained in this expression.
+    pub fn relation_aggregates(&self) -> Vec<(String, Option<String>, AggregateFunction)> {
+        let mut out = Vec::new();
+        self.collect_relation_aggregates(&mut out);
+        out
+    }
+
+    fn collect_relation_aggregates(
+        &self,
+        out: &mut Vec<(String, Option<String>, AggregateFunction)>,
+    ) {
+        match self {
+            Expr::RelationAggregate {
+                relation,
+                column,
+                function,
+            } => out.push((relation.clone(), column.clone(), *function)),
+            Expr::Binary { left, right, .. } => {
+                left.collect_relation_aggregates(out);
+                right.collect_relation_aggregates(out);
+            }
+            Expr::Unary { expr, .. } => expr.collect_relation_aggregates(out),
+            Expr::Func { args, .. } => {
+                for arg in args {
+                    arg.collect_relation_aggregates(out);
+                }
+            }
+            Expr::Column(_)
+            | Expr::Number(_)
+            | Expr::Str(_)
+            | Expr::Bool(_)
+            | Expr::Null
+            | Expr::RelationColumn { .. } => {}
+        }
+    }
+
+    pub fn has_relation_aggregate(&self) -> bool {
+        !self.relation_aggregates().is_empty()
+    }
+}
+
+/// Whether a computed field directly or transitively depends on a relation
+/// aggregate. Such a field cannot be emitted as a database generated column:
+/// portable generated-column implementations do not allow subqueries.
+pub fn computed_field_has_relation_aggregate(schema: &crate::Schema, name: &str) -> bool {
+    fn visit(schema: &crate::Schema, name: &str, visiting: &mut Vec<String>) -> bool {
+        if visiting.iter().any(|current| current == name) {
+            return false;
+        }
+        let Some(attr) = schema.attributes.get(name) else {
+            return false;
+        };
+        let Some(source) = attr.expression.as_deref() else {
+            return false;
+        };
+        let Ok(expression) = parse_expression(source) else {
+            return false;
+        };
+        if expression.has_relation_aggregate() {
+            return true;
+        }
+        visiting.push(name.to_string());
+        let result = expression
+            .columns()
+            .iter()
+            .any(|dependency| visit(schema, dependency, visiting));
+        visiting.pop();
+        result
+    }
+
+    visit(schema, name, &mut Vec::new())
 }
 
 /// Parse error with a human message and byte offset.
@@ -132,6 +243,7 @@ enum Token {
     LParen,
     RParen,
     Comma,
+    Dot,
 }
 
 impl Token {
@@ -144,6 +256,7 @@ impl Token {
             Token::LParen => "`(`".into(),
             Token::RParen => "`)`".into(),
             Token::Comma => "`,`".into(),
+            Token::Dot => "`.`".into(),
         }
     }
 }
@@ -292,6 +405,10 @@ impl<'a> Parser<'a> {
             ',' => {
                 self.pos += 1;
                 Ok(Some(Token::Comma))
+            }
+            '.' => {
+                self.pos += 1;
+                Ok(Some(Token::Dot))
             }
             _ => Err(ParseError {
                 message: format!("unexpected character `{c}`"),
@@ -447,9 +564,45 @@ impl<'a> Parser<'a> {
                             )))
                         }
                     }
+                    if let Some(function) = AggregateFunction::parse(&name) {
+                        if args.len() == 1 {
+                            match args.pop().unwrap() {
+                                Expr::RelationColumn { relation, column } => {
+                                    return Ok(Expr::RelationAggregate {
+                                        relation,
+                                        column: Some(column),
+                                        function,
+                                    });
+                                }
+                                Expr::Column(relation) if function == AggregateFunction::Count => {
+                                    return Ok(Expr::RelationAggregate {
+                                        relation,
+                                        column: None,
+                                        function,
+                                    });
+                                }
+                                other => args.push(other),
+                            }
+                        }
+                    }
                     Ok(Expr::Func {
                         name: name.to_uppercase(),
                         args,
+                    })
+                } else if matches!(self.peek(), Some(Token::Dot)) {
+                    self.bump()?;
+                    let column = match self.bump()? {
+                        Token::Ident(column) => column,
+                        other => {
+                            return Err(self.error(format!(
+                                "expected relation field after `.`, found {}",
+                                other.describe()
+                            )))
+                        }
+                    };
+                    Ok(Expr::RelationColumn {
+                        relation: name,
+                        column,
                     })
                 } else {
                     Ok(Expr::Column(name))
@@ -500,6 +653,7 @@ pub fn tokenize(input: &str) -> Result<Vec<(TokenKind, String)>, ParseError> {
             Token::LParen => (TokenKind::Punct, "(".to_string()),
             Token::RParen => (TokenKind::Punct, ")".to_string()),
             Token::Comma => (TokenKind::Punct, ",".to_string()),
+            Token::Dot => (TokenKind::Punct, ".".to_string()),
         };
         out.push(item);
     }
@@ -523,6 +677,15 @@ pub fn evaluate(
         Expr::Str(s) => Ok(Value::String(s.clone())),
         Expr::Bool(b) => Ok(Value::Bool(*b)),
         Expr::Null => Ok(Value::Null),
+        Expr::RelationColumn { relation, column } => Err(format!(
+            "relation value `{relation}.{column}` requires an aggregate"
+        )),
+        Expr::RelationAggregate {
+            relation, column, ..
+        } => Err(format!(
+            "relation aggregate `{relation}.{}` requires database rows",
+            column.as_deref().unwrap_or("*")
+        )),
         Expr::Unary { op, expr } => {
             let v = evaluate(expr, values)?;
             match op {

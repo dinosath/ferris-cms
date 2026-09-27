@@ -7,8 +7,10 @@ use crate::value::{
     api_key, attr_to_value, base_column_family, coerce_filter_value, query_rows as raw_query_rows,
 };
 use api_types::{Filter, FilterOp, QueryParams, SortField};
-use core_domain::{column_name, fk_column, FieldType, PublicationState};
-use core_schema::{Schema, SqlFamily};
+use core_domain::{
+    column_name, fk_column, relation_join_table, FieldType, PublicationState, RelationKind,
+};
+use core_schema::{AggregateFunction, Expr as FormulaExpr, Schema, SqlFamily};
 use sea_orm::{ConnectionTrait, DbBackend};
 use sea_query::{
     Alias, Asterisk, Condition, Expr, ExprTrait, Func, Order, Query, SimpleExpr, Value,
@@ -445,6 +447,254 @@ pub async fn delete_where<C: ConnectionTrait>(
         .to_owned();
     let res = db.execute(&stmt).await?;
     Ok(res.rows_affected())
+}
+
+/// Recompute persisted relation aggregates for a schema. Relation aggregates
+/// cannot be database generated columns because portable generated-column
+/// implementations cannot contain subqueries. Ferris therefore owns their
+/// persistence and refreshes them through this dialect-neutral SQL path.
+pub async fn refresh_relation_computed_fields<C: ConnectionTrait>(
+    db: &C,
+    backend: DbBackend,
+    schema: &Schema,
+    all: &[Schema],
+) -> Result<(), StoreError> {
+    let formulas: Vec<(String, FormulaExpr)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, attr)| attr.computed)
+        .filter_map(|(name, attr)| {
+            let source = attr.expression.as_deref()?;
+            let expression = core_schema::parse_expression(source).ok()?;
+            core_schema::computed_field_has_relation_aggregate(schema, name)
+                .then_some((name.clone(), expression))
+        })
+        .collect();
+    if formulas.is_empty() {
+        return Ok(());
+    }
+
+    let table = schema.table_name();
+    let values = formulas
+        .into_iter()
+        .map(|(name, expression)| {
+            let sql = render_persisted_formula(&expression, schema, all, backend)?;
+            Ok((Alias::new(column_name(&name)), Expr::cust(sql)))
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
+    let stmt = Query::update()
+        .table(Alias::new(&table))
+        .values(values)
+        .to_owned();
+    db.execute(&stmt).await?;
+    Ok(())
+}
+
+fn quote_identifier(backend: DbBackend, identifier: &str) -> String {
+    match backend {
+        DbBackend::MySql => format!("`{}`", identifier.replace('`', "``")),
+        _ => format!("\"{}\"", identifier.replace('"', "\"\"")),
+    }
+}
+
+fn qualified(backend: DbBackend, table: &str, column: &str) -> String {
+    format!(
+        "{}.{}",
+        quote_identifier(backend, table),
+        quote_identifier(backend, column)
+    )
+}
+
+fn sql_literal(_backend: DbBackend, value: &FormulaExpr) -> Result<String, StoreError> {
+    match value {
+        FormulaExpr::Number(number) => Ok(number.to_string()),
+        FormulaExpr::Str(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
+        FormulaExpr::Bool(value) => Ok(if *value { "TRUE" } else { "FALSE" }.into()),
+        FormulaExpr::Null => Ok("NULL".into()),
+        _ => Err(StoreError::Unsupported(
+            "formula literal expected a scalar value".into(),
+        )),
+    }
+}
+
+fn render_persisted_formula(
+    expression: &FormulaExpr,
+    owner: &Schema,
+    all: &[Schema],
+    backend: DbBackend,
+) -> Result<String, StoreError> {
+    let owner_table = owner.table_name();
+    match expression {
+        FormulaExpr::Column(name) => {
+            if let Some(attr) = owner.attributes.get(name) {
+                if attr.computed {
+                    if let Some(source) = attr.expression.as_deref() {
+                        let nested = core_schema::parse_expression(source).map_err(|error| {
+                            StoreError::Unsupported(format!("invalid nested formula: {error}"))
+                        })?;
+                        return Ok(format!(
+                            "({})",
+                            render_persisted_formula(&nested, owner, all, backend)?
+                        ));
+                    }
+                }
+            }
+            Ok(qualified(backend, &owner_table, &column_name(name)))
+        }
+        FormulaExpr::RelationAggregate {
+            relation,
+            column,
+            function,
+        } => render_relation_aggregate(relation, column.as_deref(), *function, owner, all, backend),
+        FormulaExpr::RelationColumn { relation, column } => Err(StoreError::Unsupported(format!(
+            "relation field {relation}.{column} is not aggregated"
+        ))),
+        FormulaExpr::Number(_) | FormulaExpr::Str(_) | FormulaExpr::Bool(_) | FormulaExpr::Null => {
+            sql_literal(backend, expression)
+        }
+        FormulaExpr::Unary { op, expr } => {
+            let inner = render_persisted_formula(expr, owner, all, backend)?;
+            Ok(match op {
+                core_schema::UnOp::Neg => format!("(-{inner})"),
+                core_schema::UnOp::Not => format!("(NOT {inner})"),
+            })
+        }
+        FormulaExpr::Binary { op, left, right } => {
+            let left = render_persisted_formula(left, owner, all, backend)?;
+            let right = render_persisted_formula(right, owner, all, backend)?;
+            let operator = match op {
+                core_schema::BinOp::Add => "+",
+                core_schema::BinOp::Sub => "-",
+                core_schema::BinOp::Mul => "*",
+                core_schema::BinOp::Div => "/",
+                core_schema::BinOp::Mod => "%",
+                core_schema::BinOp::Eq => "=",
+                core_schema::BinOp::Ne => "<>",
+                core_schema::BinOp::Lt => "<",
+                core_schema::BinOp::Lte => "<=",
+                core_schema::BinOp::Gt => ">",
+                core_schema::BinOp::Gte => ">=",
+                core_schema::BinOp::Concat => {
+                    return Ok(if backend == DbBackend::MySql {
+                        format!("CONCAT({left}, {right})")
+                    } else {
+                        format!("({left} || {right})")
+                    });
+                }
+            };
+            Ok(format!("({left} {operator} {right})"))
+        }
+        FormulaExpr::Func { name, args } => {
+            let args = args
+                .iter()
+                .map(|arg| render_persisted_formula(arg, owner, all, backend))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!("{}({})", name, args.join(", ")))
+        }
+    }
+}
+
+fn render_relation_aggregate(
+    relation: &str,
+    column: Option<&str>,
+    function: AggregateFunction,
+    owner: &Schema,
+    all: &[Schema],
+    backend: DbBackend,
+) -> Result<String, StoreError> {
+    let relation_attr = owner.attributes.get(relation).ok_or_else(|| {
+        StoreError::Unsupported(format!("unknown relation `{relation}` on {}", owner.uid))
+    })?;
+    let target_uid = relation_attr
+        .target
+        .as_ref()
+        .ok_or_else(|| StoreError::Unsupported(format!("relation `{relation}` has no target")))?;
+    let target = all
+        .iter()
+        .find(|schema| &schema.uid == target_uid)
+        .ok_or_else(|| {
+            StoreError::Unsupported(format!("relation target `{target_uid}` is not loaded"))
+        })?;
+    let target_table = target.table_name();
+    let owner_table = owner.table_name();
+    let aggregate_column = column.unwrap_or("id");
+    if aggregate_column != "id" && !target.attributes.contains_key(aggregate_column) {
+        return Err(StoreError::Unsupported(format!(
+            "unknown aggregate field `{aggregate_column}` on {}",
+            target.uid
+        )));
+    }
+    let target_column = if aggregate_column == "id" {
+        base::ID.to_string()
+    } else {
+        column_name(aggregate_column)
+    };
+    let aggregate = match function {
+        AggregateFunction::Count => format!(
+            "COUNT({})",
+            qualified(backend, &target_table, &target_column)
+        ),
+        AggregateFunction::Sum => {
+            format!("SUM({})", qualified(backend, &target_table, &target_column))
+        }
+        AggregateFunction::Avg => {
+            format!("AVG({})", qualified(backend, &target_table, &target_column))
+        }
+        AggregateFunction::Min => {
+            format!("MIN({})", qualified(backend, &target_table, &target_column))
+        }
+        AggregateFunction::Max => {
+            format!("MAX({})", qualified(backend, &target_table, &target_column))
+        }
+    };
+
+    let predicate = match relation_attr.relation.unwrap_or(RelationKind::OneWay) {
+        RelationKind::OneToMany => {
+            let inverse = relation_attr.mapped_by.as_deref().ok_or_else(|| {
+                StoreError::Unsupported(format!(
+                    "one-to-many relation `{relation}` has no mappedBy"
+                ))
+            })?;
+            format!(
+                "{} = {} AND {} IS NULL",
+                qualified(backend, &target_table, &fk_column(inverse)),
+                qualified(backend, &owner_table, base::ID),
+                qualified(backend, &target_table, base::DELETED_AT),
+            )
+        }
+        RelationKind::ManyToMany | RelationKind::ManyWay => String::new(),
+        _ => {
+            return Err(StoreError::Unsupported(format!(
+                "relation aggregate `{relation}` requires a collection relation"
+            )))
+        }
+    };
+    let source = match relation_attr.relation.unwrap_or(RelationKind::OneWay) {
+        RelationKind::ManyToMany | RelationKind::ManyWay => {
+            let join = relation_join_table(&owner_table, relation);
+            let target_join = fk_column(&target.info.singular_name);
+            format!(
+                "FROM {} JOIN {} ON {} = {} WHERE {} = {} AND {} IS NULL",
+                quote_identifier(backend, &target_table),
+                quote_identifier(backend, &join),
+                qualified(backend, &join, &target_join),
+                qualified(backend, &target_table, base::ID),
+                qualified(backend, &join, &fk_column(&owner.info.singular_name)),
+                qualified(backend, &owner_table, base::ID),
+                qualified(backend, &target_table, base::DELETED_AT),
+            )
+        }
+        _ => format!(
+            "FROM {} WHERE {}",
+            quote_identifier(backend, &target_table),
+            predicate
+        ),
+    };
+    let value = format!("(SELECT {aggregate} {source})");
+    Ok(match function {
+        AggregateFunction::Count => value,
+        _ => format!("COALESCE({value}, 0)"),
+    })
 }
 
 // ---------------------------------------------------------------------------

@@ -80,8 +80,19 @@ async fn exec_schema<C: ConnectionTrait>(
 /// - SQLite cannot add a `STORED` generated column via `ALTER TABLE`, so when a
 ///   computed column is added to an existing table it is added as `VIRTUAL`
 ///   (graceful fallback).
-fn computed_stored(backend: DbBackend, attr: &Attribute, adding_column: bool) -> Option<bool> {
+fn computed_stored(
+    backend: DbBackend,
+    schema: &Schema,
+    name: &str,
+    attr: &Attribute,
+    adding_column: bool,
+) -> Option<bool> {
     if !attr.computed {
+        return None;
+    }
+    if core_schema::computed_field_has_relation_aggregate(schema, name) {
+        // Relation aggregates are persisted Ferris-computed values. SQL
+        // generated columns cannot portably contain a subquery.
         return None;
     }
     let mut stored = attr.is_stored();
@@ -165,6 +176,11 @@ fn render_expr_impl(e: &CExpr, schema: Option<&Schema>, ph: Ph) -> SimpleExpr {
         CExpr::Str(s) => Expr::val(s.clone()),
         CExpr::Bool(b) => Expr::val(*b),
         CExpr::Null => Expr::cust("NULL"),
+        CExpr::RelationColumn { .. } | CExpr::RelationAggregate { .. } => {
+            // Relation expressions are maintained by the generic formula
+            // refresh path and are never emitted in a generated column.
+            Expr::cust("NULL")
+        }
         CExpr::Unary { op, expr } => {
             let inner = render_expr_impl(expr, schema, ph);
             match op {
@@ -255,7 +271,7 @@ fn col_def(
     // Computed/generated column: emit `GENERATED ALWAYS AS (expr) STORED|VIRTUAL`
     // (SeaQuery 1.0 renders the portable DDL). Generated columns are never
     // written by the application and are not marked NOT NULL.
-    if let Some(stored) = computed_stored(backend, attr, adding_column) {
+    if let Some(stored) = computed_stored(backend, schema, name, attr, adding_column) {
         if let Some(src) = attr.expression.as_deref() {
             match core_schema::parse_expression(src) {
                 Ok(parsed) => {

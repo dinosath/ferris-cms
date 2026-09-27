@@ -113,6 +113,18 @@ pub async fn cm_create(
 
     let row = dml::insert_one(&ctx.db, &schema, data, user_id).await?;
     persist_relations(ctx, &schema, &row, data).await?;
+    refresh_relation_computed(ctx).await?;
+    // Relation formulas are persisted by the refresh above, so reload the
+    // created row before returning it to the Content Manager/API.
+    let row = dml::find_one_by_document_id(
+        &ctx.db,
+        &schema,
+        row.get("documentId")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| ServiceError::internal("created entry has no documentId"))?,
+    )
+    .await?
+    .unwrap_or(row);
     // Fire the `content.created` trigger for active workflows (async, best-effort).
     let _ = crate::workflow::triggers::dispatch_cms_event(
         ctx,
@@ -151,6 +163,12 @@ pub async fn cm_update(
 
     let row = dml::update_one(&ctx.db, &schema, document_id, data, user_id).await?;
     persist_relations(ctx, &schema, &row, data).await?;
+    refresh_relation_computed(ctx).await?;
+    // The row returned by the scalar update predates relation-link changes and
+    // the generic persisted-formula refresh; return the saved values.
+    let row = dml::find_one_by_document_id(&ctx.db, &schema, document_id)
+        .await?
+        .unwrap_or(row);
     let _ = crate::workflow::triggers::dispatch_cms_event(
         ctx,
         "content.updated",
@@ -223,9 +241,8 @@ pub async fn persist_relations(
                 .map_err(ServiceError::from)?;
             }
             RelationKind::OneToMany => {
-                // The inverse side owns the FK. Reconcile it so an invoice form
-                // can attach, replace, or remove its lines by submitting the
-                // `lines` relation normally.
+                // The inverse side owns the FK. Reconcile it so a form can
+                // attach, replace, or remove related entries normally.
                 let Some(inverse_name) = attr.mapped_by.as_deref() else {
                     continue;
                 };
@@ -277,6 +294,24 @@ pub async fn persist_relations(
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// Refresh all persisted relation formulas after a content or relation
+/// mutation. The formula definitions live in schemas; this service merely
+/// coordinates the generic store refresh across the loaded content types.
+pub async fn refresh_relation_computed(ctx: &AppContext) -> Result<(), ServiceError> {
+    let schemas = ctx.schema_cache.get_all();
+    for schema in &schemas {
+        dynamic_store::dml::refresh_relation_computed_fields(
+            &ctx.db,
+            ctx.db_backend(),
+            schema,
+            &schemas,
+        )
+        .await
+        .map_err(ServiceError::from)?;
     }
     Ok(())
 }
@@ -508,6 +543,7 @@ pub async fn cm_delete(ctx: &AppContext, uid: &str, document_id: &str) -> Result
     .await?;
 
     dml::delete_one(&ctx.db, &schema, document_id).await?;
+    refresh_relation_computed(ctx).await?;
     let _ = crate::workflow::triggers::dispatch_cms_event(
         ctx,
         "content.deleted",

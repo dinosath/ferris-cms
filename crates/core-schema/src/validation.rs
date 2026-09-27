@@ -217,11 +217,62 @@ fn validate_computed(schema: &Schema, errors: &mut Vec<FieldError>) {
                         _ => {}
                     }
                 }
+                validate_relation_expression(&expr, &path, schema, errors);
             }
         }
     }
 
     detect_computed_cycles(schema, &base, errors);
+}
+
+fn validate_relation_expression(
+    expr: &crate::Expr,
+    path: &str,
+    schema: &Schema,
+    errors: &mut Vec<FieldError>,
+) {
+    match expr {
+        crate::Expr::RelationAggregate {
+            relation, column, ..
+        } => match schema.attributes.get(relation) {
+            None => errors.push(FieldError::new(
+                format!("{path}.expression"),
+                "missing-relation",
+                format!("expression references unknown relation `{relation}`"),
+            )),
+            Some(attr) if attr.attr_type != FieldType::Relation => errors.push(FieldError::new(
+                format!("{path}.expression"),
+                "invalid-relation",
+                format!("relation {relation} is not a relation"),
+            )),
+            Some(_) if column.as_deref() == Some("") => errors.push(FieldError::new(
+                format!("{path}.expression"),
+                "missing-relation-field",
+                "relation aggregate requires a target field",
+            )),
+            Some(_) => {}
+        },
+        crate::Expr::RelationColumn { relation, column } => errors.push(FieldError::new(
+            format!("{path}.expression"),
+            "invalid-relation-expression",
+            format!("relation field {relation}.{column} must be inside an aggregate"),
+        )),
+        crate::Expr::Binary { left, right, .. } => {
+            validate_relation_expression(left, path, schema, errors);
+            validate_relation_expression(right, path, schema, errors);
+        }
+        crate::Expr::Unary { expr, .. } => validate_relation_expression(expr, path, schema, errors),
+        crate::Expr::Func { args, .. } => {
+            for arg in args {
+                validate_relation_expression(arg, path, schema, errors);
+            }
+        }
+        crate::Expr::Column(_)
+        | crate::Expr::Number(_)
+        | crate::Expr::Str(_)
+        | crate::Expr::Bool(_)
+        | crate::Expr::Null => {}
+    }
 }
 
 /// Kahn's algorithm over the computed-field dependency graph; any nodes left

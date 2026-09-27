@@ -1045,11 +1045,15 @@
                 },
                 "pre_discount_amount": {
                     "type": "decimal",
-                    "default": 0
+                    "computed": true,
+                    "expression": "ROUND(SUM(lines.pre_discount_amount), 2)",
+                    "stored": true
                 },
                 "net_amount": {
                     "type": "decimal",
-                    "default": 0
+                    "computed": true,
+                    "expression": "ROUND(SUM(lines.net_amount), 2)",
+                    "stored": true
                 },
                 "charges_amount": {
                     "type": "decimal",
@@ -1065,11 +1069,21 @@
                 },
                 "discount_amount": {
                     "type": "decimal",
-                    "default": 0
+                    "computed": true,
+                    "expression": "ROUND(SUM(lines.discount_amount), 2)",
+                    "stored": true
                 },
                 "total_amount": {
                     "type": "decimal",
-                    "default": 0
+                    "computed": true,
+                    "expression": "ROUND(COALESCE(net_amount, 0) + COALESCE(charges_amount, 0) + COALESCE(vat_amount, 0) + COALESCE(tax_amount, 0), 2)",
+                    "stored": true,
+                    "dependencies": [
+                        "net_amount",
+                        "charges_amount",
+                        "vat_amount",
+                        "tax_amount"
+                    ]
                 },
                 "withholding_amount": {
                     "type": "decimal",
@@ -1077,7 +1091,13 @@
                 },
                 "payable_amount": {
                     "type": "decimal",
-                    "default": 0
+                    "computed": true,
+                    "expression": "ROUND(COALESCE(total_amount, 0) - COALESCE(withholding_amount, 0), 2)",
+                    "stored": true,
+                    "dependencies": [
+                        "total_amount",
+                        "withholding_amount"
+                    ]
                 },
                 "amount_paid": {
                     "type": "decimal",

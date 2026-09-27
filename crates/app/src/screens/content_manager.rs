@@ -14,7 +14,7 @@ use ui::design::tokens::{color, typography};
 use crate::app::{use_global, Route};
 use crate::components::{
     Badge, Button, Checkbox, ConfirmDialog, Dropdown, EmptyState, IconButton, Modal, Pagination,
-    Spinner, StatusIndicator, TextField, Toggle,
+    Spinner, StatusIndicator, TextArea, TextField, Toggle,
 };
 
 /// Marker document id used for a brand-new entry in the edit view.
@@ -55,6 +55,37 @@ fn saved_filter(filters: &[(String, String, String)]) -> Option<api_types::Filte
         1 => leaves.into_iter().next(),
         _ => Some(api_types::Filter::And(leaves)),
     }
+}
+
+/// Turn a saved filter back into the compact chips used by the Content Manager.
+/// Complex OR/NOT filters stay server-side; the editor only exposes the safe,
+/// repeatable AND/leaf form it can round-trip without losing meaning.
+fn filter_conditions(filter: Option<&api_types::Filter>) -> Vec<(String, String, String)> {
+    fn flatten(filter: &api_types::Filter, out: &mut Vec<(String, String, String)>) {
+        match filter {
+            api_types::Filter::And(items) => {
+                for item in items {
+                    flatten(item, out);
+                }
+            }
+            api_types::Filter::Leaf { field, op, values } => {
+                let operator = match op {
+                    api_types::FilterOp::Ne => "neq",
+                    api_types::FilterOp::ContainsI | api_types::FilterOp::Contains => "contains",
+                    _ => "eq",
+                };
+                let value = values.first().map(display_value).unwrap_or_default();
+                out.push((field.clone(), operator.into(), value));
+            }
+            api_types::Filter::Or(_) | api_types::Filter::Not(_) => {}
+        }
+    }
+
+    let mut out = Vec::new();
+    if let Some(filter) = filter {
+        flatten(filter, &mut out);
+    }
+    out
 }
 
 /// A comparable sort key for an entry column. `"state"` maps to publication
@@ -404,7 +435,6 @@ pub fn ContentManagerEntries(uid: String) -> Element {
     let mut sort_asc = use_signal(|| true);
     let mut selected_ids = use_signal(Vec::<String>::new);
     let mut status = use_signal(|| None::<String>);
-    let mut configuring = use_signal(|| false);
     let mut pending_delete = use_signal(|| None::<String>);
     let mut load_req = use_signal(|| 1u32);
     let mut views = use_signal(Vec::<api_types::admin::ContentTypeView>::new);
@@ -443,12 +473,28 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                         g.ct_names.set(names);
                         sc.set(schemas_vec);
                         if let Ok(saved_views) = g.client.cm_views(&view_uid).await {
-                            let selected = saved_views
+                            let selected_view = saved_views
                                 .iter()
                                 .find(|v| v.is_default)
-                                .or_else(|| saved_views.first())
-                                .map(|v| v.id);
-                            active_view_id.set(selected);
+                                .or_else(|| saved_views.first());
+                            filters.set(
+                                selected_view
+                                    .map(|v| filter_conditions(v.configuration.filters.as_ref()))
+                                    .unwrap_or_default(),
+                            );
+                            if let Some(view) = selected_view {
+                                if let Some(sort) = view.configuration.sorts.first() {
+                                    sort_field.set(sort.field.clone());
+                                    sort_asc.set(!sort.descending);
+                                } else {
+                                    sort_field.set(String::new());
+                                    sort_asc.set(true);
+                                }
+                                if let Some(size) = view.configuration.page_size {
+                                    page_size.set(size as i64);
+                                }
+                            }
+                            active_view_id.set(selected_view.map(|v| v.id));
                             views.set(saved_views);
                         }
                     }
@@ -533,7 +579,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                 .map(|c| c.position)
                 .unwrap_or(u32::MAX)
         });
-        if configured.is_empty() {
+        if view.configuration.columns.is_empty() {
             schema.as_ref().map(entry_columns).unwrap_or_default()
         } else {
             configured
@@ -555,6 +601,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
         .iter()
         .find(|v| Some(v.id) == active_view_id())
         .cloned();
+    let view_options_for_select = view_options.clone();
     let active_view_type = active_view
         .as_ref()
         .map(|v| v.view_type)
@@ -748,7 +795,21 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     div { style: "display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid {color::NEUTRAL_200}; border-radius:6px; background:#fff;",
                         span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "View" }
                         select { style: "border:0; background:transparent; font-weight:600; color:{color::NEUTRAL_800};", value: "{active_view_id().unwrap_or_default()}", onchange: move |event| {
-                            if let Ok(id) = event.value().parse::<i64>() { active_view_id.set(Some(id)); load_req.set(load_req() + 1); }
+                            if let Ok(id) = event.value().parse::<i64>() {
+                                active_view_id.set(Some(id));
+                                if let Some(view) = view_options_for_select.iter().find(|v| v.id == id) {
+                                    filters.set(filter_conditions(view.configuration.filters.as_ref()));
+                                    if let Some(sort) = view.configuration.sorts.first() {
+                                        sort_field.set(sort.field.clone());
+                                        sort_asc.set(!sort.descending);
+                                    } else {
+                                        sort_field.set(String::new());
+                                        sort_asc.set(true);
+                                    }
+                                    page_size.set(view.configuration.page_size.unwrap_or(10) as i64);
+                                }
+                                load_req.set(load_req() + 1);
+                            }
                         },
                             for view in view_options.iter() { option { value: "{view.id}", selected: Some(view.id) == active_view_id(), "{view.name}" } }
                         }
@@ -759,7 +820,9 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     TextField { value: search(), label: String::new(), placeholder: "Search entries".to_string(), oninput: move |v| search.set(v) }
                 }
                 Button { label: "Filters".to_string(), variant: "secondary".to_string(), on_click: move |_| filter_open.set(true) }
-                Button { label: "Configure the view".to_string(), variant: "secondary".to_string(), on_click: move |_| configuring.set(true) }
+                if let Some(view) = active_view.clone() {
+                    Button { label: "Customize view".to_string(), variant: "secondary".to_string(), on_click: move |_| view_settings.set(Some(view.id)) }
+                }
             }
 
             if view_options.len() > 1 {
@@ -773,6 +836,9 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                             let text_color = if selected { color::PRIMARY_700 } else { color::NEUTRAL_700 };
                             let font_weight = if selected { "600" } else { "400" };
                             let id = view.id;
+                            let view_filter = view.configuration.filters.clone();
+                            let view_sort = view.configuration.sorts.first().cloned();
+                            let view_page_size = view.configuration.page_size;
                             let mut active = active_view_id;
                             let mut reload = load_req;
                             let mut settings = view_settings;
@@ -783,7 +849,7 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                             let order_ids: Vec<i64> = view_options.iter().map(|v| v.id).collect();
                             rsx! {
                                 div { style: "display:flex; align-items:center; gap:4px; padding:4px 6px 4px 10px; border:1px solid {border}; border-radius:6px; background:{background}; white-space:nowrap;",
-                                    button { style: "border:0; background:none; cursor:pointer; color:{text_color}; font-weight:{font_weight};", onclick: move |_| { active.set(Some(id)); reload.set(reload() + 1); }, "{view.name}" }
+                                    button { style: "border:0; background:none; cursor:pointer; color:{text_color}; font-weight:{font_weight};", onclick: move |_| { active.set(Some(id)); filters.set(filter_conditions(view_filter.as_ref())); if let Some(sort) = &view_sort { sort_field.set(sort.field.clone()); sort_asc.set(!sort.descending); } else { sort_field.set(String::new()); sort_asc.set(true); } page_size.set(view_page_size.unwrap_or(10) as i64); reload.set(reload() + 1); }, "{view.name}" }
                                     button { style: "border:0; background:none; cursor:pointer; color:{color::NEUTRAL_500};", title: "View settings", onclick: move |_| settings.set(Some(id)), "⋮" }
                                     if view.is_default { span { style: "font-size:11px; color:{color::SUCCESS_600};", "default" } }
                                     if !view.is_default { button { style: "border:0; background:none; cursor:pointer; font-size:11px; color:{color::NEUTRAL_500};", title: "Set as default", onclick: move |_| { let g = g.clone(); let uid = uid_for_action.clone(); let mut list = view_list; spawn(async move { if g.client.cm_view_set_default(&uid, id).await.is_ok() { if let Ok(vs) = g.client.cm_views(&uid).await { list.set(vs); } } }); }, "Set default" } }
@@ -913,15 +979,6 @@ pub fn ContentManagerEntries(uid: String) -> Element {
             }
         }
 
-        if configuring() {
-            if let Some(schema) = &schema {
-                ConfigureViewModal {
-                    uid: schema.uid.as_str().to_string(),
-                    on_close: move |_| configuring.set(false),
-                }
-            }
-        }
-
         if let Some(del_id) = pending_delete() {
             DeleteConfirmDialog {
                 del_id,
@@ -954,7 +1011,19 @@ pub fn ContentManagerEntries(uid: String) -> Element {
                     view,
                     fields: schema.as_ref().map(|s| s.attributes.keys().cloned().collect()).unwrap_or_default(),
                     on_close: move |_| view_settings.set(None),
-                    on_saved: move |_| { view_settings.set(None); load_req.set(load_req() + 1); },
+                    on_saved: move |saved: api_types::admin::ContentTypeView| {
+                        let saved_id = saved.id;
+                        let mut updated = views();
+                        if let Some(existing) = updated.iter_mut().find(|v| v.id == saved_id) {
+                            *existing = saved;
+                        }
+                        if let Some(saved_view) = updated.iter().find(|v| v.id == saved_id) {
+                            page_size.set(saved_view.configuration.page_size.unwrap_or(10) as i64);
+                        }
+                        views.set(updated);
+                        view_settings.set(None);
+                        load_req.set(load_req() + 1);
+                    },
                 }
             }
         }
@@ -981,6 +1050,17 @@ fn display_value(v: &serde_json::Value) -> String {
         serde_json::Value::Null => "—".to_string(),
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+/// Convert a JSON value into the value used by ordinary form controls.
+/// Numeric computed fields must remain visible in their normal number input
+/// instead of being treated as an empty string.
+fn input_value(v: Option<&serde_json::Value>) -> String {
+    match v {
+        None | Some(serde_json::Value::Null) => String::new(),
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(other) => other.to_string(),
     }
 }
 
@@ -1170,24 +1250,98 @@ fn ViewSettingsModal(
     view: api_types::admin::ContentTypeView,
     fields: Vec<String>,
     on_close: EventHandler<()>,
-    on_saved: EventHandler<()>,
+    on_saved: EventHandler<api_types::admin::ContentTypeView>,
 ) -> Element {
     let global = use_global();
     let mut name = use_signal(|| view.name.clone());
+    let mut description = use_signal(|| view.description.clone().unwrap_or_default());
+    let mut view_type = use_signal(|| view.view_type);
     let mut config = use_signal(|| view.configuration.clone());
     let mut status = use_signal(|| None::<String>);
     let id = view.id;
+    let mut ordered_columns = config().columns.clone();
+    ordered_columns.sort_by_key(|column| column.position);
+    let configured_fields: Vec<String> = ordered_columns
+        .iter()
+        .map(|column| column.field_id.clone())
+        .collect();
+    let mut sort_options = vec![
+        (String::new(), "No saved sort".to_string()),
+        ("id".to_string(), "ID".to_string()),
+        ("documentId".to_string(), "Document ID".to_string()),
+        ("createdAt".to_string(), "Created at".to_string()),
+        ("updatedAt".to_string(), "Updated at".to_string()),
+    ];
+    for field in &fields {
+        if !sort_options.iter().any(|(value, _)| value == field) {
+            sort_options.push((field.clone(), field.clone()));
+        }
+    }
+    let saved_sort = config().sorts.first().cloned();
+    let sort_field = saved_sort
+        .as_ref()
+        .map(|sort| sort.field.clone())
+        .unwrap_or_default();
+    let sort_direction = saved_sort
+        .as_ref()
+        .map(|sort| sort.descending)
+        .unwrap_or(false);
+    let group_options: Vec<(String, String)> =
+        std::iter::once((String::new(), "No grouping".to_string()))
+            .chain(fields.iter().map(|field| (field.clone(), field.clone())))
+            .collect();
+    let group_by = config().group_by.clone().unwrap_or_default();
     rsx! {
-        Modal { title: format!("Settings · {}", view.name), width: 640, on_close: move |_| on_close.call(()),
+        Modal { title: format!("Customize view · {}", view.name), width: 780, on_close: move |_| on_close.call(()),
             if let Some(message) = status() { div { style: "color:{color::DANGER_600}; padding-bottom:10px;", "{message}" } }
-            TextField { value: name(), label: "Name".to_string(), oninput: move |v| name.set(v) }
-            div { style: "margin-top:16px; font-weight:600; color:{color::NEUTRAL_800};", "Fields" }
-            div { style: "display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:8px;",
-                for field in fields.iter() {
-                    { let field_name = field.clone(); let checked = config().columns.iter().find(|c| c.field_id == *field).map(|c| c.visible).unwrap_or(false); rsx! { label { style: "display:flex; gap:8px; align-items:center; color:{color::NEUTRAL_700};", input { r#type: "checkbox", checked: checked, onchange: move |event| { let mut c = config(); if let Some(column) = c.columns.iter_mut().find(|x| x.field_id == field_name) { column.visible = event.checked(); } else { c.columns.push(api_types::admin::ViewColumn { field_id: field_name.clone(), visible: event.checked(), width: None, position: c.columns.len() as u32 }); } config.set(c); } } "{field}" } } }
+            div { style: "display:grid; grid-template-columns:1fr 1fr; gap:14px;",
+                TextField { value: name(), label: "View name".to_string(), oninput: move |v| name.set(v) }
+                Dropdown {
+                    label: "Layout".to_string(),
+                    options: vec![("grid".into(), "Grid".into()), ("kanban".into(), "Kanban".into()), ("gallery".into(), "Gallery".into()), ("calendar".into(), "Calendar".into())],
+                    value: match view_type() { api_types::admin::ViewType::Grid => "grid", api_types::admin::ViewType::Kanban => "kanban", api_types::admin::ViewType::Gallery => "gallery", api_types::admin::ViewType::Calendar => "calendar" }.to_string(),
+                    onchange: move |v: String| view_type.set(match v.as_str() { "kanban" => api_types::admin::ViewType::Kanban, "gallery" => api_types::admin::ViewType::Gallery, "calendar" => api_types::admin::ViewType::Calendar, _ => api_types::admin::ViewType::Grid }),
                 }
             }
-            div { style: "display:flex; justify-content:flex-end; gap:10px; margin-top:20px;", Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }, Button { label: "Save changes".to_string(), on_click: move |_| { let g = global.clone(); let uid = uid.clone(); let req = api_types::admin::UpdateContentTypeViewRequest { name: Some(name()), description: None, view_type: None, configuration: Some(config()) }; spawn(async move { match g.client.cm_view_update(&uid, id, &req).await { Ok(_) => on_saved.call(()), Err(e) => status.set(Some(e.to_string())) } }); } } }
+            TextArea { value: description(), label: "Description".to_string(), placeholder: "Explain when this view is useful".to_string(), rows: 2, oninput: move |v| description.set(v) }
+            div { style: "margin-top:18px; padding:16px; background:{color::NEUTRAL_50}; border:1px solid {color::NEUTRAL_150}; border-radius:6px;",
+                div { style: "font-size:{typography::BODY_BOLD_SIZE}; color:{color::NEUTRAL_900};", "Columns" }
+                div { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; margin:4px 0 12px;", "Choose what appears and arrange its order." }
+                for (index, column) in ordered_columns.iter().enumerate() {
+                    {
+                        let field_name = column.field_id.clone();
+                        let checkbox_field = field_name.clone();
+                        let width_field = field_name.clone();
+                        let visible = column.visible;
+                        let width = column.width.map(|width| width.to_string()).unwrap_or_default();
+                        let can_move_up = index > 0;
+                        let can_move_down = index + 1 < ordered_columns.len();
+                        rsx! {
+                            div { key: "view-column-{field_name}", style: "display:grid; grid-template-columns:28px minmax(0,1fr) 92px 74px; align-items:center; gap:10px; padding:8px 0; border-top:1px solid {color::NEUTRAL_150};",
+                                input { r#type: "checkbox", checked: visible, aria_label: "Show {field_name}", onchange: move |event| { let mut next = config(); if let Some(column) = next.columns.iter_mut().find(|column| column.field_id == checkbox_field) { column.visible = event.checked(); } config.set(next); } }
+                                span { style: "color:{color::NEUTRAL_800};", "{field_name}" }
+                                input { class: "input", r#type: "number", min: "80", max: "600", value: "{width}", placeholder: "Auto", aria_label: "Width for {field_name}", oninput: move |event| { let mut next = config(); if let Some(column) = next.columns.iter_mut().find(|column| column.field_id == width_field) { column.width = event.value().parse::<u32>().ok(); } config.set(next); } }
+                                div { style: "display:flex; gap:4px; justify-content:flex-end;",
+                                    button { r#type: "button", disabled: !can_move_up, aria_label: "Move column up", style: "border:1px solid {color::NEUTRAL_200}; background:{color::NEUTRAL_0}; border-radius:4px; cursor:pointer; padding:3px 7px;", onclick: move |_| { if can_move_up { let mut next = config(); next.columns.sort_by_key(|column| column.position); next.columns.swap(index, index - 1); for (position, column) in next.columns.iter_mut().enumerate() { column.position = position as u32; } config.set(next); } }, "↑" }
+                                    button { r#type: "button", disabled: !can_move_down, aria_label: "Move column down", style: "border:1px solid {color::NEUTRAL_200}; background:{color::NEUTRAL_0}; border-radius:4px; cursor:pointer; padding:3px 7px;", onclick: move |_| { if can_move_down { let mut next = config(); next.columns.sort_by_key(|column| column.position); next.columns.swap(index, index + 1); for (position, column) in next.columns.iter_mut().enumerate() { column.position = position as u32; } config.set(next); } }, "↓" }
+                                }
+                            }
+                        }
+                    }
+                }
+                div { style: "display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;",
+                    for field in fields.iter().filter(|field| !configured_fields.contains(field)) {
+                        { let field_name = field.clone(); rsx! { button { r#type: "button", style: "border:1px dashed {color::NEUTRAL_300}; background:{color::NEUTRAL_0}; color:{color::NEUTRAL_700}; border-radius:4px; padding:6px 10px; cursor:pointer;", onclick: move |_| { let mut next = config(); let position = next.columns.len() as u32; next.columns.push(api_types::admin::ViewColumn { field_id: field_name.clone(), visible: true, width: None, position }); config.set(next); }, "+ {field}" } } }
+                    }
+                }
+            }
+            div { style: "display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px;",
+                Dropdown { label: "Group records by".to_string(), options: group_options, value: group_by, onchange: move |v: String| { let mut next = config(); next.group_by = if v.is_empty() { None } else { Some(v) }; config.set(next); } }
+                Dropdown { label: "Sort by".to_string(), options: sort_options, value: sort_field, onchange: move |v: String| { let mut next = config(); next.sorts = if v.is_empty() { Vec::new() } else { vec![api_types::SortField { field: v, descending: sort_direction }] }; config.set(next); } }
+                Dropdown { label: "Sort direction".to_string(), options: vec![("asc".into(), "Ascending".into()), ("desc".into(), "Descending".into())], value: if sort_direction { "desc".to_string() } else { "asc".to_string() }, onchange: move |v: String| { let mut next = config(); if let Some(sort) = next.sorts.first_mut() { sort.descending = v == "desc"; } config.set(next); } }
+                Dropdown { label: "Rows per page".to_string(), options: vec![("10".into(), "10".into()), ("25".into(), "25".into()), ("50".into(), "50".into()), ("100".into(), "100".into())], value: config().page_size.unwrap_or(25).to_string(), onchange: move |v: String| { let mut next = config(); next.page_size = v.parse::<u32>().ok(); config.set(next); } }
+            }
+            div { style: "display:flex; justify-content:flex-end; gap:10px; margin-top:22px;", Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }, Button { label: "Save view".to_string(), on_click: move |_| { let g = global.clone(); let uid = uid.clone(); let mut next = config(); next.columns.sort_by_key(|column| column.position); for (position, column) in next.columns.iter_mut().enumerate() { column.position = position as u32; } let request = api_types::admin::UpdateContentTypeViewRequest { name: Some(name()), description: Some(description()), view_type: Some(view_type()), configuration: Some(next) }; spawn(async move { match g.client.cm_view_update(&uid, id, &request).await { Ok(saved) => on_saved.call(saved), Err(e) => status.set(Some(e.to_string())) } }); } } }
         }
     }
 }
@@ -1579,100 +1733,6 @@ fn DeleteConfirmDialog(
     }
 }
 
-/// Content Manager list-view configuration modal (design doc §6.5).
-/// Loads the current configuration and lets the user choose which columns to
-/// display and the page size, then persists via PUT.
-#[component]
-fn ConfigureViewModal(uid: String, on_close: EventHandler<()>) -> Element {
-    let global = use_global();
-    let mut config = use_signal(|| None::<api_types::admin::ViewConfiguration>);
-    let mut status = use_signal(|| None::<String>);
-
-    let g_load = global.clone();
-    let uid_load = uid.clone();
-    use_effect(move || {
-        if config().is_none() {
-            let g = g_load.clone();
-            let uid = uid_load.clone();
-            spawn(async move {
-                match g.client.cm_get_configuration(&uid).await {
-                    Ok(v) => {
-                        if let Ok(c) = serde_json::from_value(
-                            v.get("data").cloned().unwrap_or(serde_json::Value::Null),
-                        ) {
-                            config.set(Some(c));
-                        }
-                    }
-                    Err(e) => status.set(Some(format!("Failed to load config: {e}"))),
-                }
-            });
-        }
-    });
-
-    let label_style = format!(
-        "font-size:{}; font-weight:600; color:{};",
-        typography::LABEL_SIZE,
-        color::NEUTRAL_700
-    );
-    let status_style = format!("padding:12px; margin-bottom:12px; border-radius:4px; background:{}; color:{}; font-size:{};", color::WARNING_100, color::WARNING_700, typography::BODY_SIZE);
-    let g_save = global.clone();
-    let uid_save = uid.clone();
-    let page_size = config().as_ref().map(|c| c.settings.page_size);
-    let cols = config().as_ref().map(|c| c.layouts.list.clone());
-    let ps = page_size.unwrap_or(10);
-    let col_list = cols.unwrap_or_default();
-
-    rsx! {
-        Modal { title: "Configure the view".to_string(), width: 720, on_close: move |_| on_close.call(()),
-            if config().is_some() {
-                div { style: "display:flex; flex-direction:column; gap:16px;",
-                    if let Some(status) = status() {
-                        div { style: "{status_style}", "{status}" }
-                    }
-                    div { style: "display:flex; flex-direction:column; gap:6px;",
-                        span { style: "{label_style}", "Entries per page" }
-                        select { style: "padding:8px 16px; border:1px solid {color::NEUTRAL_200}; border-radius:4px;",
-                            value: "{ps}",
-                            onchange: move |e| {
-                                if let Ok(v) = e.value().parse::<i64>() {
-                                    if let Some(c) = config().as_mut() { c.settings.page_size = v; }
-                                }
-                            },
-                            for n in [10, 25, 50, 100] {
-                                option { value: "{n}", "{n}" }
-                            }
-                        }
-                    }
-                    div { style: "display:flex; flex-direction:column; gap:6px;",
-                        span { style: "{label_style}", "Displayed columns" }
-                        for col in col_list.clone().into_iter() {
-                            div { style: "display:flex; align-items:center; gap:8px; font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_700};",
-                                input { r#type: "checkbox", checked: true, onchange: move |_| {} }
-                                span { "{col}" }
-                            }
-                        }
-                    }
-                    div { style: "display:flex; justify-content:flex-end; gap:12px; padding-top:8px;",
-                        Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| on_close.call(()) }
-                        Button { label: "Save".to_string(), variant: "primary".to_string(), on_click: move |_| {
-                            if let Some(cfg) = config() {
-                                let g = g_save.clone();
-                                let uid = uid_save.clone();
-                                spawn(async move {
-                                    let _ = g.client.cm_update_configuration(&uid, &cfg).await;
-                                });
-                            }
-                            on_close.call(());
-                        } }
-                    }
-                }
-            } else {
-                div { style: "padding:32px; text-align:center; color:{color::NEUTRAL_500};", "Loading…" }
-            }
-        }
-    }
-}
-
 /// Schema-driven form for creating or editing a single entry.
 /// `document_id == NEW_ENTRY` means create; otherwise update.
 #[component]
@@ -1715,8 +1775,6 @@ fn EntryEditView(
         .iter()
         .filter(|(_, a)| a.attr_type.is_scalar_column())
         .filter(|(_, a)| a.attr_type != FieldType::Password)
-        // Computed fields are database-generated and read-only; rendered below.
-        .filter(|(_, a)| !a.computed)
         .map(|(name, a)| (name.clone(), a.attr_type, a.enum_values.clone(), a.clone()))
         .collect();
 
@@ -1756,22 +1814,8 @@ fn EntryEditView(
         .map(|(name, a)| (name.clone(), a.clone()))
         .collect();
 
-    // Computed fields: shown read-only and stripped from the save payload.
-    let computed_fields: Vec<(String, FieldType, Option<String>, String, serde_json::Value)> =
-        schema
-            .attributes
-            .iter()
-            .filter(|(_, a)| a.computed)
-            .map(|(name, a)| {
-                (
-                    name.clone(),
-                    a.attr_type,
-                    a.expression.clone(),
-                    if a.is_stored() { "stored" } else { "virtual" }.to_string(),
-                    form().get(name).cloned().unwrap_or(serde_json::Value::Null),
-                )
-            })
-            .collect();
+    // Computed fields use the same controls as ordinary scalar fields, but
+    // are disabled and stripped from the save payload.
     let computed_names: Vec<String> = schema
         .attributes
         .iter()
@@ -1907,6 +1951,7 @@ fn EntryEditView(
                                         Toggle {
                                             checked: form().get(&name).and_then(|v| v.as_bool()).unwrap_or(false),
                                             label: name.clone(),
+                                            disabled: attr.computed,
                                             onchange: move |v| { form.write().insert(name.clone(), serde_json::Value::Bool(v)); }
                                         }
                                     }
@@ -1915,14 +1960,16 @@ fn EntryEditView(
                                     Dropdown {
                                         label: name.clone(),
                                         options: enum_values.iter().map(|e| (e.clone(), e.clone())).collect(),
-                                        value: form().get(&name).and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                                        value: input_value(form().get(&name)),
+                                        disabled: attr.computed,
                                         onchange: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
                                     }
                                 },
                                 _ => rsx! {
                                     TextField {
                                         label: name.clone(),
-                                        value: form().get(&name).and_then(|v| v.as_str()).map(|s| s.to_string()).unwrap_or_default(),
+                                        value: input_value(form().get(&name)),
+                                        disabled: attr.computed,
                                         oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
                                     }
                                 },
@@ -1965,24 +2012,6 @@ fn EntryEditView(
                                     label: String::new(),
                                     placeholder: "Dynamic zone entries (JSON)".to_string(),
                                     oninput: move |v| { form.write().insert(name.clone(), serde_json::Value::String(v)); }
-                                }
-                            }
-                        }
-                        if !computed_fields.is_empty() {
-                            div { style: "margin-top:24px; border-top:1px solid {color::NEUTRAL_150}; padding-top:16px;",
-                                div { style: "font-size:{typography::EPSILON_SIZE}; font-weight:600; color:{color::NEUTRAL_900}; margin-bottom:12px;", "Computed fields" }
-                                for (name, ft, expr, storage, value) in computed_fields.into_iter() {
-                                    div { key: "computed-{name}", style: "margin-bottom:12px; padding:12px; border:1px solid {color::NEUTRAL_150}; border-radius:4px; background:{color::NEUTRAL_50};",
-                                        div { style: "display:flex; align-items:center; gap:8px; flex-wrap:wrap;",
-                                            span { style: "color:{color::PRIMARY_600}; font-weight:700;", "ƒ" }
-                                            span { style: "font-weight:600; color:{color::NEUTRAL_800};", "{name}" }
-                                            span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500};", "{ft:?} · {storage} · read-only" }
-                                        }
-                                        if let Some(expr) = expr {
-                                            div { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; margin-top:4px;", "= {expr}" }
-                                        }
-                                        div { style: "font-size:{typography::BODY_SIZE}; color:{color::NEUTRAL_900}; margin-top:6px;", "{display_value(&value)}" }
-                                    }
                                 }
                             }
                         }
