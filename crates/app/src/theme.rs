@@ -172,6 +172,7 @@ html, body {{ margin:0; min-width:0; }}
 .cm-form-title {{ margin:0 0 18px; font-size:15px; font-weight:600; color:{neutral800}; }}
 .cm-field-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:24px; row-gap:0; }}
 .cm-field-grid .field {{ min-width:0; }}
+.cm-form-section, .cm-relation-field {{ grid-column:1 / -1; }}
 .cm-form-section {{ margin-top:24px; padding-top:20px; border-top:1px solid {neutral150}; }}
 .cm-info-card {{ padding:20px; background:#fff; border:1px solid {neutral150}; border-radius:6px; box-shadow:0 1px 3px rgba(33,33,52,.05); }}
 .cm-info-title {{ margin:0 0 16px; font-size:14px; font-weight:600; color:{neutral800}; }}
@@ -183,8 +184,20 @@ html, body {{ margin:0; min-width:0; }}
 .cm-relation-heading {{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }}
 .cm-relation-label {{ font-size:12px; font-weight:600; color:{neutral700}; }}
 .cm-relation-help {{ font-size:11px; color:{neutral500}; }}
-.cm-relation-row {{ display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:40px; padding:8px 10px; margin-bottom:8px; background:#fff; border:1px solid {neutral150}; border-radius:4px; }}
-.cm-relation-name {{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px; color:{neutral800}; }}
+.cm-relation-row {{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; min-height:40px; padding:10px; margin-bottom:8px; background:#fff; border:1px solid {neutral150}; border-radius:4px; }}
+.cm-relation-record {{ flex:1; min-width:0; }}
+.cm-relation-name {{ display:block; min-width:0; font-size:13px; color:{neutral800}; overflow-wrap:anywhere; }}
+.cm-relation-details {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:8px 16px; margin-top:10px; }}
+.cm-relation-detail {{ display:flex; min-width:0; flex-direction:column; gap:3px; }}
+.cm-relation-detail-label {{ color:{neutral500}; font-size:10px; text-transform:capitalize; }}
+.cm-relation-detail-value {{ color:{neutral800}; font-size:12px; overflow-wrap:anywhere; }}
+.cm-relation-picker {{ display:flex; align-items:flex-end; gap:8px; }}
+.cm-relation-picker .field {{ margin-bottom:0; }}
+.cm-inline-line-row {{ align-items:flex-start; }}
+.cm-inline-line-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 20px; }}
+.cm-inline-line-relations {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }}
+.cm-inline-line-relations .cm-relation-field {{ min-width:0; }}
+.cm-inline-lines > .btn {{ margin-top:4px; }}
 .cm-relation-remove {{ flex:0 0 auto; padding:4px 6px; border:0; background:transparent; color:{danger600}; font-size:11px; cursor:pointer; }}
 .cm-relation-remove:hover {{ background:{danger100}; border-radius:3px; }}
 .cm-relation-empty {{ padding:4px 0 10px; color:{neutral500}; font-size:12px; }}
@@ -200,6 +213,8 @@ html, body {{ margin:0; min-width:0; }}
 }}
 @media (max-width: 620px) {{
     .cm-field-grid {{ grid-template-columns:1fr; }}
+    .cm-inline-line-grid, .cm-inline-line-relations {{ grid-template-columns:1fr; }}
+    .cm-relation-picker {{ align-items:flex-end; }}
     .cm-toolbar {{ align-items:stretch; }}
     .cm-search {{ max-width:none; flex-basis:100%; }}
     .cm-segment {{ width:100%; }}

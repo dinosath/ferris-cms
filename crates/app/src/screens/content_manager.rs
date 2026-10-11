@@ -19,6 +19,7 @@ use crate::components::{
 
 /// Marker document id used for a brand-new entry in the edit view.
 const NEW_ENTRY: &str = "__new__";
+type PendingInlineLine = (String, String, String, serde_json::Value);
 
 /// Whether an entry field's string value satisfies a filter condition.
 fn filter_matches(value: &serde_json::Value, op: &str, expected: &str) -> bool {
@@ -164,6 +165,15 @@ fn type_badge_cm(kind: ContentTypeKind) -> Element {
     }
 }
 
+fn is_inline_document(schema: &Schema) -> bool {
+    schema
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.labels.get("document"))
+        .map(String::as_str)
+        == Some("line")
+}
+
 /// Derive the entry-table columns from a content type's schema. The leading
 /// scalar (non-password) fields become columns, followed by state and updated.
 fn entry_columns(schema: &Schema) -> Vec<(String, String)> {
@@ -227,10 +237,9 @@ pub fn ContentManager() -> Element {
                             .collect();
                         g.ct_names.set(names);
                         sc.set(schemas_vec.clone());
-                        for s in schemas_vec
-                            .iter()
-                            .filter(|s| s.kind == ContentTypeKind::CollectionType)
-                        {
+                        for s in schemas_vec.iter().filter(|s| {
+                            s.kind == ContentTypeKind::CollectionType && !is_inline_document(s)
+                        }) {
                             let uid = s.uid.as_str().to_string();
                             let g = g.clone();
                             let mut ct = ct.clone();
@@ -269,7 +278,8 @@ pub fn ContentManager() -> Element {
     let count_map = counts();
     let mut rows: Vec<Element> = Vec::new();
     for s in all.iter().filter(|s| {
-        s.kind == ContentTypeKind::CollectionType || s.kind == ContentTypeKind::SingleType
+        (s.kind == ContentTypeKind::CollectionType || s.kind == ContentTypeKind::SingleType)
+            && !is_inline_document(s)
     }) {
         let is_collection = s.kind == ContentTypeKind::CollectionType;
         let matches_filter = match filter_kind.as_str() {
@@ -1421,6 +1431,7 @@ pub fn ContentManagerEntry(uid: String, document_id: String) -> Element {
         rsx! {
             EntryEditView {
                 schema,
+                schemas: schemas(),
                 document_id: doc,
                 is_single,
                 form,
@@ -1514,6 +1525,334 @@ fn relation_label(value: &serde_json::Value) -> String {
         .unwrap_or_else(|| display_value(value))
 }
 
+fn relation_details(value: &serde_json::Value) -> Vec<(String, String)> {
+    let Some(object) = value.as_object() else {
+        return Vec::new();
+    };
+    object
+        .iter()
+        .filter(|(field, _)| {
+            !matches!(
+                field.as_str(),
+                "id" | "documentId"
+                    | "__pendingId"
+                    | "createdAt"
+                    | "updatedAt"
+                    | "publishedAt"
+                    | "locale"
+                    | "publicationState"
+            )
+        })
+        .map(|(field, value)| {
+            let value = match value {
+                serde_json::Value::Array(items) => items
+                    .iter()
+                    .map(relation_detail_value)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                other => relation_detail_value(other),
+            };
+            (field.replace('_', " "), value)
+        })
+        .collect()
+}
+
+fn relation_detail_value(value: &serde_json::Value) -> String {
+    if value.is_object() {
+        relation_label(value)
+    } else {
+        display_value(value)
+    }
+}
+
+fn relation_summary(value: &serde_json::Value) -> String {
+    let details = relation_details(value);
+    if details.is_empty() {
+        return relation_label(value);
+    }
+    details
+        .into_iter()
+        .map(|(field, value)| format!("{field}: {value}"))
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+#[component]
+fn RelationSearchModal(
+    title: String,
+    target_uid: String,
+    search_fields: Vec<String>,
+    targets: Vec<serde_json::Value>,
+    selected: Vec<String>,
+    on_close: EventHandler<()>,
+    on_select: EventHandler<serde_json::Value>,
+) -> Element {
+    let global = use_global();
+    let mut query = use_signal(String::new);
+    let mut results = use_signal(|| targets.clone());
+    let mut request_id = use_signal(|| 0u64);
+    let g_search = global.clone();
+    let uid_search = target_uid.clone();
+    let fields_search = search_fields.clone();
+    let fallback_targets = targets.clone();
+    use_effect(move || {
+        let search_text = query().trim().to_string();
+        if search_text.is_empty() {
+            request_id.set(request_id() + 1);
+            results.set(fallback_targets.clone());
+            return;
+        }
+        if fields_search.is_empty() || uid_search.is_empty() {
+            request_id.set(request_id() + 1);
+            results.set(Vec::new());
+            return;
+        }
+        let current_request = request_id() + 1;
+        request_id.set(current_request);
+        let client = g_search.client.clone();
+        let fields = fields_search.clone();
+        let uid = uid_search.clone();
+        spawn(async move {
+            let params = QueryParams {
+                filters: Some(api_types::Filter::Or(
+                    fields
+                        .into_iter()
+                        .map(|field| api_types::Filter::Leaf {
+                            field,
+                            op: api_types::FilterOp::ContainsI,
+                            values: vec![serde_json::Value::String(search_text.clone())],
+                        })
+                        .collect(),
+                )),
+                pagination: Some(PaginationParams::Page {
+                    page: 1,
+                    page_size: 50,
+                    with_count: Some(false),
+                }),
+                ..Default::default()
+            };
+            if let Ok(response) = client.cm_list(&uid, &params).await {
+                if request_id() == current_request {
+                    results.set(response.data);
+                }
+            }
+        });
+    });
+    let needle = query().trim().to_lowercase();
+    let matches: Vec<_> = results()
+        .iter()
+        .filter(|target| {
+            relation_document_id(target).is_some_and(|id| !selected.contains(&id))
+                && (needle.is_empty() || relation_summary(target).to_lowercase().contains(&needle))
+        })
+        .cloned()
+        .collect();
+
+    rsx! {
+        Modal { title, width: 720, on_close: move |_| on_close.call(()),
+            TextField {
+                value: query(),
+                label: "Search".to_string(),
+                placeholder: "Search by name or details".to_string(),
+                oninput: move |value| query.set(value),
+            }
+            div { style: "max-height: min(56vh, 520px); overflow:auto; margin-top:12px; border:1px solid {color::NEUTRAL_150}; border-radius:4px;",
+                if matches.is_empty() {
+                    div { style: "padding:18px; color:{color::NEUTRAL_500}; font-size:{typography::BODY_SIZE};", "No matching records" }
+                }
+                for target in matches.iter() {
+                    if let Some(id) = relation_document_id(target) {
+                        {
+                            let label = relation_label(target);
+                            let summary = relation_summary(target);
+                            let selected_target = target.clone();
+                            rsx! {
+                                button {
+                                    key: "{id}",
+                                    r#type: "button",
+                                    style: "display:flex; flex-direction:column; align-items:flex-start; width:100%; gap:4px; padding:12px 14px; border:0; border-bottom:1px solid {color::NEUTRAL_150}; background:{color::NEUTRAL_0}; text-align:left; cursor:pointer;",
+                                    onclick: move |_| on_select.call(selected_target.clone()),
+                                    span { style: "font-size:{typography::BODY_BOLD_SIZE}; color:{color::NEUTRAL_800};", "{label}" }
+                                    if summary != label {
+                                        span { style: "font-size:{typography::PI_SIZE}; color:{color::NEUTRAL_500}; overflow-wrap:anywhere;", "{summary}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn InlineLineModal(
+    schema: Schema,
+    schemas: Vec<Schema>,
+    inverse_field: String,
+    parent_document_id: String,
+    line: Option<serde_json::Value>,
+    defer_save: bool,
+    on_close: EventHandler<()>,
+    on_saved: EventHandler<serde_json::Value>,
+) -> Element {
+    let global = use_global();
+    let initial_line = line.clone();
+    let mut form = use_signal(move || {
+        initial_line
+            .as_ref()
+            .and_then(serde_json::Value::as_object)
+            .cloned()
+            .unwrap_or_default()
+    });
+    let mut saving = use_signal(|| false);
+    let mut status = use_signal(|| None::<String>);
+    let pending_lines = use_signal(Vec::<PendingInlineLine>::new);
+    let document_id = line.as_ref().and_then(relation_document_id);
+    let is_new = document_id.is_none();
+    let title = if is_new { "Add line" } else { "Edit line" };
+    let line_uid = schema.uid.as_str().to_string();
+    let computed_names: Vec<String> = schema
+        .attributes
+        .iter()
+        .filter(|(_, attribute)| attribute.computed)
+        .map(|(field, _)| field.clone())
+        .collect();
+    let scalar_fields: Vec<(String, FieldType, Vec<String>, core_schema::Attribute)> = schema
+        .attributes
+        .iter()
+        .filter(|(_, attribute)| {
+            attribute.attr_type.is_scalar_column() && attribute.attr_type != FieldType::Password
+        })
+        .map(|(field, attribute)| {
+            (
+                field.clone(),
+                attribute.attr_type,
+                attribute.enum_values.clone(),
+                attribute.clone(),
+            )
+        })
+        .collect();
+    let relation_fields: Vec<(String, core_schema::Attribute)> = schema
+        .attributes
+        .iter()
+        .filter(|(field, attribute)| {
+            attribute.attr_type == FieldType::Relation && **field != inverse_field
+        })
+        .map(|(field, attribute)| (field.clone(), attribute.clone()))
+        .collect();
+    let save_uid = line_uid.clone();
+    let save_inverse = inverse_field.clone();
+    let save_parent = parent_document_id.clone();
+    let save_document_id = document_id.clone();
+    let save_computed = computed_names.clone();
+    let cancel_close = on_close;
+
+    rsx! {
+        Modal { title: title.to_string(), width: 860, on_close: move |_| on_close.call(()),
+            if let Some(message) = status() {
+                div { style: "margin-bottom:14px; color:{color::DANGER_600};", "{message}" }
+            }
+            div { class: "cm-inline-line-grid",
+                for (name, field_type, enum_values, attribute) in scalar_fields.into_iter() {
+                    if attribute.is_visible(&form()) {
+                        match field_type {
+                            FieldType::Boolean => rsx! {
+                                Toggle {
+                                    checked: form().get(&name).and_then(|value| value.as_bool()).unwrap_or(false),
+                                    label: name.clone(),
+                                    disabled: attribute.computed,
+                                    onchange: move |value| { form.write().insert(name.clone(), serde_json::Value::Bool(value)); }
+                                }
+                            },
+                            FieldType::Enumeration => rsx! {
+                                Dropdown {
+                                    label: name.clone(),
+                                    options: enum_values.iter().map(|value| (value.clone(), value.clone())).collect(),
+                                    value: input_value(form().get(&name)),
+                                    disabled: attribute.computed,
+                                    onchange: move |value| { form.write().insert(name.clone(), serde_json::Value::String(value)); }
+                                }
+                            },
+                            _ => rsx! {
+                                TextField {
+                                    label: name.clone(),
+                                    value: input_value(form().get(&name)),
+                                    disabled: attribute.computed,
+                                    oninput: move |value| { form.write().insert(name.clone(), serde_json::Value::String(value)); }
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+            div { class: "cm-inline-line-relations",
+                for (name, attribute) in relation_fields.into_iter() {
+                    RelationField {
+                        key: "line-relation-{name}",
+                        name,
+                        attr: attribute,
+                        form,
+                        schemas: schemas.clone(),
+                        owner_uid: line_uid.clone(),
+                        owner_document_id: document_id.clone().unwrap_or_default(),
+                        pending_lines,
+                    }
+                }
+            }
+            div { style: "display:flex; justify-content:flex-end; gap:10px; margin-top:20px;",
+                Button { label: "Cancel".to_string(), variant: "secondary".to_string(), on_click: move |_| cancel_close.call(()) }
+                Button {
+                    label: "Save line".to_string(),
+                    loading: saving(),
+                    on_click: move |_| {
+                        let mut data = form();
+                        for field in &save_computed { data.remove(field); }
+                        data.remove("id");
+                        data.remove("documentId");
+                        if !defer_save && !save_inverse.is_empty() {
+                            data.insert(save_inverse.clone(), serde_json::json!({"documentId": save_parent}));
+                        }
+                        if defer_save {
+                            on_saved.call(serde_json::Value::Object(data));
+                            on_close.call(());
+                            return;
+                        }
+                        let data = serde_json::Value::Object(data);
+                        let global = global.clone();
+                        let uid = save_uid.clone();
+                        let existing_id = save_document_id.clone();
+                        saving.set(true);
+                        spawn(async move {
+                            let result = if let Some(document_id) = existing_id {
+                                global.client.cm_update(&uid, &document_id, &data).await
+                            } else {
+                                global.client.cm_create(&uid, &data).await
+                            };
+                            saving.set(false);
+                            match result {
+                                Ok(response) => {
+                                    let line = if let Some(document_id) = relation_document_id(&response.data) {
+                                        global.client.cm_get(&uid, &document_id).await
+                                            .map(|entry| entry.data)
+                                            .unwrap_or(response.data)
+                                    } else {
+                                        response.data
+                                    };
+                                    on_saved.call(line);
+                                    on_close.call(());
+                                }
+                                Err(error) => status.set(Some(error.to_string())),
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Schema-driven relation picker used by both new and existing entries.
 /// Single relations are assigned with one dropdown; collection relations keep
 /// a selected list with explicit add/remove controls.
@@ -1522,12 +1861,39 @@ fn RelationField(
     name: String,
     attr: core_schema::Attribute,
     form: Signal<serde_json::Map<String, serde_json::Value>>,
+    schemas: Vec<Schema>,
+    owner_uid: String,
+    owner_document_id: String,
+    pending_lines: Signal<Vec<PendingInlineLine>>,
 ) -> Element {
     let global = use_global();
     let mut targets = use_signal(Vec::<serde_json::Value>::new);
     let mut loaded = use_signal(|| false);
     let target_uid = attr.target.as_ref().map(|uid| uid.as_str().to_string());
     let is_many = relation_is_many(&attr);
+    let mut search_open = use_signal(|| false);
+    let mut line_editor_open = use_signal(|| false);
+    let mut editing_line = use_signal(|| None::<serde_json::Value>);
+    let search_fields: Vec<String> = target_uid
+        .as_ref()
+        .and_then(|target_uid| {
+            schemas
+                .iter()
+                .find(|schema| schema.uid.as_str() == target_uid)
+        })
+        .map(|schema| {
+            schema
+                .attributes
+                .iter()
+                .filter(|(_, attribute)| {
+                    attribute.attr_type.is_scalar_column()
+                        && attribute.attr_type != FieldType::Password
+                        && !attribute.private
+                })
+                .map(|(field, _)| field.clone())
+                .collect()
+        })
+        .unwrap_or_default();
 
     let g_load = global.clone();
     let target_uid_load = target_uid.clone();
@@ -1558,15 +1924,242 @@ fn RelationField(
     for target in targets().iter() {
         if let Some(id) = relation_document_id(target) {
             if !is_many || !selected.contains(&id) {
-                options.push((id, relation_label(target)));
+                options.push((
+                    id,
+                    if is_many {
+                        relation_summary(target)
+                    } else {
+                        relation_label(target)
+                    },
+                ));
             }
         }
+    }
+
+    let line_schema = target_uid
+        .as_ref()
+        .and_then(|target_uid| {
+            schemas
+                .iter()
+                .find(|schema| schema.uid.as_str() == target_uid)
+        })
+        .filter(|schema| is_inline_document(schema))
+        .cloned();
+    let inverse_field = attr.mapped_by.clone().or_else(|| {
+        line_schema.as_ref().and_then(|line_schema| {
+            line_schema
+                .attributes
+                .iter()
+                .find(|(_, candidate)| {
+                    candidate.attr_type == FieldType::Relation
+                        && candidate
+                            .target
+                            .as_ref()
+                            .is_some_and(|target| target.as_str() == owner_uid.as_str())
+                })
+                .map(|(field, _)| field.clone())
+        })
+    });
+    if is_many && line_schema.is_some() && inverse_field.is_some() {
+        let mut target_rows = targets;
+        let mut form_for_saved = form;
+        let field_name = name.clone();
+        let inverse_field = inverse_field.unwrap_or_default();
+        let mut editor_close = line_editor_open;
+        let mut editor_saved_close = line_editor_open;
+        let editing_line_for_editor = editing_line;
+        let line_schema = line_schema.unwrap();
+        let inverse_field_for_save = inverse_field.clone();
+        let line_schema_for_editor = line_schema.clone();
+        let schemas_for_editor = schemas.clone();
+        let owner_document_for_editor = owner_document_id.clone();
+        let mut pending_for_saved = pending_lines;
+        return rsx! {
+            div { class: "cm-relation-field cm-inline-lines",
+                div { class: "cm-relation-heading",
+                    span { class: "cm-relation-label", "{name}" }
+                    span { class: "cm-relation-help", "Invoice lines" }
+                }
+                if selected.is_empty() {
+                    div { class: "cm-relation-empty", "No lines added" }
+                }
+                for selected_id in selected.iter() {
+                    {
+                        let selected_id = selected_id.clone();
+                        let line = form()
+                            .get(&field_name)
+                            .and_then(serde_json::Value::as_array)
+                            .and_then(|lines| lines.iter().find(|line| relation_document_id(line).as_deref() == Some(selected_id.as_str())).cloned())
+                            .or_else(|| targets()
+                                .iter()
+                                .find(|target| relation_document_id(target).as_deref() == Some(selected_id.as_str()))
+                                .cloned());
+                        let summary = line.as_ref().map(relation_summary).unwrap_or_else(|| selected_id.clone());
+                        let details = line.as_ref().map(relation_details).unwrap_or_default();
+                        let edit_line = line.clone();
+                        let delete_id = selected_id.clone();
+                        let delete_uid = line_schema.uid.as_str().to_string();
+                        let delete_name = field_name.clone();
+                        let mut delete_form = form;
+                        let mut delete_targets = target_rows;
+                        let global = global.clone();
+                        rsx! {
+                            div { key: "inline-line-{selected_id}", class: "cm-relation-row cm-inline-line-row",
+                                div { class: "cm-relation-record",
+                                    span { class: "cm-relation-name", "{summary}" }
+                                    if !details.is_empty() {
+                                        div { class: "cm-relation-details",
+                                            for (field, value) in details {
+                                                div { class: "cm-relation-detail", key: "{field}",
+                                                    span { class: "cm-relation-detail-label", "{field}" }
+                                                    span { class: "cm-relation-detail-value", "{value}" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                IconButton {
+                                    name: "pencil".to_string(),
+                                    aria_label: "Edit line".to_string(),
+                                    on_click: move |_| {
+                                        editing_line.set(edit_line.clone());
+                                        line_editor_open.set(true);
+                                    }
+                                }
+                                IconButton {
+                                    name: "trash".to_string(),
+                                    variant: "danger".to_string(),
+                                    aria_label: "Remove line".to_string(),
+                                    on_click: move |_| {
+                                        let global = global.clone();
+                                        let uid = delete_uid.clone();
+                                        let document_id = delete_id.clone();
+                                        let field = delete_name.clone();
+                                        spawn(async move {
+                                            if global.client.cm_delete(&uid, &document_id).await.is_ok() {
+                                                delete_targets.write().retain(|target| relation_document_id(target).as_deref() != Some(document_id.as_str()));
+                                                let mut ids = relation_selection(delete_form().get(&field));
+                                                ids.retain(|id| id != &document_id);
+                                                delete_form.write().insert(field.clone(), relation_payload(&ids));
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for (_, _, _, pending_line) in pending_lines().iter().filter(|(relation_field, target_uid, inverse, _)| relation_field == &name && target_uid == line_schema.uid.as_str() && inverse == &inverse_field) {
+                    {
+                        let pending_id = pending_line.get("__pendingId").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                        let summary = relation_summary(pending_line);
+                        let details = relation_details(pending_line);
+                        let line_for_edit = pending_line.clone();
+                        let mut edit_pending = editing_line;
+                        let mut open_editor = line_editor_open;
+                        let mut pending_for_remove = pending_lines;
+                        rsx! {
+                            div { key: "pending-line-{pending_id}", class: "cm-relation-row cm-inline-line-row",
+                                div { class: "cm-relation-record",
+                                    span { class: "cm-relation-name", "{summary}" }
+                                    if !details.is_empty() {
+                                        div { class: "cm-relation-details",
+                                            for (field, value) in details {
+                                                div { class: "cm-relation-detail", key: "{field}",
+                                                    span { class: "cm-relation-detail-label", "{field}" }
+                                                    span { class: "cm-relation-detail-value", "{value}" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                IconButton {
+                                    name: "pencil".to_string(),
+                                    aria_label: "Edit line".to_string(),
+                                    on_click: move |_| { edit_pending.set(Some(line_for_edit.clone())); open_editor.set(true); }
+                                }
+                                IconButton {
+                                    name: "trash".to_string(),
+                                    variant: "danger".to_string(),
+                                    aria_label: "Remove line".to_string(),
+                                    on_click: move |_| pending_for_remove.write().retain(|entry| entry.3.get("__pendingId").and_then(serde_json::Value::as_str) != Some(pending_id.as_str()))
+                                }
+                            }
+                        }
+                    }
+                }
+                if owner_document_id.is_empty() || owner_document_id == NEW_ENTRY {
+                    Button {
+                        label: "Add line".to_string(),
+                        variant: "secondary".to_string(),
+                        on_click: move |_| {
+                            editing_line.set(None);
+                            line_editor_open.set(true);
+                        }
+                    }
+                } else {
+                    Button {
+                        label: "Add line".to_string(),
+                        variant: "secondary".to_string(),
+                        on_click: move |_| {
+                            editing_line.set(None);
+                            line_editor_open.set(true);
+                        }
+                    }
+                }
+                if line_editor_open() {
+                    InlineLineModal {
+                        schema: line_schema_for_editor,
+                        schemas: schemas_for_editor,
+                        inverse_field: inverse_field.clone(),
+                        parent_document_id: owner_document_for_editor,
+                        line: editing_line_for_editor(),
+                        defer_save: owner_document_id == NEW_ENTRY || editing_line_for_editor().as_ref().is_some_and(|line| line.get("__pendingId").is_some()),
+                        on_close: move |_| editor_close.set(false),
+                        on_saved: move |line: serde_json::Value| {
+                            if line.get("__pendingId").is_some() {
+                                let pending_id = line.get("__pendingId").and_then(serde_json::Value::as_str).map(ToOwned::to_owned);
+                                if let Some(pending_id) = pending_id {
+                                    if let Some(existing) = pending_for_saved.write().iter_mut().find(|entry| entry.3.get("__pendingId").and_then(serde_json::Value::as_str) == Some(pending_id.as_str())) {
+                                        existing.3 = line;
+                                    }
+                                }
+                            } else if owner_document_id == NEW_ENTRY {
+                                let mut line = line;
+                                let pending_id = pending_for_saved()
+                                    .iter()
+                                    .filter_map(|entry| entry.3.get("__pendingId").and_then(serde_json::Value::as_str))
+                                    .filter_map(|id| id.strip_prefix("pending-")?.parse::<u64>().ok())
+                                    .max()
+                                    .unwrap_or(0)
+                                    + 1;
+                                let pending_id = format!("pending-{pending_id}");
+                                line["__pendingId"] = serde_json::Value::String(pending_id);
+                                pending_for_saved.write().push((field_name.clone(), line_schema.uid.as_str().to_string(), inverse_field_for_save.clone(), line));
+                            } else if let Some(document_id) = relation_document_id(&line) {
+                                let mut ids = relation_selection(form_for_saved().get(&field_name));
+                                if !ids.contains(&document_id) { ids.push(document_id.clone()); }
+                                form_for_saved.write().insert(field_name.clone(), relation_payload(&ids));
+                                target_rows.write().retain(|target| relation_document_id(target).as_deref() != Some(document_id.as_str()));
+                                target_rows.write().push(line);
+                            }
+                            editor_saved_close.set(false);
+                        },
+                    }
+                }
+            }
+        };
     }
 
     if !is_many {
         let selected_id = selected.first().cloned().unwrap_or_default();
         let field_name = name.clone();
         let clear_name = field_name.clone();
+        let search_name = field_name.clone();
+        let mut search_form = form;
+        let mut search_targets = targets;
+        let mut search_open_close = search_open;
+        let mut search_open_select = search_open;
         return rsx! {
             div { class: "cm-relation-field",
                 div { class: "cm-relation-heading",
@@ -1581,16 +2174,39 @@ fn RelationField(
                         button { class: "cm-relation-remove", aria_label: "Remove relation", onclick: move |_| { form.write().insert(clear_name.clone(), serde_json::Value::Null); }, "Remove" }
                     }
                 }
-                Dropdown {
-                    label: if selected_id.is_empty() { "Select relation".to_string() } else { "Change relation".to_string() },
-                    options,
-                    value: selected_id,
-                    onchange: move |value: String| {
-                        if value.is_empty() {
-                            form.write().insert(field_name.clone(), serde_json::Value::Null);
-                        } else {
-                            form.write().insert(field_name.clone(), serde_json::json!({"documentId": value}));
+                div { class: "cm-relation-picker",
+                    div { style: "flex:1; min-width:0;",
+                        Dropdown {
+                            label: if selected_id.is_empty() { "Select relation".to_string() } else { "Change relation".to_string() },
+                            options,
+                            value: selected_id,
+                            onchange: move |value: String| {
+                                if value.is_empty() {
+                                    form.write().insert(field_name.clone(), serde_json::Value::Null);
+                                } else {
+                                    form.write().insert(field_name.clone(), serde_json::json!({"documentId": value}));
+                                }
+                            }
                         }
+                    }
+                    IconButton { name: "search".to_string(), aria_label: "Search {name}".to_string(), on_click: move |_| search_open.set(true) }
+                }
+                if search_open() {
+                    RelationSearchModal {
+                        title: format!("Select {name}"),
+                        target_uid: target_uid.clone().unwrap_or_default(),
+                        search_fields: search_fields.clone(),
+                        targets: targets(),
+                        selected: vec![],
+                        on_close: move |_| search_open_close.set(false),
+                        on_select: move |value| {
+                            if let Some(document_id) = relation_document_id(&value) {
+                                search_form.write().insert(search_name.clone(), serde_json::json!({"documentId": document_id}));
+                            }
+                            search_targets.write().retain(|target| relation_document_id(target) != relation_document_id(&value));
+                            search_targets.write().push(value);
+                            search_open_select.set(false);
+                        },
                     }
                 }
             }
@@ -1600,6 +2216,12 @@ fn RelationField(
     let add_name = name.clone();
     let selected_for_add = selected.clone();
     let mut form_for_add = form;
+    let search_name = name.clone();
+    let mut form_for_search = form;
+    let mut search_targets = targets;
+    let selected_for_search = selected.clone();
+    let mut search_open_close = search_open;
+    let mut search_open_select = search_open;
     rsx! {
         div { class: "cm-relation-field",
             div { class: "cm-relation-heading",
@@ -1619,9 +2241,26 @@ fn RelationField(
                         .find(|target| relation_document_id(target).as_deref() == Some(selected_id.as_str()))
                         .map(relation_label)
                         .unwrap_or_else(|| selected_id.clone());
+                    let target_details = targets()
+                        .iter()
+                        .find(|target| relation_document_id(target).as_deref() == Some(selected_id.as_str()))
+                        .map(relation_details)
+                        .unwrap_or_default();
                     rsx! {
                         div { key: "{remove_id}", class: "cm-relation-row",
-                            span { class: "cm-relation-name", "{target_label}" }
+                            div { class: "cm-relation-record",
+                                span { class: "cm-relation-name", "{target_label}" }
+                                if !target_details.is_empty() {
+                                    div { class: "cm-relation-details",
+                                        for (field, value) in target_details {
+                                            div { class: "cm-relation-detail", key: "{field}",
+                                                span { class: "cm-relation-detail-label", "{field}" }
+                                                span { class: "cm-relation-detail-value", "{value}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             button { class: "cm-relation-remove",
                                 onclick: move |_| {
                                     let mut ids = relation_selection(form().get(&remove_name));
@@ -1634,16 +2273,40 @@ fn RelationField(
                     }
                 }
             }
-            Dropdown {
-                label: "Add relation".to_string(),
-                options,
-                value: String::new(),
-                onchange: move |value: String| {
-                    if !value.is_empty() && !selected_for_add.contains(&value) {
-                        let mut ids = relation_selection(form_for_add().get(&add_name));
-                        if !ids.contains(&value) { ids.push(value); }
-                        form_for_add.write().insert(add_name.clone(), relation_payload(&ids));
+            div { class: "cm-relation-picker",
+                div { style: "flex:1; min-width:0;",
+                    Dropdown {
+                        label: "Add relation".to_string(),
+                        options,
+                        value: String::new(),
+                        onchange: move |value: String| {
+                            if !value.is_empty() && !selected_for_add.contains(&value) {
+                                let mut ids = relation_selection(form_for_add().get(&add_name));
+                                if !ids.contains(&value) { ids.push(value); }
+                                form_for_add.write().insert(add_name.clone(), relation_payload(&ids));
+                            }
+                        }
                     }
+                }
+                IconButton { name: "search".to_string(), aria_label: "Search {name}".to_string(), on_click: move |_| search_open.set(true) }
+            }
+            if search_open() {
+                RelationSearchModal {
+                    title: format!("Select {name}"),
+                    target_uid: target_uid.clone().unwrap_or_default(),
+                    search_fields: search_fields.clone(),
+                    targets: targets(),
+                    selected: selected_for_search,
+                    on_close: move |_| search_open_close.set(false),
+                    on_select: move |value| {
+                        let Some(document_id) = relation_document_id(&value) else { return; };
+                        let mut ids = relation_selection(form_for_search().get(&search_name));
+                        if !ids.contains(&document_id) { ids.push(document_id); }
+                        form_for_search.write().insert(search_name.clone(), relation_payload(&ids));
+                        search_targets.write().retain(|target| relation_document_id(target) != relation_document_id(&value));
+                        search_targets.write().push(value);
+                        search_open_select.set(false);
+                    },
                 }
             }
         }
@@ -1738,6 +2401,7 @@ fn DeleteConfirmDialog(
 #[component]
 fn EntryEditView(
     schema: Schema,
+    schemas: Vec<Schema>,
     document_id: String,
     is_single: bool,
     form: Signal<serde_json::Map<String, serde_json::Value>>,
@@ -1748,6 +2412,8 @@ fn EntryEditView(
     let mut saving = use_signal(|| false);
     let mut status = use_signal(|| None::<String>);
     let mut delete_confirm = use_signal(|| false);
+    let mut pending_lines = use_signal(Vec::<PendingInlineLine>::new);
+    let mut saved_parent_id = use_signal(|| None::<String>);
 
     let is_new = document_id == NEW_ENTRY;
     let draft_and_publish = schema.draft_and_publish();
@@ -1859,7 +2525,9 @@ fn EntryEditView(
                     on_click: move |_| {
                         let g = g.clone();
                         let uid = save_uid.clone();
-                        let doc = save_doc.clone();
+                        let doc = saved_parent_id().unwrap_or_else(|| save_doc.clone());
+                        let create_new = is_new && saved_parent_id().is_none();
+                        let staged_lines = pending_lines();
                         // Computed fields are read-only and must not be sent.
                         let data = {
                             let mut m = form();
@@ -1870,15 +2538,52 @@ fn EntryEditView(
                         };
                         saving.set(true);
                         spawn(async move {
-                            let res = if is_new {
-                                g.client.cm_create(&uid, &data).await.map(|_| ()).map_err(|e| e)
+                            let res = if create_new {
+                                g.client.cm_create(&uid, &data).await
                             } else {
-                                g.client.cm_update(&uid, &doc, &data).await.map(|_| ()).map_err(|e| e)
+                                g.client.cm_update(&uid, &doc, &data).await
                             };
-                            saving.set(false);
                             match res {
-                                Ok(_) => { status.set(Some("Saved".to_string())); on_saved.call(()); }
-                                Err(e) => status.set(Some(format!("Error: {e}"))),
+                                Ok(response) => {
+                                    let parent_id = if create_new {
+                                        relation_document_id(&response.data).unwrap_or_default()
+                                    } else {
+                                        doc
+                                    };
+                                    if create_new {
+                                        saved_parent_id.set(Some(parent_id.clone()));
+                                    }
+                                    for (relation_field, line_uid, inverse_field, mut line) in staged_lines {
+                                        let pending_id = line.get("__pendingId").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                                        if let Some(object) = line.as_object_mut() {
+                                            object.remove("__pendingId");
+                                            object.insert(inverse_field, serde_json::json!({"documentId": parent_id}));
+                                        }
+                                        match g.client.cm_create(&line_uid, &line).await {
+                                            Ok(created_line) => {
+                                                pending_lines.write().retain(|pending| pending.3.get("__pendingId").and_then(serde_json::Value::as_str) != Some(pending_id.as_str()));
+                                                let mut current_form = form();
+                                                let relation = current_form.entry(relation_field).or_insert_with(|| serde_json::Value::Array(Vec::new()));
+                                                if let Some(lines) = relation.as_array_mut() {
+                                                    lines.push(created_line.data);
+                                                }
+                                                form.set(current_form);
+                                            }
+                                            Err(error) => {
+                                                saving.set(false);
+                                                status.set(Some(format!("Invoice saved, but a line could not be saved: {error}")));
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    saving.set(false);
+                                    status.set(Some("Saved".to_string()));
+                                    on_saved.call(());
+                                }
+                                Err(error) => {
+                                    saving.set(false);
+                                    status.set(Some(format!("Error: {error}")));
+                                }
                             }
                         });
                     }
@@ -1980,7 +2685,16 @@ fn EntryEditView(
                         div { class: "cm-form-section",
                             h2 { class: "cm-form-title", "Relations" }
                         for (name, attr) in relation_fields.into_iter() {
-                            RelationField { key: "relation-{name}", name, attr, form }
+                            RelationField {
+                                key: "relation-{name}",
+                                name,
+                                attr,
+                                form,
+                                schemas: schemas.clone(),
+                                owner_uid: uid.clone(),
+                                owner_document_id: saved_parent_id().unwrap_or_else(|| doc.clone()),
+                                pending_lines,
+                            }
                         }
                         }
                         for (label, name, comp_uid, _repeatable) in component_fields.into_iter() {

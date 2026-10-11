@@ -30,6 +30,10 @@ enum ModalKind {
         field_name: Option<String>,
         initial: Option<Attribute>,
     },
+    ConfirmDeleteField {
+        ct_uid: String,
+        field_name: String,
+    },
     Metadata {
         ct_uid: String,
     },
@@ -574,10 +578,20 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
 
     let schemas = working();
     let selected = schemas.iter().find(|s| s.uid.as_str() == uid).cloned();
-    let target_types: Vec<String> = schemas
+    let target_types: Vec<(String, String)> = schemas
         .iter()
-        .filter(|s| s.kind == ContentTypeKind::CollectionType)
-        .map(|s| s.uid.as_str().to_string())
+        .filter(|s| {
+            matches!(
+                s.kind,
+                ContentTypeKind::CollectionType | ContentTypeKind::SingleType
+            )
+        })
+        .map(|s| {
+            (
+                s.uid.as_str().to_string(),
+                format!("{} ({})", s.info.display_name, s.uid),
+            )
+        })
         .collect();
     let component_types: Vec<(String, String)> = schemas
         .iter()
@@ -696,22 +710,51 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                         } else {
                             div { style: "display:flex; flex-direction:column;",
                                 for (row_uid, name, attr, ft, req) in selected_attrs.into_iter() {
-                                    div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
-                                        Icon { name: icon_for(ft), size: 18 }
-                                        div { style: "display:flex; flex-direction:column; flex:1;",
-                                            span { style: "{field_name_style}", "{name}" }
-                                            span { style: "{field_type_style}", "{ft.as_str()}" }
+                                    {
+                                        let edit_uid = row_uid.clone();
+                                        let edit_name = name.clone();
+                                        let remove_uid = row_uid.clone();
+                                        let remove_name = name.clone();
+                                        let field_summary = if ft == FieldType::Relation {
+                                            let target = attr
+                                                .target
+                                                .as_ref()
+                                                .map(|target| {
+                                                    target_types
+                                                        .iter()
+                                                        .find(|(target_uid, _)| target_uid == target.as_str())
+                                                        .map(|(_, label)| label.clone())
+                                                        .unwrap_or_else(|| target.as_str().to_string())
+                                                })
+                                                .unwrap_or_else(|| "No target selected".to_string());
+                                            format!("Relation ({}) with {target}", relation_label(attr.relation))
+                                        } else {
+                                            ft.as_str().to_string()
+                                        };
+                                        rsx! {
+                                            div { style: "display:flex; align-items:center; gap:12px; padding:10px 4px; border-bottom:1px solid {color::NEUTRAL_150};",
+                                                Icon { name: icon_for(ft), size: 18 }
+                                                div { style: "display:flex; flex-direction:column; flex:1; min-width:0;",
+                                                    span { style: "{field_name_style}", "{name}" }
+                                                    span { style: "{field_type_style}", "{field_summary}" }
+                                                }
+                                                if req {
+                                                    Badge { text: "required".to_string(), kind: "new".to_string() }
+                                                }
+                                                IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
+                                                    on_click: move |_| modal.set(ModalKind::FieldConfig {
+                                                        ct_uid: edit_uid.clone(),
+                                                        field_type: ft,
+                                                        field_name: Some(edit_name.clone()),
+                                                        initial: Some(attr.clone()),
+                                                    }) }
+                                                IconButton { name: "trash".to_string(), variant: "danger".to_string(), aria_label: "Remove field".to_string(),
+                                                    on_click: move |_| modal.set(ModalKind::ConfirmDeleteField {
+                                                        ct_uid: remove_uid.clone(),
+                                                        field_name: remove_name.clone(),
+                                                    }) }
+                                            }
                                         }
-                                        if req {
-                                            Badge { text: "required".to_string(), kind: "new".to_string() }
-                                        }
-                                        IconButton { name: "pencil".to_string(), aria_label: "Edit field".to_string(),
-                                            on_click: move |_| modal.set(ModalKind::FieldConfig {
-                                                ct_uid: row_uid.clone(),
-                                                field_type: ft,
-                                                field_name: Some(name.clone()),
-                                                initial: Some(attr.clone()),
-                                            }) }
                                     }
                                 }
                             }
@@ -775,6 +818,27 @@ pub fn ContentTypeBuilderEditor(uid: String) -> Element {
                             }
                         }
                         schema.attributes.insert(name, attr);
+                    }
+                    is_dirty.set(true);
+                    modal.set(ModalKind::None);
+                },
+            }
+        }
+        if let ModalKind::ConfirmDeleteField { ct_uid, field_name } = modal() {
+            ConfirmDialog {
+                title: "Remove field".to_string(),
+                message: format!(
+                    "Remove `{field_name}` from this content type? The change will take effect when you save."
+                ),
+                confirm_label: "Remove".to_string(),
+                on_cancel: move |_| modal.set(ModalKind::None),
+                on_confirm: move |_| {
+                    if let Some(schema) = working
+                        .write()
+                        .iter_mut()
+                        .find(|schema| schema.uid.as_str() == ct_uid)
+                    {
+                        schema.attributes.shift_remove(&field_name);
                     }
                     is_dirty.set(true);
                     modal.set(ModalKind::None);
@@ -1120,7 +1184,7 @@ fn FieldConfigModal(
     field_type: FieldType,
     field_name: Option<String>,
     initial: Option<Attribute>,
-    target_types: Vec<String>,
+    target_types: Vec<(String, String)>,
     component_types: Vec<(String, String)>,
     sibling_fields: Vec<String>,
     on_close: EventHandler<MouseEvent>,
@@ -1319,10 +1383,19 @@ fn FieldConfigModal(
         ("manyToMany".to_string(), "Many-to-many".to_string()),
         ("manyWay".to_string(), "Many way".to_string()),
     ];
-    let target_options: Vec<(String, String)> = target_types
-        .iter()
-        .map(|u| (u.clone(), u.clone()))
-        .collect();
+    let mut target_options: Vec<(String, String)> =
+        vec![(String::new(), "Select a target content type".to_string())];
+    target_options.extend(target_types.iter().cloned());
+    if !relation_target().is_empty()
+        && !target_options
+            .iter()
+            .any(|(target_uid, _)| target_uid == &relation_target())
+    {
+        target_options.push((
+            relation_target(),
+            format!("Missing target content type ({})", relation_target()),
+        ));
+    }
 
     let finish = move |_| {
         let attr_type = resolve_type(field_type, &num_format(), &date_type());
@@ -1682,6 +1755,17 @@ fn relation_key(relation: Option<core_domain::RelationKind>) -> String {
         core_domain::RelationKind::ManyWay => "manyWay",
     }
     .to_string()
+}
+
+fn relation_label(relation: Option<core_domain::RelationKind>) -> &'static str {
+    match relation.unwrap_or(core_domain::RelationKind::OneToOne) {
+        core_domain::RelationKind::OneWay => "One way",
+        core_domain::RelationKind::OneToOne => "One-to-one",
+        core_domain::RelationKind::OneToMany => "One-to-many",
+        core_domain::RelationKind::ManyToOne => "Many-to-one",
+        core_domain::RelationKind::ManyToMany => "Many-to-many",
+        core_domain::RelationKind::ManyWay => "Many way",
+    }
 }
 
 fn condition_value_text(value: &serde_json::Value) -> String {
